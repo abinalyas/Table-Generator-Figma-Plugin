@@ -2,13 +2,9 @@ const faker = require('faker');
 
 figma.showUI(__html__, { width: 360, height: 700 });
 
-// Remove automatic component creation on startup for better performance
-// Component will be created only when needed
-
 let selectedComponent: ComponentNode | null = null;
 const cellInstanceMap = new Map<string, InstanceNode>();
 
-// Add this at the top of the file (after imports if any)
 interface ScanResult {
     headerCell: ComponentNode | null;
     headerRowComponent: ComponentNode | null;
@@ -21,12 +17,31 @@ interface ScanResult {
 }
 
 let lastScanResult: ScanResult | undefined;
+let isCreatingTable = false;
 
-// Handle selection changes
 figma.on("selectionchange", async () => {
     const selection = figma.currentPage.selection;
+
+    if (selection.length === 1 && selection[0].type === "FRAME" && selection[0].getPluginData('isGeneratedTable') === 'true') {
+        const tableFrame = selection[0] as FrameNode;
+        const settings = tableFrame.getPluginData('tableSettings');
+        if (settings) {
+            try {
+                const parsedSettings = JSON.parse(settings);
+                figma.ui.postMessage({
+                    type: 'edit-existing-table',
+                    settings: parsedSettings,
+                    tableId: tableFrame.id
+                });
+                return; 
+            } catch (e) {
+                console.error("Error parsing table settings from plugin data", e);
+            }
+        }
+    }
+
     if (selection.length === 1 && selection[0].type === "INSTANCE") {
-        const instance = selection[0];
+        const instance = selection[0] as InstanceNode;
         try {
             selectedComponent = await instance.getMainComponentAsync();
             
@@ -39,7 +54,6 @@ figma.on("selectionchange", async () => {
                 propertyValues[propName] = prop.value;
                 propertyTypes[propName] = prop.type;
             }
-
         
             figma.ui.postMessage({
                 type: "component-selected",
@@ -60,9 +74,7 @@ figma.on("selectionchange", async () => {
                 isValidComponent: false
             });
         }
-    }
-    else {
-        
+    } else {
         selectedComponent = null;
         figma.ui.postMessage({
             type: "selection-cleared",
@@ -133,7 +145,7 @@ async function createCheckboxComponent() {
     wrapperComponent.paddingBottom = 30; // 30px bottom padding
 
     // Create the checkbox background (outer box) directly in the wrapper
-    const checkboxBox = faker.createRectangle();
+    const checkboxBox = figma.createRectangle();
     checkboxBox.name = "Checkbox Box";
     checkboxBox.resize(20, 20);
     checkboxBox.x = 0;
@@ -144,7 +156,7 @@ async function createCheckboxComponent() {
     checkboxBox.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }]; // White background
 
     // Create the checkmark directly in the wrapper
-    const checkmark = faker.createVector();
+    const checkmark = figma.createVector();
     checkmark.name = "Checkmark";
     checkmark.resize(12, 12);
     checkmark.x = 4; // Center horizontally: (20-12)/2 = 4
@@ -219,12 +231,10 @@ async function createCheckboxComponent() {
     return componentSet;
 }
 
-// Handle messages from UI
+
 figma.ui.onmessage = async (msg: any) => {
     if (msg.type === "generate-fake-data") {
-        // msg: { type: 'generate-fake-data', dataType: string, count: number }
         const { dataType, count } = msg;
-
         const data = [];
         for (let i = 0; i < (count || 10); i++) {
             try {
@@ -244,23 +254,20 @@ figma.ui.onmessage = async (msg: any) => {
             data
         });
         return;
-    }
-    if (msg.type === "load-instance-by-id") {
+
+    } else if (msg.type === "load-instance-by-id") {
         const nodeId = msg.nodeId;
         const node = figma.getNodeById(nodeId);
 
-        // If node is not found, instruct the user
         if (!node) {
             figma.ui.postMessage({
                 type: "creation-error",
-                message: "Node not found. Please make sure you have added the required component or instance from the shared library to your file.\n\nHow to do this:\n1. Open the Assets panel in Figma.\n2. Enable the shared library.\n3. Drag the required component or instance into your file.\n4. Copy the link to that instance/component and paste it here."
+                message: "Node not found."
             });
             return;
         }
-        // Accept both INSTANCE and COMPONENT (and optionally COMPONENT_SET)
         if (node && (node.type === "INSTANCE" || node.type === "COMPONENT" || node.type === "COMPONENT_SET")) {
             try {
-                // If it's an instance, get the main component
                 let componentNode: ComponentNode | ComponentSetNode | null = null;
                 if (node.type === "INSTANCE") {
                     componentNode = await node.getMainComponentAsync();
@@ -270,16 +277,13 @@ figma.ui.onmessage = async (msg: any) => {
 
                 if (!componentNode) throw new Error("Component not found");
 
-                // For COMPONENT_SET, you may want to pick a default variant or prompt the user
-                // For now, just use the first component in the set
                 if (componentNode.type === "COMPONENT_SET") {
                     componentNode = componentNode.children[0] as ComponentNode;
                 }
 
+                const tempInstance = (componentNode as ComponentNode).createInstance();
                 const propertyValues: { [key: string]: any } = {};
                 const propertyTypes: { [key: string]: "TEXT" | "BOOLEAN" | "INSTANCE_SWAP" | "VARIANT" } = {};
-                // Create a temporary instance to access componentProperties
-                const tempInstance = (componentNode as ComponentNode).createInstance();
                 const availableProperties = Object.keys(tempInstance.componentProperties);
                 for (const propName of availableProperties) {
                     const prop = tempInstance.componentProperties[propName];
@@ -310,15 +314,12 @@ figma.ui.onmessage = async (msg: any) => {
             });
         }
         return;
-    }
-    if (msg.type === "update-cell-properties") {
-        // Handle cell property updates from popup
+    
+    } else if (msg.type === "update-cell-properties") {
         const { cellKey, properties } = msg as { cellKey: string, properties: { [key: string]: string } };
         try {
-            // Get the cell instance from our Map
             const cell = cellInstanceMap.get(cellKey);
             if (cell) {
-                // Check if the combination is valid before setting
                 let mainComponentSet = null;
                 if (cell.mainComponent && cell.mainComponent.parent && cell.mainComponent.parent.type === "COMPONENT_SET") {
                     mainComponentSet = cell.mainComponent.parent as ComponentSetNode;
@@ -336,36 +337,31 @@ figma.ui.onmessage = async (msg: any) => {
                     console.warn('Invalid variant combination for cell update:', properties);
                     figma.notify('⚠️ Invalid property combination');
                 }
-            }
-            else {
+            } else {
                 figma.notify('Error: Cell not found');
             }
-        }
-        catch (error: any) {
+        } catch (error: any) {
             figma.notify(`Error: ${error.message}`);
         }
-    }
-    else if (msg.type === "request-selection-state") {
+    
+    } else if (msg.type === "request-selection-state") {
         figma.ui.postMessage({
             type: "component-selected",
-            componentName: (selectedComponent?.name) || "Table Cell", // Use actual name
+            componentName: (selectedComponent?.name) || "Table Cell",
             componentId: (selectedComponent?.id) || null,
-            componentWidth: selectedComponent ? Math.round(selectedComponent.width) : undefined, // Add component width
+            componentWidth: selectedComponent ? Math.round(selectedComponent.width) : undefined,
             properties: {},
             availableProperties: [],
             propertyTypes: {},
             isValidComponent: selectedComponent !== null
         });
-    }
-    if (msg.type === "clear-cell-instances") {
+    
+    } else if (msg.type === "clear-cell-instances") {
         cellInstanceMap.forEach(instance => instance.remove());
-    }
-    if (msg.type === 'scan-table') {
+
+    } else if (msg.type === 'scan-table') {
         const selection = figma.currentPage.selection;
-        if (
-            selection.length !== 1 ||
-            !['FRAME', 'COMPONENT', 'INSTANCE'].includes(selection[0].type)
-        ) {
+        if (selection.length !== 1 || !['FRAME', 'COMPONENT', 'INSTANCE'].includes(selection[0].type)) {
             figma.ui.postMessage({
                 type: 'scan-table-result',
                 success: false,
@@ -375,6 +371,7 @@ figma.ui.onmessage = async (msg: any) => {
         }
 
         const tableFrame = selection[0];
+        
         // --- Set the 'type' property to 'Expandable + Selectable' if possible ---
         if ('componentProperties' in tableFrame && 'setProperties' in tableFrame && typeof tableFrame.setProperties === 'function') {
           const typeProp = tableFrame.componentProperties['type'];
@@ -428,11 +425,11 @@ figma.ui.onmessage = async (msg: any) => {
             
             if (mainComponentSet && isValidVariantCombination(mainComponentSet, propertiesToSet)) {
                 try {
-                    tableFrame.setProperties(propertiesToSet);
-                    // Wait for Figma to update the instance tree
-                    await Promise.resolve();
-                    // Add additional delay to ensure the instance tree is updated
-                    await new Promise(resolve => setTimeout(resolve, 100));
+            tableFrame.setProperties(propertiesToSet);
+            // Wait for Figma to update the instance tree
+            await Promise.resolve();
+            // Add additional delay to ensure the instance tree is updated
+            await new Promise(resolve => setTimeout(resolve, 100));
                 } catch (error) {
                     console.error('Error in tableFrame setProperties:', error);
                 }
@@ -608,26 +605,26 @@ figma.ui.onmessage = async (msg: any) => {
             let bodyCellComponent = null;
             if (bodyCell) {
                 try {
-                    const mainComponent = bodyCell.mainComponent;
+                const mainComponent = bodyCell.mainComponent;
                     if (mainComponent) {
                         const instance = bodyCell;
-                        const propertyValues: { [key: string]: any } = {};
-                        const propertyTypes: { [key: string]: any } = {};
-                        const availableProperties = Object.keys(instance.componentProperties);
-                        for (const propName of availableProperties) {
-                            const prop = instance.componentProperties[propName];
-                            propertyValues[propName] = prop.value;
-                            propertyTypes[propName] = prop.type;
-                        }
+                const propertyValues: { [key: string]: any } = {};
+                const propertyTypes: { [key: string]: any } = {};
+                const availableProperties = Object.keys(instance.componentProperties);
+                for (const propName of availableProperties) {
+                    const prop = instance.componentProperties[propName];
+                    propertyValues[propName] = prop.value;
+                    propertyTypes[propName] = prop.type;
+                }
                         let instanceWidth = instance?.width || 100; // Use optional chaining
-                        bodyCellComponent = {
-                            id: mainComponent.id,
-                            name: mainComponent.name,
+                bodyCellComponent = {
+                    id: mainComponent.id,
+                    name: mainComponent.name,
                             width: instanceWidth,
-                            properties: propertyValues,
-                            availableProperties,
-                            propertyTypes,
-                        };
+                    properties: propertyValues,
+                    availableProperties,
+                    propertyTypes,
+                };
                     }
                 } catch (error) {
                     console.error('Error accessing bodyCell mainComponent:', error);
@@ -637,26 +634,26 @@ figma.ui.onmessage = async (msg: any) => {
             let headerCellComponent = null;
             if (headerCell) {
                 try {
-                    const mainComponent = headerCell.mainComponent;
+                const mainComponent = headerCell.mainComponent;
                     if (mainComponent) {
                         const instance = headerCell;
-                        const propertyValues: { [key: string]: any } = {};
-                        const propertyTypes: { [key: string]: any } = {};
-                        const availableProperties = Object.keys(instance.componentProperties);
-                        for (const propName of availableProperties) {
-                            const prop = instance.componentProperties[propName];
-                            propertyValues[propName] = prop.value;
-                            propertyTypes[propName] = prop.type;
-                        }
+                const propertyValues: { [key: string]: any } = {};
+                const propertyTypes: { [key: string]: any } = {};
+                const availableProperties = Object.keys(instance.componentProperties);
+                for (const propName of availableProperties) {
+                    const prop = instance.componentProperties[propName];
+                    propertyValues[propName] = prop.value;
+                    propertyTypes[propName] = prop.type;
+                }
                         let instanceWidth = instance?.width || 100; // Use optional chaining
-                        headerCellComponent = {
-                            id: mainComponent.id,
-                            name: mainComponent.name,
+                headerCellComponent = {
+                    id: mainComponent.id,
+                    name: mainComponent.name,
                             width: instanceWidth,
-                            properties: propertyValues,
-                            availableProperties,
-                            propertyTypes,
-                        };
+                    properties: propertyValues,
+                    availableProperties,
+                    propertyTypes,
+                };
                     }
                 } catch (error) {
                     console.error('Error accessing headerCell mainComponent:', error);
@@ -666,26 +663,26 @@ figma.ui.onmessage = async (msg: any) => {
             let footerComponent = null;
             if (footer) {
                 try {
-                    const mainComponent = footer.mainComponent;
+                const mainComponent = footer.mainComponent;
                     if (mainComponent) {
                         const instance = footer;
-                        const propertyValues: { [key: string]: any } = {};
-                        const propertyTypes: { [key: string]: any } = {};
-                        const availableProperties = Object.keys(instance.componentProperties);
-                        for (const propName of availableProperties) {
-                            const prop = instance.componentProperties[propName];
-                            propertyValues[propName] = prop.value;
-                            propertyTypes[propName] = prop.type;
-                        }
+                const propertyValues: { [key: string]: any } = {};
+                const propertyTypes: { [key: string]: any } = {};
+                const availableProperties = Object.keys(instance.componentProperties);
+                for (const propName of availableProperties) {
+                    const prop = instance.componentProperties[propName];
+                    propertyValues[propName] = prop.value;
+                    propertyTypes[propName] = prop.type;
+                }
                         let instanceWidth = instance?.width || 100; // Use optional chaining
-                        footerComponent = {
-                            id: mainComponent.id,
-                            name: mainComponent.name,
+                footerComponent = {
+                    id: mainComponent.id,
+                    name: mainComponent.name,
                             width: instanceWidth,
-                            properties: propertyValues,
-                            availableProperties,
-                            propertyTypes,
-                        };
+                    properties: propertyValues,
+                    availableProperties,
+                    propertyTypes,
+                };
                     }
                 } catch (error) {
                     console.error('Error accessing footer mainComponent:', error);
@@ -701,12 +698,12 @@ figma.ui.onmessage = async (msg: any) => {
                 selectCellComponent,
                 expandCellComponent
             };
-            
+       
             // Send summary to UI with updated body row component
             figma.ui.postMessage({
                 type: 'scan-table-result',
                 success: true,
-                message: `Tap on the cells below to personalize your table. Column count (${numCols}) refers to data columns only.`,
+                message: `Tap on the cells below to personalize your table.`,
                 details: {
                     footer: !!footer,
                     numCols,
@@ -719,375 +716,474 @@ figma.ui.onmessage = async (msg: any) => {
                 }
             });
         }
-    }
-    // Create a table from the last scan result
-    if (msg.type === 'create-table-from-scan') {
-        // Validate that required components exist and are still valid
-        if (!lastScanResult) {
-            figma.notify('❌ No scan result available. Please scan a table first.');
+    
+    } else if (msg.type === 'create-table-from-scan') {
+        if (isCreatingTable) {
+            figma.notify("Already creating a table. Please wait.");
             return;
         }
-
-        const { headerCell, headerRowComponent, bodyCell, bodyRowComponent, footer, numCols } = lastScanResult;
-        
-        // Show loader in UI
-        figma.ui.postMessage({ type: 'show-loader', message: 'Generating table...' });
-        
-        // Accept options from UI (default: include header/footer)
-        const includeHeader = msg.includeHeader !== false;
-        const includeFooter = msg.includeFooter === true;
-        const includeSelectable = msg.includeSelectable === true;
-        const includeExpandable = msg.includeExpandable === true;
-        const rows = msg.rows || 3;
-        const cols = msg.cols || numCols || 3;
-        const cellProps = msg.cellProps || {};
-
-        // Validate that required components exist
-        if (includeSelectable && (!lastScanResult || !lastScanResult.selectCellComponent)) {
-            console.warn('Selectable is enabled but selectCellComponent is not available');
-            figma.notify('⚠️ Selectable cells not available - table will be generated without selection');
-        }
-        
-        if (includeExpandable && (!lastScanResult || !lastScanResult.expandCellComponent)) {
-            console.warn('Expandable is enabled but expandCellComponent is not available');
-            figma.notify('⚠️ Expandable cells not available - table will be generated without expansion');
-        }
-
-        // Calculate column widths by scanning each column for a width value
-        const columnWidths: number[] = [];
-        let totalTableWidth = 0;
-        
-        // Add widths for selectable and expandable columns if enabled
-        if (includeExpandable && lastScanResult && lastScanResult.expandCellComponent) {
-            try {
-                const expandCellInstance = lastScanResult.expandCellComponent.createInstance();
-                totalTableWidth += expandCellInstance.width;
-                console.log(`📏 Added expand cell width: ${expandCellInstance.width}px`);
-                expandCellInstance.remove(); // Clean up the temporary instance
-            } catch (error) {
-                console.error('Error getting expand cell width:', error);
-                totalTableWidth += 52; // Default width for expand cell
-                console.log(`📏 Added default expand cell width: 52px`);
-            }
-        }
-        
-        if (includeSelectable && lastScanResult && lastScanResult.selectCellComponent) {
-            try {
-                const selectCellInstance = lastScanResult.selectCellComponent.createInstance();
-                totalTableWidth += selectCellInstance.width;
-                console.log(`📏 Added select cell width: ${selectCellInstance.width}px`);
-                selectCellInstance.remove(); // Clean up the temporary instance
-            } catch (error) {
-                console.error('Error getting select cell width:', error);
-                totalTableWidth += 52; // Default width for select cell
-                console.log(`📏 Added default select cell width: 52px`);
-            }
-        }
-        
-        for (let c = 0; c < cols; c++) {
-            let widthFound = false;
-            // Scan down the column to find a width
-            for (let r = 0; r < rows; r++) {
-                const key = `${r}-${c}`;
-                const cellData = cellProps[key];
-                if (cellData && cellData.colWidth) {
-                    columnWidths[c] = cellData.colWidth;
-                    widthFound = true;
-                    break; // Found width, move to next column
-                }
-            }
-            // If no width was set in the column, use default
-            if (!widthFound) {
-                let defaultWidth = 96;
-                try {
-                    if (bodyCell) {
-                        // Since bodyCell is now the main component, we can't access width directly
-                        // We'll use a default width
-                        defaultWidth = 96;
-                    }
-                } catch (error) {
-                    console.error('Error accessing bodyCell width:', error);
-                    defaultWidth = 96;
-                }
-                columnWidths[c] = defaultWidth;
-            }
-            totalTableWidth += columnWidths[c];
-            console.log(`📏 Added data column ${c + 1} width: ${columnWidths[c]}px`);
-        }
-        
-        console.log(`📏 Total table width: ${totalTableWidth}px (includes ${includeExpandable ? 'expand + ' : ''}${includeSelectable ? 'select + ' : ''}${cols} data columns)`);
-
-        // Calculate proportional layoutGrow for each column
-        const totalWidth = columnWidths.reduce((a, b) => a + b, 0);
-        
-        // Determine which columns should be flexible vs fixed
-        // For now, we'll make all columns flexible with equal distribution
-        const flexibleColumns = cols; // All columns are flexible
-        const fixedColumns = 0; // No fixed columns for now
-
-        // Create main table frame
-        const tableFrame = figma.createFrame();
-        tableFrame.name = "Generated Table";
-        tableFrame.layoutMode = "VERTICAL";
-        tableFrame.counterAxisSizingMode = "AUTO";
-        tableFrame.primaryAxisSizingMode = "AUTO";
-        tableFrame.itemSpacing = 0;
-        tableFrame.paddingLeft = 0;
-        tableFrame.paddingRight = 0;
-        tableFrame.paddingTop = 0;
-        tableFrame.paddingBottom = 0;
-        if ('layoutSizingHorizontal' in tableFrame) {
-            tableFrame.layoutSizingHorizontal = 'HUG';
-        }
-        if ('layoutSizingVertical' in tableFrame) {
-            tableFrame.layoutSizingVertical = 'HUG';
-        }
-
-        let headerRowFrame: FrameNode | null = null;
-        let bodyWrapperFrame: FrameNode | null = null;
-        let footerClone: InstanceNode | null = null;
-
-        // --- Build Phase: Create table with FIXED widths ---
-
-        // Header row
-        if (includeHeader && headerCell) {
-            try {
-                headerRowFrame = figma.createFrame();
-                headerRowFrame.name = "Header Row";
-                headerRowFrame.layoutMode = "HORIZONTAL";
-                headerRowFrame.primaryAxisSizingMode = "AUTO";
-                headerRowFrame.counterAxisSizingMode = "AUTO";
-                headerRowFrame.itemSpacing = 0;
-                headerRowFrame.paddingLeft = 0;
-                headerRowFrame.paddingRight = 0;
-                headerRowFrame.paddingTop = 0;
-                headerRowFrame.paddingBottom = 0;
-                
-                const colorVariables = await figma.variables.getLocalVariablesAsync('COLOR');
-                const accentVar = colorVariables.find(v => v.name === 'layer-accent-o1');
-                if (accentVar) {
-                    headerRowFrame.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 }, boundVariables: { color: { type: 'VARIABLE_ALIAS', id: accentVar.id } } }];
-                } else {
-                    headerRowFrame.fills = [{ type: 'SOLID', color: { r: 0.941, g: 0.941, b: 0.941 } }];
-                }
-
-                // Add expandable cell first if enabled
-                if (includeExpandable && lastScanResult && lastScanResult.expandCellComponent) {
-                    try {
-                        const expandCell = lastScanResult.expandCellComponent.createInstance();
-                        headerRowFrame.appendChild(expandCell);
-                    } catch (error) {
-                        console.error('Error creating header expand cell instance:', error);
-                        console.warn('Expand cell component may be invalid or removed');
-                    }
-                }
-
-                // Add selectable cell second if enabled
-                if (includeSelectable && lastScanResult && lastScanResult.selectCellComponent) {
-                    try {
-                        const selectCell = lastScanResult.selectCellComponent.createInstance();
-                        headerRowFrame.appendChild(selectCell);
-                    } catch (error) {
-                        console.error('Error creating header select cell instance:', error);
-                        console.warn('Select cell component may be invalid or removed');
-                    }
-                }
-
-                for (let c = 1; c <= cols; c++) {
-                    const hCell = headerCell.createInstance();
-                    hCell.layoutSizingHorizontal = 'FIXED';
-                    hCell.resize(columnWidths[c - 1], hCell.height);
-                    headerRowFrame.appendChild(hCell);
-
-                    const key = `header-${c}`;
-                    const cellData = cellProps[key];
-                    if (cellData && cellData.properties) {
-                        console.log(`🔧 Applying properties for header cell ${key}:`, cellData.properties);
-                        try {
-                            const validProps = mapPropertyNames(cellData.properties, hCell.componentProperties);
-                            console.log(`🔧 Mapped properties for header cell ${key}:`, validProps);
-                            
-                            // Always try to set properties, with or without validation
-                            try {
-                                console.log(`✅ Setting properties for header cell ${key}:`, validProps);
-                                hCell.setProperties(validProps);
-                                console.log(`✅ Successfully set properties for header cell ${key}`);
-                            } catch (error) {
-                                console.error('❌ Error in header cell setProperties:', error);
-                                // Try setting properties one by one as fallback
-                                for (const [propName, propValue] of Object.entries(validProps)) {
-                                    try {
-                                        hCell.setProperties({ [propName]: propValue });
-                                        console.log(`✅ Successfully set individual property ${propName} = ${propValue} for header cell ${key}`);
-                                    } catch (individualError) {
-                                        console.error(`❌ Error setting individual property ${propName} for header cell ${key}:`, individualError);
-                                    }
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('Could not set properties for header cell', key, e);
-                        }
-                    } else {
-                        console.log(`ℹ️ No properties found for header cell ${key}`);
-                    }
-                }
-                tableFrame.appendChild(headerRowFrame);
-            } catch (error) {
-                console.error('Error creating header row:', error);
-                figma.notify('⚠️ Header cell component is no longer available');
-            }
-        }
-
-        const borderVar = await figma.variables.getLocalVariablesAsync('COLOR').then(vars => vars.find(v => v.name === 'border-subtle-1'));
-
-        // Body rows
-        if (bodyCell) {
-            try {
-                bodyWrapperFrame = figma.createFrame();
-                bodyWrapperFrame.name = 'Body';
-                bodyWrapperFrame.layoutMode = 'VERTICAL';
-                bodyWrapperFrame.primaryAxisSizingMode = 'AUTO';
-                bodyWrapperFrame.counterAxisSizingMode = 'AUTO';
-                bodyWrapperFrame.itemSpacing = 0;
-                bodyWrapperFrame.paddingLeft = 0;
-                bodyWrapperFrame.paddingRight = 0;
-                bodyWrapperFrame.paddingTop = 0;
-                bodyWrapperFrame.paddingBottom = 0;
-                tableFrame.appendChild(bodyWrapperFrame);
-
-                for (let r = 0; r < rows; r++) {
-                    const rowFrame = figma.createFrame();
-                    rowFrame.name = `Row ${r + 1}`;
-                    rowFrame.layoutMode = "HORIZONTAL";
-                    rowFrame.primaryAxisSizingMode = "AUTO";
-                    rowFrame.counterAxisSizingMode = "AUTO";
-                    rowFrame.itemSpacing = 0;
-                    rowFrame.paddingLeft = 0;
-                    rowFrame.paddingRight = 0;
-                    rowFrame.paddingTop = 0;
-                    rowFrame.paddingBottom = 0;
-
-                    // Add expandable cell first if enabled
-                    if (includeExpandable && lastScanResult && lastScanResult.expandCellComponent) {
-                        try {
-                            const expandCell = lastScanResult.expandCellComponent.createInstance();
-                            rowFrame.appendChild(expandCell);
-                        } catch (error) {
-                            console.error('Error creating expand cell instance:', error);
-                            console.warn('Expand cell component may be invalid or removed');
-                        }
-                    }
-
-                    // Add selectable cell second if enabled
-                    if (includeSelectable && lastScanResult && lastScanResult.selectCellComponent) {
-                        try {
-                            const selectCell = lastScanResult.selectCellComponent.createInstance();
-                            rowFrame.appendChild(selectCell);
-                        } catch (error) {
-                            console.error('Error creating select cell instance:', error);
-                            console.warn('Select cell component may be invalid or removed');
-                        }
-                    }
-
-                    for (let c = 0; c < cols; c++) {
-                        const cell = bodyCell.createInstance();
-                        cell.layoutSizingHorizontal = 'FIXED';
-                        cell.resize(columnWidths[c], cell.height);
-                        rowFrame.appendChild(cell);
-
-                        const key = `${r}-${c}`;
-                        const cellData = cellProps[key];
-                        if (cellData && cellData.properties) {
-                            console.log(`🔧 Applying properties for body cell ${key}:`, cellData.properties);
-                            try {
-                                const validProps = mapPropertyNames(cellData.properties, cell.componentProperties);
-                                console.log(`🔧 Mapped properties for body cell ${key}:`, validProps);
-                                
-                                // Always try to set properties, with or without validation
-                                try {
-                                    console.log(`✅ Setting properties for body cell ${key}:`, validProps);
-                                    cell.setProperties(validProps);
-                                    console.log(`✅ Successfully set properties for body cell ${key}`);
-                                } catch (error) {
-                                    console.error('❌ Error in body cell setProperties:', error);
-                                    // Try setting properties one by one as fallback
-                                    for (const [propName, propValue] of Object.entries(validProps)) {
-                                        try {
-                                            cell.setProperties({ [propName]: propValue });
-                                            console.log(`✅ Successfully set individual property ${propName} = ${propValue} for body cell ${key}`);
-                                        } catch (individualError) {
-                                            console.error(`❌ Error setting individual property ${propName} for body cell ${key}:`, individualError);
-                                        }
-                                    }
-                                }
-                            } catch (e) {
-                                console.warn('Could not set properties for cell', key, e);
-                            }
-                        } else {
-                            console.log(`ℹ️ No properties found for body cell ${key}`);
-                        }
-                    }
-                    bodyWrapperFrame.appendChild(rowFrame);
-                }
-            } catch (error) {
-                console.error('Error creating body rows:', error);
-                figma.notify('❌ Cannot generate table: body cell component is no longer available');
+        isCreatingTable = true;
+        try {
+            if (!lastScanResult) {
+                figma.notify('❌ No scan result available. Please scan a table first.');
                 return;
             }
-        }
 
-        // Footer (optional)
-        if (includeFooter && footer) {
-            try {
-                footerClone = footer.createInstance();
-                const footerCellData = cellProps['footer'];
-                if (footerCellData && footerCellData.properties) {
-                    const validProps = mapPropertyNames(footerCellData.properties, footerClone.componentProperties);
-                    
-                    // Check if the combination is valid before setting
-                    let mainComponentSet = null;
-                    if (footerClone.mainComponent && footerClone.mainComponent.parent && footerClone.mainComponent.parent.type === "COMPONENT_SET") {
-                        mainComponentSet = footerClone.mainComponent.parent as ComponentSetNode;
+            const { headerCell, bodyCell, footer, numCols } = lastScanResult;
+            figma.ui.postMessage({ type: 'show-loader', message: 'Generating table...' });
+            
+            const includeHeader = msg.includeHeader !== false;
+            const includeFooter = msg.includeFooter === true;
+            const includeSelectable = msg.includeSelectable === true;
+            const includeExpandable = msg.includeExpandable === true;
+            const rows = msg.rows || 3;
+            const cols = msg.cols || numCols || 3;
+            const cellProps = msg.cellProps || {};
+
+            if (includeSelectable && !lastScanResult.selectCellComponent) {
+                figma.notify('⚠️ Selectable cells not available');
+            }
+            if (includeExpandable && !lastScanResult.expandCellComponent) {
+                figma.notify('⚠️ Expandable cells not available');
+            }
+
+            const columnWidths: number[] = [];
+            let totalTableWidth = 0;
+            
+            if (includeExpandable && lastScanResult.expandCellComponent) {
+                try {
+                    const expandCellInstance = lastScanResult.expandCellComponent.createInstance();
+                    totalTableWidth += expandCellInstance.width;
+                    expandCellInstance.remove();
+                } catch (error) {
+                    totalTableWidth += 52;
+                }
+            }
+            if (includeSelectable && lastScanResult.selectCellComponent) {
+                try {
+                    const selectCellInstance = lastScanResult.selectCellComponent.createInstance();
+                    totalTableWidth += selectCellInstance.width;
+                    selectCellInstance.remove();
+                } catch (error) {
+                    totalTableWidth += 52;
+                }
+            }
+            
+            for (let c = 0; c < cols; c++) {
+                let widthFound = false;
+                for (let r = 0; r < rows; r++) {
+                    const key = `${r}-${c}`;
+                    const cellData = cellProps[key];
+                    if (cellData && cellData.colWidth) {
+                        columnWidths[c] = cellData.colWidth;
+                        widthFound = true;
+                        break;
                     }
-                    
-                    if (mainComponentSet && isValidVariantCombination(mainComponentSet, validProps)) {
+                }
+                if (!widthFound) {
+                    columnWidths[c] = 96;
+                }
+                totalTableWidth += columnWidths[c];
+            }
+            
+            const tableFrame = figma.createFrame();
+            tableFrame.name = "Generated Table";
+            tableFrame.layoutMode = "VERTICAL";
+            tableFrame.counterAxisSizingMode = "AUTO";
+            tableFrame.primaryAxisSizingMode = "AUTO";
+            tableFrame.itemSpacing = 0;
+            tableFrame.paddingLeft = 0;
+            tableFrame.paddingRight = 0;
+            tableFrame.paddingTop = 0;
+            tableFrame.paddingBottom = 0;
+
+            if (includeHeader && headerCell) {
+                try {
+                    const headerRowFrame = figma.createFrame();
+                    headerRowFrame.name = "Header Row";
+                    headerRowFrame.layoutMode = "HORIZONTAL";
+                    headerRowFrame.primaryAxisSizingMode = "AUTO";
+                    headerRowFrame.counterAxisSizingMode = "AUTO";
+                    headerRowFrame.itemSpacing = 0;
+                    headerRowFrame.paddingLeft = 0;
+                    headerRowFrame.paddingRight = 0;
+                    headerRowFrame.paddingTop = 0;
+                    headerRowFrame.paddingBottom = 0;
+                
+                    if (includeExpandable && lastScanResult.expandCellComponent) {
+                        try {
+                            const expandCell = lastScanResult.expandCellComponent.createInstance();
+                            headerRowFrame.appendChild(expandCell);
+                        } catch (error) { console.error('Error creating header expand cell'); }
+                    }
+
+                    if (includeSelectable && lastScanResult.selectCellComponent) {
+                        try {
+                            const selectCell = lastScanResult.selectCellComponent.createInstance();
+                            headerRowFrame.appendChild(selectCell);
+                        } catch (error) { console.error('Error creating header select cell'); }
+                    }
+
+                    for (let c = 1; c <= cols; c++) {
+                        const hCell = headerCell.createInstance();
+                        hCell.layoutSizingHorizontal = 'FIXED';
+                        hCell.resize(columnWidths[c - 1], hCell.height);
+                        headerRowFrame.appendChild(hCell);
+
+                        const key = `header-${c}`;
+                        const cellData = cellProps[key];
+                        if (cellData && cellData.properties) {
+                            try {
+                                const validProps = mapPropertyNames(cellData.properties, hCell.componentProperties);
+                                hCell.setProperties(validProps);
+                            } catch (e) { console.warn('Could not set properties for header cell', key, e); }
+                        }
+                    }
+                    tableFrame.appendChild(headerRowFrame);
+                } catch (error) {
+                    console.error('Error creating header row:', error);
+                    figma.notify('⚠️ Header cell component is no longer available');
+                }
+            }
+
+            if (bodyCell) {
+                try {
+                    const bodyWrapperFrame = figma.createFrame();
+                    bodyWrapperFrame.name = 'Body';
+                    bodyWrapperFrame.layoutMode = 'VERTICAL';
+                    bodyWrapperFrame.primaryAxisSizingMode = 'AUTO';
+                    bodyWrapperFrame.counterAxisSizingMode = 'AUTO';
+                    bodyWrapperFrame.itemSpacing = 0;
+                    bodyWrapperFrame.paddingLeft = 0;
+                    bodyWrapperFrame.paddingRight = 0;
+                    bodyWrapperFrame.paddingTop = 0;
+                    bodyWrapperFrame.paddingBottom = 0;
+                    tableFrame.appendChild(bodyWrapperFrame);
+
+                    for (let r = 0; r < rows; r++) {
+                        const rowFrame = figma.createFrame();
+                        rowFrame.name = `Row ${r + 1}`;
+                        rowFrame.layoutMode = "HORIZONTAL";
+                        rowFrame.primaryAxisSizingMode = "AUTO";
+                        rowFrame.counterAxisSizingMode = "AUTO";
+                        rowFrame.itemSpacing = 0;
+                        rowFrame.paddingLeft = 0;
+                        rowFrame.paddingRight = 0;
+                        rowFrame.paddingTop = 0;
+                        rowFrame.paddingBottom = 0;
+
+                        if (includeExpandable && lastScanResult.expandCellComponent) {
+                            try {
+                                const expandCell = lastScanResult.expandCellComponent.createInstance();
+                                rowFrame.appendChild(expandCell);
+                            } catch (error) { console.error('Error creating expand cell instance'); }
+                        }
+
+                        if (includeSelectable && lastScanResult.selectCellComponent) {
+                            try {
+                                const selectCell = lastScanResult.selectCellComponent.createInstance();
+                                rowFrame.appendChild(selectCell);
+                            } catch (error) { console.error('Error creating select cell instance'); }
+                        }
+
+                        for (let c = 0; c < cols; c++) {
+                            const cell = bodyCell.createInstance();
+                            cell.layoutSizingHorizontal = 'FIXED';
+                            cell.resize(columnWidths[c], cell.height);
+                            rowFrame.appendChild(cell);
+
+                            const key = `${r}-${c}`;
+                            const cellData = cellProps[key];
+                            if (cellData && cellData.properties) {
+                                try {
+                                    const validProps = mapPropertyNames(cellData.properties, cell.componentProperties);
+                                    cell.setProperties(validProps);
+                                } catch (e) { console.warn('Could not set properties for cell', key, e); }
+                            }
+                        }
+                        bodyWrapperFrame.appendChild(rowFrame);
+                    }
+                } catch (error) {
+                    console.error('Error creating body rows:', error);
+                    figma.notify('❌ Cannot generate table: body cell component is no longer available');
+                    return;
+                }
+            }
+
+            if (includeFooter && footer) {
+                try {
+                    const footerClone = footer.createInstance();
+                    const footerCellData = cellProps['footer'];
+                    if (footerCellData && footerCellData.properties) {
+                        const validProps = mapPropertyNames(footerCellData.properties, footerClone.componentProperties);
                         try {
                             footerClone.setProperties(validProps);
-                        } catch (error) {
-                            console.error('Error in footer setProperties:', error);
-                        }
-                    } else {
-                        console.warn('Invalid variant combination for footer', validProps);
+                        } catch (error) { console.error('Error in footer setProperties:', error); }
+                    }
+                    if (footerClone) {
+                        footerClone.layoutSizingHorizontal = 'FIXED';
+                        footerClone.resize(totalTableWidth, footerClone.height);
+                        tableFrame.appendChild(footerClone);
+                    }
+                } catch (error) {
+                    console.error('Error creating footer:', error);
+                    figma.notify('⚠️ Footer component is no longer available');
+                }
+            }
+
+            tableFrame.resize(totalTableWidth, tableFrame.height);
+            
+            tableFrame.setPluginData('isGeneratedTable', 'true');
+            const tableSettings = {
+                columns: msg.columns,
+                rows: msg.rows,
+                includeHeader: msg.includeHeader,
+                includeFooter: msg.includeFooter,
+                includeSelectable: msg.includeSelectable,
+                includeExpandable: msg.includeExpandable,
+                cellProperties: msg.cellProperties,
+            };
+            tableFrame.setPluginData('tableSettings', JSON.stringify(tableSettings));
+
+            figma.currentPage.appendChild(tableFrame);
+            figma.viewport.scrollAndZoomIntoView([tableFrame]);
+            figma.notify('Table created successfully!');
+            figma.ui.postMessage({ type: 'table-created', success: true });
+
+        } catch (error) {
+            console.error('Error in create-table-from-scan:', error);
+            figma.notify('❌ An unexpected error occurred. Please check the console for details.');
+        } finally {
+            isCreatingTable = false;
+        }
+    } else if (msg.type === 'update-table') {
+        if (isCreatingTable) {
+            figma.notify("Already updating a table. Please wait.");
+            return;
+        }
+        isCreatingTable = true;
+        try {
+            if (!lastScanResult) {
+                figma.notify('❌ No scan result available. Please scan a table first.');
+                isCreatingTable = false;
+                return;
+            }
+
+            const tableFrame = figma.getNodeById(msg.tableId) as FrameNode;
+            if (!tableFrame || tableFrame.type !== 'FRAME') {
+                figma.notify("❌ Table to update not found.");
+                return;
+            }
+
+            // Clear existing content
+            tableFrame.children.slice().forEach(child => child.remove());
+
+            // Re-use the creation logic, but target the existing frame
+            const { headerCell, bodyCell, footer, numCols } = lastScanResult!;
+            const { rows, cols, cellProps, includeHeader, includeFooter, includeSelectable, includeExpandable } = msg;
+
+            // (The entire table generation logic from 'create-table-from-scan' will be duplicated here,
+            // but instead of creating a new tableFrame, it will append children to the existing one.)
+            
+            // --- Rebuild logic starts here ---
+            const columnWidths: number[] = [];
+            let totalTableWidth = 0;
+            
+            if (includeExpandable && lastScanResult.expandCellComponent) {
+                try {
+                    const expandCellInstance = lastScanResult.expandCellComponent.createInstance();
+                    totalTableWidth += expandCellInstance.width;
+                    expandCellInstance.remove();
+                } catch (error) {
+                    totalTableWidth += 52;
+                }
+            }
+            if (includeSelectable && lastScanResult.selectCellComponent) {
+                try {
+                    const selectCellInstance = lastScanResult.selectCellComponent.createInstance();
+                    totalTableWidth += selectCellInstance.width;
+                    selectCellInstance.remove();
+                } catch (error) {
+                    totalTableWidth += 52;
+                }
+            }
+            
+            for (let c = 0; c < cols; c++) {
+                let widthFound = false;
+                for (let r = 0; r < rows; r++) {
+                    const key = `${r}-${c}`;
+                    const cellData = cellProps[key];
+                    if (cellData && cellData.colWidth) {
+                        columnWidths[c] = cellData.colWidth;
+                        widthFound = true;
+                        break;
                     }
                 }
-                if (footerClone) {
-                    footerClone.layoutSizingHorizontal = 'FIXED';
-                    footerClone.resize(totalTableWidth, footerClone.height);
-                    tableFrame.appendChild(footerClone);
+                if (!widthFound) {
+                    columnWidths[c] = 96;
                 }
-            } catch (error) {
-                console.error('Error creating footer:', error);
-                figma.notify('⚠️ Footer component is no longer available');
+                totalTableWidth += columnWidths[c];
             }
+            
+            if (includeHeader && headerCell) {
+                try {
+                    const headerRowFrame = figma.createFrame();
+                    headerRowFrame.name = "Header Row";
+                    headerRowFrame.layoutMode = "HORIZONTAL";
+                    headerRowFrame.primaryAxisSizingMode = "AUTO";
+                    headerRowFrame.counterAxisSizingMode = "AUTO";
+                    headerRowFrame.itemSpacing = 0;
+                    headerRowFrame.paddingLeft = 0;
+                    headerRowFrame.paddingRight = 0;
+                    headerRowFrame.paddingTop = 0;
+                    headerRowFrame.paddingBottom = 0;
+                
+                    if (includeExpandable && lastScanResult.expandCellComponent) {
+                        try {
+                            const expandCell = lastScanResult.expandCellComponent.createInstance();
+                            headerRowFrame.appendChild(expandCell);
+                        } catch (error) { console.error('Error creating header expand cell'); }
+                    }
+
+                    if (includeSelectable && lastScanResult.selectCellComponent) {
+                        try {
+                            const selectCell = lastScanResult.selectCellComponent.createInstance();
+                            headerRowFrame.appendChild(selectCell);
+                        } catch (error) { console.error('Error creating header select cell'); }
+                    }
+
+                    for (let c = 1; c <= cols; c++) {
+                        const hCell = headerCell.createInstance();
+                        hCell.layoutSizingHorizontal = 'FIXED';
+                        hCell.resize(columnWidths[c - 1], hCell.height);
+                        headerRowFrame.appendChild(hCell);
+
+                        const key = `header-${c}`;
+                        const cellData = cellProps[key];
+                        if (cellData && cellData.properties) {
+                            try {
+                                const validProps = mapPropertyNames(cellData.properties, hCell.componentProperties);
+                                hCell.setProperties(validProps);
+                            } catch (e) { console.warn('Could not set properties for header cell', key, e); }
+                        }
+                    }
+                    tableFrame.appendChild(headerRowFrame);
+                } catch (error) {
+                    console.error('Error creating header row:', error);
+                    figma.notify('⚠️ Header cell component is no longer available');
+                }
+            }
+
+            if (bodyCell) {
+                try {
+                    const bodyWrapperFrame = figma.createFrame();
+                    bodyWrapperFrame.name = 'Body';
+                    bodyWrapperFrame.layoutMode = 'VERTICAL';
+                    bodyWrapperFrame.primaryAxisSizingMode = 'AUTO';
+                    bodyWrapperFrame.counterAxisSizingMode = 'AUTO';
+                    bodyWrapperFrame.itemSpacing = 0;
+                    bodyWrapperFrame.paddingLeft = 0;
+                    bodyWrapperFrame.paddingRight = 0;
+                    bodyWrapperFrame.paddingTop = 0;
+                    bodyWrapperFrame.paddingBottom = 0;
+                    tableFrame.appendChild(bodyWrapperFrame);
+
+                    for (let r = 0; r < rows; r++) {
+                        const rowFrame = figma.createFrame();
+                        rowFrame.name = `Row ${r + 1}`;
+                        rowFrame.layoutMode = "HORIZONTAL";
+                        rowFrame.primaryAxisSizingMode = "AUTO";
+                        rowFrame.counterAxisSizingMode = "AUTO";
+                        rowFrame.itemSpacing = 0;
+                        rowFrame.paddingLeft = 0;
+                        rowFrame.paddingRight = 0;
+                        rowFrame.paddingTop = 0;
+                        rowFrame.paddingBottom = 0;
+
+                        if (includeExpandable && lastScanResult.expandCellComponent) {
+                            try {
+                                const expandCell = lastScanResult.expandCellComponent.createInstance();
+                                rowFrame.appendChild(expandCell);
+                            } catch (error) { console.error('Error creating expand cell instance'); }
+                        }
+
+                        if (includeSelectable && lastScanResult.selectCellComponent) {
+                            try {
+                                const selectCell = lastScanResult.selectCellComponent.createInstance();
+                                rowFrame.appendChild(selectCell);
+                            } catch (error) { console.error('Error creating select cell instance'); }
+                        }
+
+                        for (let c = 0; c < cols; c++) {
+                            const cell = bodyCell.createInstance();
+                            cell.layoutSizingHorizontal = 'FIXED';
+                            cell.resize(columnWidths[c], cell.height);
+                            rowFrame.appendChild(cell);
+
+                            const key = `${r}-${c}`;
+                            const cellData = cellProps[key];
+                            if (cellData && cellData.properties) {
+                                try {
+                                    const validProps = mapPropertyNames(cellData.properties, cell.componentProperties);
+                                    cell.setProperties(validProps);
+                                } catch (e) { console.warn('Could not set properties for cell', key, e); }
+                            }
+                        }
+                        bodyWrapperFrame.appendChild(rowFrame);
+                    }
+                } catch (error) {
+                    console.error('Error creating body rows:', error);
+                    figma.notify('❌ Cannot generate table: body cell component is no longer available');
+                    return;
+                }
+            }
+
+            if (includeFooter && footer) {
+                try {
+                    const footerClone = footer.createInstance();
+                    const footerCellData = cellProps['footer'];
+                    if (footerCellData && footerCellData.properties) {
+                        const validProps = mapPropertyNames(footerCellData.properties, footerClone.componentProperties);
+                        try {
+                            footerClone.setProperties(validProps);
+                        } catch (error) { console.error('Error in footer setProperties:', error); }
+                    }
+                    if (footerClone) {
+                        footerClone.layoutSizingHorizontal = 'FIXED';
+                        footerClone.resize(totalTableWidth, footerClone.height);
+                        tableFrame.appendChild(footerClone);
+                    }
+                } catch (error) {
+                    console.error('Error creating footer:', error);
+                    figma.notify('⚠️ Footer component is no longer available');
+                }
+            }
+            
+            tableFrame.resize(totalTableWidth, tableFrame.height);
+
+            // Update plugin data
+            const tableSettings = {
+                columns: msg.columns,
+                rows: msg.rows,
+                includeHeader: msg.includeHeader,
+                includeFooter: msg.includeFooter,
+                includeSelectable: msg.includeSelectable,
+                includeExpandable: msg.includeExpandable,
+                cellProperties: msg.cellProperties,
+            };
+            tableFrame.setPluginData('tableSettings', JSON.stringify(tableSettings));
+
+            figma.notify('✅ Table updated successfully!');
+            figma.ui.postMessage({ type: 'table-updated', success: true });
+
+        } catch (error) {
+            console.error('Error in update-table:', error);
+            figma.notify('❌ An unexpected error occurred while updating the table.');
+        } finally {
+            isCreatingTable = false;
         }
-
-        // --- Add to document ---
-        // First, resize the main frame to the calculated total width.
-        tableFrame.resize(totalTableWidth, tableFrame.height);
-
-        figma.currentPage.appendChild(tableFrame);
-
-        // Final selection and viewport
-        figma.currentPage.selection = [tableFrame];
-        figma.viewport.scrollAndZoomIntoView([tableFrame]);
-        figma.notify('Table created from scan!');
-        figma.ui.postMessage({ type: 'table-created', success: true });
-    }
-    if (msg.type === "scan-table-result") {
-        // No need to set state.bodyCellAvailableProperties here
     }
 };
-// End of file
 
 function getFakerValue(type: string) {
   const t = type.toLowerCase();

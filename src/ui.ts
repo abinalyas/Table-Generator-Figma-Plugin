@@ -42,6 +42,7 @@ interface State {
     availableProperties: string[];
     propertyTypes: { [key: string]: any };
   } | null;
+  tableFrameId: string | undefined;
 }
 
 interface Elements {
@@ -116,7 +117,8 @@ const state: State = {
   sizeConfirmed: false,
   componentWidth: undefined,
   headerCellComponent: null,
-  footerComponent: null
+  footerComponent: null,
+  tableFrameId: undefined
 };
 
 // DOM Elements
@@ -195,6 +197,9 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.scanOptionsContainer = null;
 
   domReady = true;
+
+  // Ask the plugin to scan the current selection immediately
+  parent.postMessage({ pluginMessage: { type: 'scan-table' } }, '*');
 
   // Now safe to call setup functions
   createGrid();
@@ -425,6 +430,8 @@ function createTable() {
     propsForFigma['footer'] = footerData;
   }
 
+  const isUpdate = elements.createTableBtn.textContent === 'Update Table';
+
   // Only keep scan flow
   const rows = parseInt((document.getElementById('scanRowsInput') as HTMLInputElement)?.value || String(state.gridRows), 10);
   const cols = parseInt((document.getElementById('scanColsInput') as HTMLInputElement)?.value || String(state.gridCols), 10);
@@ -433,28 +440,21 @@ function createTable() {
   const includeSelectable = (document.getElementById('scanSelectableToggle') as HTMLInputElement)?.checked;
   const includeExpandable = (document.getElementById('scanExpandableToggle') as HTMLInputElement)?.checked;
   
-  console.log('🚀 Sending to Figma (Scan Flow):', {
-      rows,
-      cols,
-      cellProps: propsForFigma,
-      includeHeader,
-      includeFooter,
-      includeSelectable,
-      includeExpandable
-  });
+  const message = {
+    type: isUpdate ? "update-table" : "create-table-from-scan",
+    tableId: isUpdate ? state.tableFrameId : null, // Send table frame ID for updates
+    rows,
+    cols,
+    cellProps: propsForFigma,
+    includeHeader,
+    includeFooter,
+    includeSelectable,
+    includeExpandable
+  };
 
-  parent.postMessage({
-    pluginMessage: {
-          type: "create-table-from-scan",
-          rows,
-          cols,
-      cellProps: propsForFigma,
-          includeHeader,
-          includeFooter,
-          includeSelectable,
-          includeExpandable
-    }
-  }, '*');
+  console.log(`🚀 Sending to Figma (${isUpdate ? 'Update' : 'Create'}):`, message);
+
+  parent.postMessage({ pluginMessage: message }, '*');
 }
 
 function showLoader(message: string) {
@@ -1539,8 +1539,72 @@ window.onmessage = (event) => {
       headerToggle?.addEventListener('change', updateHeaderFooterVisibility);
       footerToggle?.addEventListener('change', updateHeaderFooterVisibility);
       
+      // Change button text to "Create" and disable update
+      elements.createTableBtn.textContent = 'Create Table';
+      elements.createTableBtn.disabled = false;
+      // Optionally, you could hide the button if you have two separate buttons
+      // elements.createTableBtn.style.display = 'inline-block';
+
       setMode('edit');
       updateCreateButtonState();
+      break;
+
+    case "edit-existing-table":
+      // This case handles loading a previously generated table for editing
+      const settings = msg.settings;
+      if (!settings) return;
+      state.tableFrameId = msg.tableId;
+
+      // Hide landing page, show grid
+      elements.landingPage.style.display = 'none';
+      elements.gridContainer.style.display = 'flex';
+      elements.actionButtons.style.display = 'flex';
+
+      // Update state from settings
+      state.gridRows = settings.rows || 5;
+      state.gridCols = settings.columns || 5;
+      state.cellProperties = new Map(Object.entries(settings.cellProperties || {}));
+
+      // Create grid and update visuals
+      createGrid();
+      updateCellVisuals();
+
+      // Update UI controls to match settings
+      const rowsInput = document.getElementById('scanRowsInput') as HTMLInputElement;
+      const colsInput = document.getElementById('scanColsInput') as HTMLInputElement;
+      const headerToggleEdit = document.getElementById('scanHeaderToggle') as HTMLInputElement;
+      const footerToggleEdit = document.getElementById('scanFooterToggle') as HTMLInputElement;
+      const selectableToggleEdit = document.getElementById('scanSelectableToggle') as HTMLInputElement;
+      const expandableToggleEdit = document.getElementById('scanExpandableToggle') as HTMLInputElement;
+
+      if(rowsInput) rowsInput.value = String(state.gridRows);
+      if(colsInput) colsInput.value = String(state.gridCols);
+      if(headerToggleEdit) headerToggleEdit.checked = settings.includeHeader;
+      if(footerToggleEdit) footerToggleEdit.checked = settings.includeFooter;
+      if(selectableToggleEdit) selectableToggleEdit.checked = settings.includeSelectable;
+      if(expandableToggleEdit) expandableToggleEdit.checked = settings.includeExpandable;
+
+      // Select all cells and confirm size
+      document.querySelectorAll('.cell').forEach(cell => {
+        const key = `${(cell as HTMLDivElement).dataset.row},${(cell as HTMLDivElement).dataset.col}`;
+        state.selectedCells.add(key);
+        cell.classList.add('selected');
+      });
+      state.sizeConfirmed = true;
+
+      // Change button text to "Update" and disable create
+      elements.createTableBtn.textContent = 'Update Table';
+      elements.createTableBtn.disabled = false;
+      // Optionally, you could hide the button if you have two separate buttons
+      // elements.createTableBtn.style.display = 'inline-block';
+
+      setMode('edit');
+      updateCreateButtonState();
+      break;
+
+    case "table-updated":
+      hideLoader();
+      showMessage("Table updated successfully!", "success");
       break;
   }
 };
