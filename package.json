@@ -1,0 +1,28 @@
+{
+  "name": "table-generator",
+  "version": "1.0.0",
+  "description": "Figma plugin for generating tables",
+  "main": "dist/code.js",
+  "scripts": {
+    "prebuild": "node scripts/generate-faker-methods.js",
+    "build": "webpack --mode production",
+    "watch": "webpack --watch --mode development"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.114.0",
+    "@types/faker": "^5.5.9",
+    "copy-webpack-plugin": "^12.0.2",
+    "html-webpack-plugin": "^5.5.3",
+    "react-dev-utils": "^12.0.1",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^9.8.0",
+    "faker": "^5.5.3"
+  }
+}

@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Table Generator 2.0</title>
+  <style>
+    :root {
+      --primary-color: #1162fe;
+      --primary-light: rgba(67, 97, 238, 0.2);
+      --secondary-color: #7209b7;
+      --danger-color: #a5a5a5;
+      --warning-color: #f8961e;
+      --success-color: #4cc9f0;
+      --text-dark: #333;
+      --text-light: #fff;
+      --border-color: #ddd;
+      --edited-cell-color: #e0aaff;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+      padding: 16px;
+      color: var(--text-dark);
+      background: #f8f8f8;
+      user-select: none;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .status {
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .status.success {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
+    .status.error {
+      background: #ffebee;
+      color: #c62828;
+    }
+
+    .grid-container {
+      position: relative;
+      margin-bottom: 30px;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(5, 30px);
+      grid-gap: 6px;
+      position: relative;
+      z-index: 2;
+      flex-shrink: 0;
+    }
+
+    .cell {
+      width: 30px;
+      height: 30px;
+      background: #fff;
+      border: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+    }
+
+    .cell.selected {
+      background: var(--primary-color);
+      color: var(--text-light);
+      border-color: var(--primary-color);
+    }
+
+    .cell.edited {
+      background-color: var(--edited-cell-color);
+      border-color: var(--secondary-color);
+    }
+
+    .grid-highlight {
+      position: absolute;
+      background-color: var(--primary-light);
+      border: 2px solid var(--primary-color);
+      border-radius: 3px;
+      pointer-events: none;
+      z-index: 1;
+      transition: all 0.1s ease;
+      display: none;
+    }
+
+    .dimensions-display {
+      position: absolute;
+      background: var(--primary-color);
+      color: var(--text-light);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      transition: all 0.1s ease;
+      z-index: 3;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 14px;
+    }
+
+    .btn-primary {
+      background: var(--primary-color);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #3a56d4;
+    }
+
+    .btn-primary:disabled {
+      background: #b8c2ff;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: var(--secondary-color);
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #5d08a0;
+    }
+
+    .btn-danger {
+      background: var(--danger-color);
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #e5177b;
+    }
+
+    .button-group,
+    .dimension-presets,
+    .selection-actions,
+    .mode-toggle {
+      display: flex;
+      gap: 42px;
+      margin-bottom: 16px;
+      position: relative;
+      z-index: 5;
+    }
+
+    .dimension-preset {
+      padding: 4px 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      cursor: pointer;
+      background: white;
+    }
+
+    .dimension-preset:hover {
+      background: var(--primary-light);
+    }
+
+    .selection-actions {
+      display: none;
+    }
+
+    #propertyEditor {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: white;
+      padding: 20px;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+      border-top: 1px solid #e0e0e0;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: 100;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    #propertyEditorOverlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 99;
+    }
+
+    .property-section {
+      margin-bottom: 15px;
+    }
+
+    .property-field {
+      margin-bottom: 12px;
+    }
+
+    .property-field label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      font-size: 13px;
+    }
+
+    .property-field input[type="text"],
+    .property-field select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .property-field.checkbox {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .property-actions {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .apply-options {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .apply-option {
+      padding: 6px 12px;
+      background: #f0f0f0;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .apply-option:hover {
+      background: #555555;
+      color: white;
+    }
+
+    .apply-option.active {
+      background: #393939;
+      color: white;
+    }
+
+    .cell-tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 8px;
+      font-size: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      z-index: 10;
+      pointer-events: none;
+      max-width: 200px;
+    }
+
+    .ai-data-section {
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .ai-data-section h4 {
+      margin-bottom: 10px;
+    }
+
+    .ai-data-section textarea {
+      width: 100%;
+      height: 60px;
+      padding: 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-size: 13px;
+      margin-bottom: 10px;
+      resize: vertical;
+    }
+
+    .ai-data-section button {
+      width: 100%;
+      padding: 8px;
+      background: var(--secondary-color);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .mode-toggle {
+      padding: 8px;
+      background: #f0f0f0;
+      border-radius: 6px;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 8px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #e0e0e0;
+      transition: all 0.2s;
+    }
+
+    .mode-btn.active {
+      background: #393939;
+      color: white;
+    }
+
+    .mode-btn:not(.active):hover {
+      background: #555555;
+      color: white;
+    }
+
+    .edit-mode .cell {
+      cursor: pointer;
+    }
+
+    .edit-mode .cell.selected {
+      box-shadow: 0 0 0 2px var(--primary-color);
+    }
+
+    .selection-mode .cell {
+      cursor: crosshair;
+    }
+
+    .grid-header {
+      position: relative;
+      z-index: 5;
+      margin-bottom: 15px;
+    }
+
+    .grid-scroll-area {
+      flex-grow: 1;
+      position: relative;
+      padding: 5px 0;
+    }
+
+    .grid-content-wrapper {
+      padding-top: 10px;
+    }
+
+    .loader {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255, 255, 255, 0.8);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+
+    .loader-spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid var(--primary-color);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 10px;
+    }
+
+    .loader-text {
+      color: var(--text-dark);
+      font-size: 14px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .confirmation-dialog {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      width: 300px;
+      z-index: 1000;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+
+    .confirmation-dialog p {
+      margin-bottom: 20px;
+    }
+
+    .confirmation-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: -6px;
+      margin-bottom: 8px;
+    }
+
+    .search-container {
+      position: relative;
+      width: 100%;
+    }
+
+    .dropdown-content {
+      display: none;
+      position: absolute;
+      background-color: #f9f9f9;
+      width: 100%;
+      box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+      z-index: 1;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+    }
+
+    .dropdown-content a {
+      color: black;
+      padding: 8px 12px;
+      text-decoration: none;
+      display: block;
+    }
+
+    .dropdown-content a:hover {
+      background-color: #f1f1f1;
+    }
+
+    .styled-input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-size: 13px;
+      background: #fff;
+      color: var(--text-dark);
+      transition: border-color 0.2s;
+      box-sizing: border-box;
+      appearance: none;
+    }
+
+    .styled-input:focus {
+      border-color: var(--primary-color);
+      outline: none;
+    }
+
+    #componentDisplay {
+      background-color: var(--bg-secondary);
+      padding: 12px;
+      border-radius: 6px;
+      margin: 12px 0;
+      border: 1px solid var(--border-color);
+    }
+    .component-info {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .component-info span {
+      font-weight: bold;
+      color: var(--text-dark);
+    }
+
+    .header-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--header-cols, 5), 30px);
+      grid-gap: 6px;
+      margin-bottom: 8px;
+    }
+    .header-cell {
+      background: #e3f0ff;
+      color: #1a3a5d;
+      font-weight: bold;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 30px;
+      font-size: 11px;
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--footer-cols, 5), 30px);
+      grid-gap: 6px;
+      margin-top: 8px;
+    }
+    .footer-cell {
+      background: #f7e3ff;
+      color: #5d1a3a;
+      font-weight: bold;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 30px;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <div id="propertyEditorOverlay"></div>
+  <div class="container">
+    <h2 style="padding-bottom: 10px;">Table Generator 2.0</h2>
+    <div id="landingPage">
+      <p style="padding-bottom: 10px;">Select a table cell component in Figma, then configure your table</p>
+    </div>
+
+    <div id="statusMessage" class="status">
+      Please select a table cell instance in Figma...
+    </div>
+
+    <div id="componentDisplay" style="display: none;">
+      <div class="component-info" id="headerComponent">Header: <span>None</span></div>
+      <div class="component-info" id="bodyComponent">Body: <span>None</span></div>
+      <div class="component-info" id="footerComponent">Footer: <span>None</span></div>
+      <p class="hint">Components are identified by name (e.g., 'header', 'body', 'footer').</p>
+    </div>
+
+    <div id="gridContainer" class="grid-container" style="display:none">
+      <div class="grid-header">
+        <h3>Edit Cell Properties</h3>
+      </div>
+      <div class="grid-scroll-area">
+        <div class="grid-content-wrapper">
+          <div id="headerGrid" class="header-grid"></div>
+          <div class="grid" id="grid"></div>
+          <div class="grid-highlight" id="gridHighlight"></div>
+        </div>
+      </div>
+      <div id="footerGrid" class="footer-grid"></div>
+    </div>
+
+    <div class="button-group" style="display:none" id="actionButtons">
+      <button id="clearSelectionBtn" class="btn btn-danger">Reset Table</button>
+      <button id="createTableBtn" class="btn btn-primary" disabled>Create Table</button>
+    </div>
+
+    <div id="propertyEditor">
+      <h3 id="propertyEditorTitle" style="margin-bottom: 10px;">Cell Properties <span id="editingCellCoords"></span></h3>
+
+      <div class="apply-options">
+        <div class="apply-option" data-apply="cell">Apply to cell</div>
+        <div class="apply-option" data-apply="row">Apply to row</div>
+        <div class="apply-option active" data-apply="column">Apply to column</div>
+      </div>
+
+      <div class="property-section" id="staticPropertySection">
+        <div class="property-field" id="makeColumnCheckboxContainer" style="display: none;">
+          <div class="property-field checkbox">
+            <input type="checkbox" id="makeColumnCheckbox">
+            <label for="makeColumnCheckbox" style="margin-bottom: 0px;">Use Checkbox for this Column</label>
+          </div>
+        </div>
+        <div class="property-field" style="display: none;">
+          <label for="state">State</label>
+          <select id="state" class="styled-input">
+            <option value="Enabled">Enabled</option>
+            <option value="Disabled">Disabled</option>
+            <option value="Focus">Focus</option>
+          </select>
+        </div>
+      </div>
+      <div class="property-section" id="bodyOnlyPropertySection">
+        <div class="property-field checkbox">
+          <input type="checkbox" id="generateSampleCheckbox">
+          <label for="generateSampleCheckbox" style="margin-bottom: 0px;">Generate sample data using AI</label>
+        </div>
+        <div class="form-group" id="aiPromptContainer" style="display: none;">
+          <div class="search-container">
+            <input type="text" id="fakerMethodInput" style="margin-bottom: 10px;" class="styled-input" autocomplete="off" placeholder="e.g., name.firstName">
+            <div id="fakerDropdown" class="dropdown-content"></div>
+          </div>
+        </div>
+        <div class="property-field checkbox">
+          <input type="checkbox" id="showText" checked>
+          <label for="showText" style="margin-bottom: 0px;">Show text</label>
+        </div>
+        <div class="property-field" id="cellTextContainer">
+          <label for="cellText">Cell text</label>
+          <input type="text" id="cellText" class="styled-input" placeholder="Content">
+        </div>
+        <div class="property-field checkbox" id="secondLineContainer" style="display: none;">
+          <input type="checkbox" id="secondTextLine">
+          <label for="secondTextLine">Second text line</label>
+        </div>
+        <div class="property-field" id="secondCellTextContainer" style="display: none;">
+          <label for="secondCellText">Second cell text</label>
+          <input type="text" id="secondCellText" class="styled-input" placeholder="Secondary cell text">
+        </div>
+        <div class="property-field checkbox">
+          <input type="checkbox" id="slotCheckbox">
+          <label for="slotCheckbox">Slot</label>
+        </div>
+      </div>
+
+      <div id="dynamicPropertyFields"></div>
+      <div class="property-field" id="colWidthContainer" style="display: none;">
+        <label for="colWidthInput">Column width</label>
+        <input type="number" id="colWidthInput" class="styled-input" min="1" placeholder="Enter width">
+      </div>
+
+      <div class="property-actions">
+        <button id="cancelPropsBtn" class="btn btn-danger">Cancel</button>
+        <button id="savePropsBtn" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+
+    <div class="loader" id="loader">
+      <div class="loader-spinner"></div>
+      <div class="loader-text" id="loaderText">Creating table...</div>
+    </div>
+
+    <div class="confirmation-dialog" id="aiConfirmationDialog">
+      <p>This will clear your current selection. Do you want to proceed with AI data generation?</p>
+      <div class="confirmation-actions">
+        <button id="cancelAiBtn" class="btn btn-danger">Cancel</button>
+        <button id="confirmAiBtn" class="btn btn-primary">Continue</button>
+      </div>
+    </div>
+
+    <div id="message"></div>
+  </div>
+</body>
+</html> 
