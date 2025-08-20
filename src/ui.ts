@@ -59,7 +59,6 @@ interface Elements {
   propertyEditorTitle: HTMLElement;
   editingCellCoords: HTMLElement;
   showText: HTMLInputElement;
-  cellText: HTMLInputElement;
   secondTextLine: HTMLInputElement;
   secondCellText: HTMLInputElement;
   state: HTMLSelectElement;
@@ -70,7 +69,6 @@ interface Elements {
   generateDataBtn: HTMLButtonElement;
   cancelPropsBtn: HTMLButtonElement;
   savePropsBtn: HTMLButtonElement;
-  cellTextContainer: HTMLElement;
   secondLineContainer: HTMLElement;
   secondCellTextContainer: HTMLElement;
   selectionActions: HTMLElement;
@@ -86,6 +84,9 @@ interface Elements {
   colWidthInput: HTMLInputElement;
   colWidthContainer: HTMLElement;
   slotCheckbox: HTMLInputElement;
+  customCellTextToggle: HTMLInputElement;
+  customCellText: HTMLInputElement;
+  customCellTextContainer: HTMLElement;
   landingPage: HTMLElement;
   componentModeBtn: HTMLButtonElement;
   propertyEditorOverlay: HTMLElement;
@@ -139,8 +140,8 @@ const HEADER_CELL_MODEL = [
   { name: "Cell text#12234:32", label: "Header Text", type: "TEXT" },
   { name: "Size", label: "Size", type: "VARIANT", options: ["Extra large", "Large", "Small"] },
   { name: "State", label: "State", type: "VARIANT", options: ["Enabled", "Disabled", "Focus"] },
-  { name: "Sorted", label: "Sorted", type: "VARIANT", options: ["None", "Ascending", "Descending"] },
-  { name: "Sortable", label: "Sortable", type: "VARIANT", options: ["True", "False"] }
+  { name: "Sortable", label: "Sortable", type: "VARIANT", options: ["True", "False"], defaultValue: "False" },
+  { name: "Sorted", label: "Sorted", type: "VARIANT", options: ["Ascending", "Descending"], defaultValue: "Ascending", dependsOn: "Sortable", showWhen: "True" }
 ];
 const FOOTER_MODEL = [
   { name: "Total items#12006:49", label: "Total items", type: "TEXT" },
@@ -166,14 +167,12 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.propertyEditorTitle = document.getElementById('propertyEditorTitle')!;
   elements.editingCellCoords = document.getElementById('editingCellCoords')!;
   elements.showText = document.getElementById('showText') as HTMLInputElement;
-  elements.cellText = document.getElementById('cellText') as HTMLInputElement;
   elements.secondTextLine = document.getElementById('secondTextLine') as HTMLInputElement;
   elements.secondCellText = document.getElementById('secondCellText') as HTMLInputElement;
   elements.state = document.getElementById('state') as HTMLSelectElement;
   elements.generateDataBtn = document.getElementById('generateDataBtn') as HTMLButtonElement;
   elements.cancelPropsBtn = document.getElementById('cancelPropsBtn') as HTMLButtonElement;
   elements.savePropsBtn = document.getElementById('savePropsBtn') as HTMLButtonElement;
-  elements.cellTextContainer = document.getElementById('cellTextContainer')!;
   elements.secondLineContainer = document.getElementById('secondLineContainer')!;
   elements.secondCellTextContainer = document.getElementById('secondCellTextContainer')!;
   elements.loader = document.getElementById('loader')!;
@@ -187,6 +186,9 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.colWidthInput = document.getElementById('colWidthInput') as HTMLInputElement;
   elements.colWidthContainer = document.getElementById('colWidthContainer')!;
   elements.slotCheckbox = document.getElementById('slotCheckbox') as HTMLInputElement;
+  elements.customCellTextToggle = document.getElementById('customCellTextToggle') as HTMLInputElement;
+  elements.customCellText = document.getElementById('customCellText') as HTMLInputElement;
+  elements.customCellTextContainer = document.getElementById('customCellTextContainer')!;
   elements.landingPage = document.getElementById('landingPage')!;
   elements.componentModeBtn = document.getElementById('componentModeBtn') as HTMLButtonElement;
   elements.propertyEditorOverlay = document.getElementById('propertyEditorOverlay')!;
@@ -278,45 +280,76 @@ function createGrid() {
   updateCreateButtonState();
 }
 
+// Handle apply option clicks
+function handleApplyOptionClick(this: HTMLElement) {
+  console.log(`[DEBUG] Apply option clicked: ${this.dataset.apply}`);
+  console.log(`[DEBUG] Current element:`, this);
+  console.log(`[DEBUG] Element dataset:`, this.dataset);
+  console.log(`[DEBUG] Element text content:`, this.textContent);
+  console.log(`[DEBUG] Element classes before:`, this.className);
+  
+  // Remove active class from all options
+  document.querySelectorAll('.apply-option').forEach(opt => {
+    opt.classList.remove('active');
+    console.log(`[DEBUG] Removed active from:`, opt.textContent);
+  });
+  
+  // Add active class to clicked option
+  this.classList.add('active');
+  console.log(`[DEBUG] Added active to:`, this.textContent);
+  console.log(`[DEBUG] Element classes after:`, this.className);
+  
+  // Update state
+  const newApplyMode = this.dataset.apply as 'cell' | 'row' | 'column';
+  state.applyMode = newApplyMode;
+  console.log(`[DEBUG] Apply mode changed to: ${state.applyMode}`);
+  
+  // Show column width option only for cell and column apply modes
+  if (state.applyMode === 'cell' || state.applyMode === 'column') {
+    elements.colWidthContainer.style.display = 'block';
+    console.log(`[DEBUG] Showing column width option for ${state.applyMode} mode`);
+  } else {
+    elements.colWidthContainer.style.display = 'none';
+    console.log(`[DEBUG] Hiding column width option for ${state.applyMode} mode`);
+  }
+  
+  // Note: We no longer need to re-render the property editor when apply mode changes
+  // since all properties are now available for all apply modes
+  console.log(`[DEBUG] Apply mode changed to: ${state.applyMode} - no re-rendering needed`);
+}
+
 function setupEventListeners() {
   elements.clearSelectionBtn.addEventListener('click', resetTableProperties);
   elements.createTableBtn.addEventListener('click', createTable);
   elements.cancelPropsBtn.addEventListener('click', closePropertyEditor);
   elements.propertyEditorOverlay.addEventListener('click', closePropertyEditor);
   elements.savePropsBtn.addEventListener('click', saveCellProperties);
-  elements.showText.addEventListener('change', function (this: HTMLInputElement) {
+  elements.customCellTextToggle.addEventListener('change', function (this: HTMLInputElement) {
     const show = this.checked;
-    elements.cellTextContainer.style.display = show ? 'block' : 'none';
-    elements.secondLineContainer.style.display = show ? 'flex' : 'none';
-    if (!show && elements.secondTextLine) {
-      elements.secondTextLine.checked = false;
-      elements.secondCellTextContainer.style.display = 'none';
+    elements.customCellTextContainer.style.display = show ? 'block' : 'none';
+    // Only show second line if custom cell text is enabled
+    if (show) {
+      elements.secondLineContainer.style.display = 'flex';
+    } else {
+      elements.secondLineContainer.style.display = 'none';
+      if (elements.secondTextLine) {
+        elements.secondTextLine.checked = false;
+        elements.secondCellTextContainer.style.display = 'none';
+      }
     }
   });
   elements.secondTextLine.addEventListener('change', function (this: HTMLInputElement) {
     elements.secondCellTextContainer.style.display = this.checked ? 'block' : 'none';
   });
   document.querySelectorAll('.apply-option').forEach(option => {
-    option.addEventListener('click', function (this: HTMLElement) {
-      document.querySelectorAll('.apply-option').forEach(opt => opt.classList.remove('active'));
-      this.classList.add('active');
-      state.applyMode = this.dataset.apply as 'cell' | 'row' | 'column';
-      // Show/hide col width input
-      if (state.applyMode === 'column') {
-        elements.colWidthContainer.style.display = 'block';
-      } else {
-        elements.colWidthContainer.style.display = 'none';
-      }
-      // Re-render property editor if open
-      if (state.currentEditingCell && elements.propertyEditor.style.display === 'block') {
-        openPropertyEditor(state.currentEditingCell);
-      }
-    });
+    option.addEventListener('click', handleApplyOptionClick);
   });
   elements.generateSampleCheckbox.addEventListener('change', () => {
     const isChecked = elements.generateSampleCheckbox.checked;
-    elements.cellText.disabled = isChecked;
+    elements.customCellText.disabled = isChecked;
     elements.aiPromptContainer.style.display = isChecked ? 'block' : 'none';
+    // Disable custom cell text toggle when AI generation is enabled
+    elements.customCellTextToggle.disabled = isChecked;
   });
   document.addEventListener('mouseover', function (e) {
     const target = e.target as HTMLElement;
@@ -359,6 +392,9 @@ function updateModeDependentVisibility() {
 
 function resetTableProperties() {
   state.cellProperties.clear();
+  state.selectedCells.clear();
+  state.currentEditingCell = null;
+  state.sizeConfirmed = false;
   updateCellVisuals();
   showMessage("All cell properties have been reset.", "success");
 }
@@ -403,18 +439,22 @@ function getCellState(key: string) {
 function createTable() {
   showLoader('Generating table...');
 
-  // Consolidate property collection
+  // Consolidate property collection for ALL cells in the grid
   const propsForFigma: { [key: string]: any } = {};
-  state.selectedCells.forEach(key => {
-    const [row, col] = key.split(',').map(Number);
-    const backendKey = `${row - 1}-${col - 1}`;
-    const cellData = state.cellProperties.get(key);
-    if (cellData) {
-      propsForFigma[backendKey] = cellData;
-    } else {
-      propsForFigma[backendKey] = { properties: {} };
+  
+  // Collect properties for all body cells
+  for (let r = 1; r <= state.gridRows; r++) {
+    for (let c = 1; c <= state.gridCols; c++) {
+      const key = `${r},${c}`;
+      const backendKey = `${r - 1}-${c - 1}`;
+      const cellData = state.cellProperties.get(key);
+      if (cellData) {
+        propsForFigma[backendKey] = cellData;
+      } else {
+        propsForFigma[backendKey] = { properties: {} };
+      }
     }
-  });
+  }
 
   // --- Add header cell properties ---
   for (let c = 1; c <= state.gridCols; c++) {
@@ -453,6 +493,7 @@ function createTable() {
   };
 
   console.log(`🚀 Sending to Figma (${isUpdate ? 'Update' : 'Create'}):`, message);
+  console.log(`🚀 cellProps keys:`, Object.keys(propsForFigma));
 
   parent.postMessage({ pluginMessage: message }, '*');
 }
@@ -565,7 +606,14 @@ function renderDynamicPropertyFields(availableProps: string[], propertyTypes: { 
   };
 
   for (const propName of availableProps) {
-    if (propName === 'Size' && state.applyMode !== 'row') continue;
+    // Size property is now available for all apply modes (cell, row, column)
+    // if (propName === 'Size' && state.applyMode !== 'row') continue;
+    
+    // Skip "Cell text" property since we now have custom cell text functionality
+    if (propName.toLowerCase().includes('cell text') && !propName.toLowerCase().includes('second')) {
+      continue; // Skip this field entirely
+    }
+    
     const type = propertyTypes[propName];
     const label = labelMap[propName] || cleanPropName(propName);
     const value = props[propName] ?? '';
@@ -614,6 +662,11 @@ function renderDynamicPropertyFields(availableProps: string[], propertyTypes: { 
         });
       }
     } else if (type === 'BOOLEAN') {
+      // Skip creating "Show text" checkbox - always hide it
+      if (label.toLowerCase().includes('show text')) {
+        continue; // Skip this field entirely
+      }
+      
       field = document.createElement('div');
       field.className = 'property-field checkbox';
       const input = document.createElement('input');
@@ -666,13 +719,12 @@ function renderDynamicPropertyFields(availableProps: string[], propertyTypes: { 
       fieldCount++;
     }
   }
-  // After all fields are rendered, ensure Cell text is hidden if Show text is unchecked
-  const showTextCheckbox = container.querySelector('input[type="checkbox"][id^="dynamic-Show text"]') as HTMLInputElement;
+  // Since we're hiding the "Show text" checkbox, always show the Cell text field
   const cellTextInput = container.querySelector('input[type="text"][id^="dynamic-Cell text"]') as HTMLInputElement;
-  if (showTextCheckbox && cellTextInput) {
+  if (cellTextInput) {
     const cellTextField = cellTextInput.parentElement as HTMLElement;
     if (cellTextField) {
-      cellTextField.style.display = showTextCheckbox.checked ? '' : 'none';
+      cellTextField.style.display = ''; // Always show cell text field
     }
   }
   // After all fields are rendered, ensure Second cell text is hidden if Second text line is unchecked
@@ -684,27 +736,10 @@ function renderDynamicPropertyFields(availableProps: string[], propertyTypes: { 
       secondCellTextField.style.display = secondTextLineCheckbox.checked ? '' : 'none';
     }
   }
-  // --- Hide dynamic Second text line checkbox if Show text is not checked ---
-  const secondLineContainerDyn = secondTextLineCheckbox?.parentElement as HTMLElement;
-  if (secondLineContainerDyn && showTextCheckbox) {
-    secondLineContainerDyn.style.display = showTextCheckbox.checked ? '' : 'none';
-    if (!showTextCheckbox.checked) {
-      secondTextLineCheckbox.checked = false;
-      if (secondCellTextInput) {
-        const secondCellTextField = secondCellTextInput.parentElement as HTMLElement;
-        if (secondCellTextField) secondCellTextField.style.display = 'none';
-      }
-    }
-    showTextCheckbox.addEventListener('change', function () {
-      secondLineContainerDyn.style.display = this.checked ? '' : 'none';
-      if (!this.checked) {
-        secondTextLineCheckbox.checked = false;
-        if (secondCellTextInput) {
-          const secondCellTextField = secondCellTextInput.parentElement as HTMLElement;
-          if (secondCellTextField) secondCellTextField.style.display = 'none';
-        }
-      }
-    });
+  // Since we're hiding the "Show text" checkbox, always show the second text line container
+  if (secondTextLineCheckbox && secondTextLineCheckbox.parentElement) {
+    const secondLineContainerDyn = secondTextLineCheckbox.parentElement as HTMLElement;
+    secondLineContainerDyn.style.display = ''; // Always show second text line container
   }
   console.log('[DEBUG] renderDynamicPropertyFields created fields:', fieldCount);
 }
@@ -716,10 +751,29 @@ function renderDynamicPropertyFieldsFromModel(model: any[], props: any) {
   container.style.border = '';
   container.style.background = '';
   let fieldCount = 0;
+  
+  console.log('[DEBUG] renderDynamicPropertyFieldsFromModel called with props:', props);
+  
   for (const fieldDef of model) {
-    if (fieldDef.name === 'Size' && state.applyMode !== 'row') continue;
-    const { name, label, type, options } = fieldDef;
-    const value = props[name] ?? '';
+    // Size property is now available for all apply modes (cell, row, column)
+    // if (fieldDef.name === 'Size' && state.applyMode !== 'row') continue;
+    
+    const { name, label, type, options, defaultValue, dependsOn, showWhen } = fieldDef;
+    
+    // Check if field should be shown based on dependencies
+    if (dependsOn && showWhen !== undefined) {
+      const dependentValue = props[dependsOn];
+      console.log(`[DEBUG] Checking dependency for ${name}: dependsOn=${dependsOn}, showWhen=${showWhen}, currentValue=${dependentValue}`);
+      if (String(dependentValue) !== String(showWhen)) {
+        console.log(`[DEBUG] Skipping ${name} - dependency condition not met`);
+        continue; // Skip this field if dependency condition is not met
+      }
+      console.log(`[DEBUG] Showing ${name} - dependency condition met`);
+    }
+    
+    // Use default value if no value is set
+    const value = props[name] ?? defaultValue ?? '';
+    
     let field: HTMLElement | null = null;
     if (type === 'VARIANT') {
       field = document.createElement('div');
@@ -727,6 +781,7 @@ function renderDynamicPropertyFieldsFromModel(model: any[], props: any) {
       const select = document.createElement('select');
       select.className = 'styled-input';
       select.id = `dynamic-${name}`;
+      
       for (const opt of options || []) {
         const option = document.createElement('option');
         option.value = opt;
@@ -734,10 +789,43 @@ function renderDynamicPropertyFieldsFromModel(model: any[], props: any) {
         if (String(value) === opt) option.selected = true;
         select.appendChild(option);
       }
+      
       const labelEl = document.createElement('label');
       labelEl.textContent = label;
       field.appendChild(labelEl);
       field.appendChild(select);
+      
+      // Add change event listener for all fields to handle dependencies
+      select.addEventListener('change', () => {
+        // Update the props object with the new value
+        props[name] = select.value;
+        console.log(`[DEBUG] Field ${name} changed to: ${select.value}`);
+        
+        // Check if this field is a dependency for other fields
+        const hasDependentFields = model.some(field => field.dependsOn === name);
+        if (hasDependentFields) {
+          console.log(`[DEBUG] Field ${name} has dependent fields, re-rendering form`);
+          
+          // Collect all current field values before re-rendering
+          const currentValues = { ...props };
+          for (const fieldDef of model) {
+            const input = document.getElementById(`dynamic-${fieldDef.name}`) as HTMLInputElement | HTMLSelectElement;
+            if (input) {
+              if (fieldDef.type === 'BOOLEAN') {
+                currentValues[fieldDef.name] = (input as HTMLInputElement).checked;
+              } else {
+                currentValues[fieldDef.name] = input.value;
+              }
+            }
+          }
+          
+          console.log(`[DEBUG] Collected current values before re-render:`, currentValues);
+          
+          // Re-render the form to show/hide dependent fields with preserved values
+          renderDynamicPropertyFieldsFromModel(model, currentValues);
+        }
+      });
+      
     } else if (type === 'BOOLEAN') {
       field = document.createElement('div');
       field.className = 'property-field checkbox';
@@ -762,12 +850,15 @@ function renderDynamicPropertyFieldsFromModel(model: any[], props: any) {
       field.appendChild(labelEl);
       field.appendChild(input);
     }
+    
     if (field) {
       container.appendChild(field);
       fieldCount++;
     }
   }
+  
   console.log('[DEBUG] renderDynamicPropertyFieldsFromModel created fields:', fieldCount);
+  console.log('[DEBUG] Final props state:', props);
 }
 
 function renderBodyCellProperties(availableProps: string[], propertyTypes: { [key: string]: any }, props: any) {
@@ -790,14 +881,29 @@ function renderBodyCellProperties(availableProps: string[], propertyTypes: { [ke
   const hasSlotProp = availableProps.some(p => p.toLowerCase().includes('slot'));
 
   // Hide text-related fields that duplicate dynamic properties
-  if (hasShowTextProp) {
+  if (hasShowTextProp && elements.showText) {
     const showTextField = elements.showText.parentElement;
     if (showTextField) showTextField.style.display = 'none';
   }
   
+  // Always show custom cell text toggle for body cells
+  if (elements.customCellTextToggle) {
+    const customCellTextField = elements.customCellTextToggle.parentElement;
+    if (customCellTextField) customCellTextField.style.display = '';
+    // Ensure the custom cell text input is shown when toggle is checked
+    if (elements.customCellTextToggle.checked && elements.customCellTextContainer) {
+      elements.customCellTextContainer.style.display = 'block';
+      console.log('[DEBUG] Setting customCellTextContainer display to block in renderBodyCellProperties');
+    }
+  }
+  
   if (hasCellTextProp) {
-    const cellTextField = elements.cellTextContainer;
+    const cellTextField = elements.customCellTextContainer;
     if (cellTextField) cellTextField.style.display = 'none';
+  } else {
+    // Show cell text container if no dynamic cell text property exists
+    const cellTextField = elements.customCellTextContainer;
+    if (cellTextField) cellTextField.style.display = 'block';
   }
   
   if (hasSecondTextProp) {
@@ -813,9 +919,15 @@ function renderBodyCellProperties(availableProps: string[], propertyTypes: { [ke
   }
   
   // Ensure "Generate sample data using AI" and "Column width" are always visible for body cells.
-  elements.generateSampleCheckbox.parentElement!.style.display = '';
-  elements.aiPromptContainer.style.display = elements.generateSampleCheckbox.checked ? 'block' : 'none';
-  elements.colWidthContainer.style.display = 'block';
+  if (elements.generateSampleCheckbox && elements.generateSampleCheckbox.parentElement) {
+    elements.generateSampleCheckbox.parentElement.style.display = '';
+  }
+  if (elements.aiPromptContainer) {
+    elements.aiPromptContainer.style.display = elements.generateSampleCheckbox?.checked ? 'block' : 'none';
+  }
+  if (elements.colWidthContainer) {
+    elements.colWidthContainer.style.display = 'block';
+  }
 }
 
 // Helper to update static fields visibility and values for body cells
@@ -833,19 +945,47 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
   }
 
   // Show/hide static fields
-  const showTextField = elements.showText.parentElement;
-  if (showTextField) showTextField.style.display = showTextPropKey ? 'none' : '';
-  elements.cellTextContainer.style.display = cellTextPropKey ? 'none' : (elements.showText.checked ? '' : 'none');
-  elements.secondLineContainer.style.display = secondTextPropKey ? 'none' : (elements.showText.checked ? '' : 'none');
-  elements.secondCellTextContainer.style.display = secondTextPropKey ? 'none' : (elements.showText.checked && !!elements.secondCellText.value ? 'block' : 'none');
+  if (elements.showText) {
+    const showTextField = elements.showText.parentElement;
+    if (showTextField) showTextField.style.display = 'none'; // Always hide show text checkbox
+  }
+  // Set custom cell text toggle to checked by default and show the input
+  if (elements.customCellTextToggle) {
+    elements.customCellTextToggle.checked = true;
+    // Ensure the input is shown when toggle is checked by default
+    if (elements.customCellTextContainer) {
+      elements.customCellTextContainer.style.display = cellTextPropKey ? 'none' : 'block';
+      console.log('[DEBUG] Setting customCellTextContainer display to', cellTextPropKey ? 'none' : 'block', 'in updateStaticFieldsVisibilityAndValues');
+    }
+  }
+  elements.secondLineContainer.style.display = secondTextPropKey ? 'none' : (!!elements.secondCellText.value && elements.customCellTextToggle?.checked ? '' : 'none');
+  elements.secondCellTextContainer.style.display = secondTextPropKey ? 'none' : (!!elements.secondCellText.value && elements.customCellTextToggle?.checked ? 'block' : 'none');
   const slotField = elements.slotCheckbox.parentElement;
   if (slotField) slotField.style.display = slotPropKey ? 'none' : '';
   const stateField = elements.state.parentElement;
   if(stateField) stateField.style.display = statePropKey ? 'none' : '';
 
   // Populate static fields from props or reset to default
-  elements.showText.checked = showTextPropKey ? (props[showTextPropKey] || false) : false;
-  elements.cellText.value = cellTextPropKey ? (props[cellTextPropKey] || '') : '';
+  if (elements.showText) {
+    elements.showText.checked = showTextPropKey ? (props[showTextPropKey] || false) : true; // Always default to true since checkbox is hidden
+  }
+  if (elements.customCellTextToggle) {
+    elements.customCellTextToggle.checked = true; // Always default to true for custom cell text
+  }
+  // Set custom cell text value - show component default if no custom text is set
+  if (cellTextPropKey && props[cellTextPropKey]) {
+    // Use the custom text if it exists
+    elements.customCellText.value = props[cellTextPropKey];
+  } else if (state.selectedComponent && state.selectedComponent.properties && cellTextPropKey) {
+    // Show the component's default text as a placeholder/example
+    const defaultText = state.selectedComponent.properties[cellTextPropKey] || 'Content';
+    elements.customCellText.value = defaultText;
+    elements.customCellText.placeholder = `Default: ${defaultText}`;
+    console.log('[DEBUG] Setting custom cell text to component default:', defaultText);
+  } else {
+    elements.customCellText.value = '';
+    elements.customCellText.placeholder = 'Enter custom cell text';
+  }
   const secondTextValue = secondTextPropKey ? (props[secondTextPropKey] || '') : '';
   elements.secondCellText.value = secondTextValue;
   elements.secondTextLine.checked = !!secondTextValue;
@@ -856,12 +996,13 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
   elements.generateSampleCheckbox.checked = false;
   (document.getElementById('fakerMethodInput') as HTMLInputElement).value = '';
   elements.aiPromptContainer.style.display = 'none';
-  elements.cellText.disabled = false;
+  elements.customCellText.disabled = false;
+  elements.customCellTextToggle.disabled = false;
 
   // --- For static property fields ---
   if (elements.secondLineContainer && !secondTextPropKey) {
-    elements.secondLineContainer.style.display = elements.showText.checked ? '' : 'none';
-    if (!elements.showText.checked) {
+    elements.secondLineContainer.style.display = !!elements.secondCellText.value ? '' : 'none';
+    if (!elements.secondCellText.value) {
       elements.secondTextLine.checked = false;
       elements.secondCellTextContainer.style.display = 'none';
     }
@@ -870,25 +1011,124 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
 
 function openPropertyEditor(key: string) {
   if (state.mode !== 'edit') return;
+  
+  // If we don't have component info and this is a body cell, request it
+  if (!state.selectedComponent && !key.startsWith('header-') && key !== 'footer') {
+    console.log(`[openPropertyEditor] No component info available, requesting...`);
+    parent.postMessage({ 
+      pluginMessage: { 
+        type: 'request-component-info' 
+      } 
+    }, '*');
+    
+    // Wait for component info to be received before proceeding (with timeout)
+    let attempts = 0;
+    const maxAttempts = 20; // 1 second timeout (20 * 50ms)
+    
+    const waitForComponentInfo = () => {
+      attempts++;
+      if (state.selectedComponent) {
+        console.log(`[openPropertyEditor] Component info received, proceeding with editor`);
+        openPropertyEditorInternal(key); // Call the internal function now that we have component info
+      } else if (attempts < maxAttempts) {
+        setTimeout(waitForComponentInfo, 50);
+      } else {
+        console.log(`[openPropertyEditor] Timeout waiting for component info, proceeding with fallback`);
+        // Proceed with the editor anyway, using fallback logic
+        openPropertyEditorInternal(key);
+      }
+    };
+    waitForComponentInfo();
+    return;
+  }
+  
+  // Call the internal function to avoid infinite recursion
+  openPropertyEditorInternal(key);
+}
+
+function openPropertyEditorInternal(key: string) {
   try {
-    // Ensure colWidthContainer visibility is correct when opening the modal
-      if (state.applyMode === 'column') {
+    // Show column width option based on current apply mode
+    if (state.applyMode === 'cell' || state.applyMode === 'column') {
       elements.colWidthContainer.style.display = 'block';
+      console.log(`[DEBUG] Initial: Showing column width option for ${state.applyMode} mode`);
     } else {
       elements.colWidthContainer.style.display = 'none';
+      console.log(`[DEBUG] Initial: Hiding column width option for ${state.applyMode} mode`);
     }
-    // Hide 'apply to column' option for header cells, show for body cells
-    const applyToColumnOption = document.querySelector('.apply-option[data-apply="column"]') as HTMLElement;
-    if (applyToColumnOption) {
-      if (key.startsWith('header-')) {
-        applyToColumnOption.style.display = 'none';
-      } else {
-        applyToColumnOption.style.display = '';
+    // Set default apply mode and update tab visual state
+    if (key.startsWith('header-') || key === 'footer') {
+      // For header/footer cells, default to 'cell' mode
+      state.applyMode = 'cell';
+      // Update tab visual state
+      document.querySelectorAll('.apply-option').forEach(opt => opt.classList.remove('active'));
+      const cellOption = document.querySelector('.apply-option[data-apply="cell"]') as HTMLElement;
+      if (cellOption) {
+        cellOption.classList.add('active');
+      }
+    } else {
+      // For body cells, default to 'column' mode
+      state.applyMode = 'column';
+      // Update tab visual state
+      document.querySelectorAll('.apply-option').forEach(opt => opt.classList.remove('active'));
+      const columnOption = document.querySelector('.apply-option[data-apply="column"]') as HTMLElement;
+      if (columnOption) {
+        columnOption.classList.add('active');
       }
     }
+    
+    // Show all apply options for body cells, hide column option for header cells
+    const applyToCellOption = document.querySelector('.apply-option[data-apply="cell"]') as HTMLElement;
+    const applyToRowOption = document.querySelector('.apply-option[data-apply="row"]') as HTMLElement;
+    const applyToColumnOption = document.querySelector('.apply-option[data-apply="column"]') as HTMLElement;
+    
+    if (key.startsWith('header-')) {
+      // For header cells, show cell and row options (row makes sense for header)
+      if (applyToCellOption) applyToCellOption.style.display = '';
+      if (applyToRowOption) applyToRowOption.style.display = '';
+      if (applyToColumnOption) applyToColumnOption.style.display = 'none';
+    } else {
+      // For body cells, show all options
+      if (applyToCellOption) applyToCellOption.style.display = '';
+      if (applyToRowOption) applyToRowOption.style.display = '';
+      if (applyToColumnOption) applyToColumnOption.style.display = '';
+    }
+    
+    console.log(`[DEBUG] Apply options visibility for ${key}:`, {
+      cell: applyToCellOption?.style.display,
+      row: applyToRowOption?.style.display,
+      column: applyToColumnOption?.style.display
+    });
+    
+    // Re-attach event listeners to apply options in case they were recreated
+    const applyOptions = document.querySelectorAll('.apply-option');
+    console.log(`[DEBUG] Found ${applyOptions.length} apply options to attach listeners to`);
+    
+    applyOptions.forEach((option, index) => {
+      console.log(`[DEBUG] Attaching listener to option ${index}:`, option.textContent);
+      // Remove existing listeners to avoid duplicates
+      option.removeEventListener('click', handleApplyOptionClick);
+      // Add new listener
+      option.addEventListener('click', handleApplyOptionClick);
+      console.log(`[DEBUG] Listener attached to:`, option.textContent);
+    });
+    
     state.currentEditingCell = key;
+    
     let availableProps: string[] = state.selectedComponent?.availableProperties || [];
     let propertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
+    
+    console.log(`[DEBUG] Available properties for ${key}:`, availableProps);
+    console.log(`[DEBUG] Property types for ${key}:`, propertyTypes);
+    console.log(`[DEBUG] Size property available:`, availableProps.includes('Size'));
+    
+    // Add Size property if not available (for testing purposes)
+    if (!availableProps.includes('Size')) {
+      console.log(`[DEBUG] Adding Size property as fallback`);
+      availableProps.push('Size');
+      propertyTypes['Size'] = 'VARIANT';
+    }
+    
     let props: any = {};
     let label = '';
     // Get static property section element
@@ -919,6 +1159,14 @@ function openPropertyEditor(key: string) {
     if (key.startsWith('header-')) {
       const cellState = state.cellProperties.get(key);
       props = (cellState && cellState.properties) ? cellState.properties : {};
+      
+      // Apply default values for header cell properties
+      for (const fieldDef of HEADER_CELL_MODEL) {
+        if (fieldDef.defaultValue && props[fieldDef.name] === undefined) {
+          props[fieldDef.name] = fieldDef.defaultValue;
+        }
+      }
+      
       label = `Header ${key.split('-')[1]}`;
       console.log('[DEBUG] openPropertyEditor header', { props });
       renderDynamicPropertyFieldsFromModel(HEADER_CELL_MODEL, props);
@@ -937,24 +1185,49 @@ function openPropertyEditor(key: string) {
       renderDynamicPropertyFields(availableProps, propertyTypes, props);
     }
 
-    // Show col width checkbox for body cells, hide for header/footer
-    if (key.startsWith('header-') || key === 'footer') {
-      elements.colWidthContainer.style.display = 'none';
-    } else {
-      let width: number | undefined = undefined;
-      const col = key.split(',')[1];
-        const colCells = Array.from({length: state.gridRows}, (_, r) => `${r+1},${col}`);
-        for (const k of colCells) {
-          const cellState = state.cellProperties.get(k);
-          if (cellState && cellState.colWidth) {
-            width = cellState.colWidth;
-            break;
-          }
+    // Show col width for all cells (body, header, footer)
+    let width: number | undefined = undefined;
+    
+    if (key.startsWith('header-')) {
+      // For header cells, get width from the corresponding column
+      const col = key.split('-')[1];
+      const colCells = Array.from({length: state.gridRows}, (_, r) => `${r+1},${col}`);
+      for (const k of colCells) {
+        const cellState = state.cellProperties.get(k);
+        if (cellState && cellState.colWidth) {
+          width = cellState.colWidth;
+          break;
         }
+      }
+      if (width === undefined) {
+        width = state.headerCellComponent?.width || 100;
+      }
+      elements.colWidthContainer.style.display = 'block';
+      elements.colWidthInput.value = String(width);
+      console.log(`[DEBUG] Header cell ${key} - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
+    } else if (key === 'footer') {
+      // For footer, use a default width
+      width = state.footerComponent?.width || 100;
+      elements.colWidthContainer.style.display = 'block';
+      elements.colWidthInput.value = String(width);
+      console.log(`[DEBUG] Footer cell - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
+    } else {
+      // For body cells, get width from the column
+      const col = key.split(',')[1];
+      const colCells = Array.from({length: state.gridRows}, (_, r) => `${r+1},${col}`);
+      for (const k of colCells) {
+        const cellState = state.cellProperties.get(k);
+        if (cellState && cellState.colWidth) {
+          width = cellState.colWidth;
+          break;
+        }
+      }
       if (width === undefined) {
         width = state.selectedComponent?.width || 100;
       }
+      elements.colWidthContainer.style.display = 'block';
       elements.colWidthInput.value = String(width);
+      console.log(`[DEBUG] Body cell ${key} - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
     }
 
     // Set title and show editor
@@ -962,6 +1235,15 @@ function openPropertyEditor(key: string) {
     elements.editingCellCoords.textContent = label;
     elements.propertyEditorOverlay.style.display = 'block';
     elements.propertyEditor.style.display = 'block';
+    
+    // Final check: Ensure custom cell text input is shown for body cells if toggle is checked
+    if (!key.startsWith('header-') && key !== 'footer') {
+      if (elements.customCellTextToggle && elements.customCellTextToggle.checked && elements.customCellTextContainer) {
+        elements.customCellTextContainer.style.display = 'block';
+        console.log('[DEBUG] Final check: Setting customCellTextContainer display to block for body cell');
+      }
+    }
+    
     setTimeout(() => {
       elements.propertyEditor.style.opacity = '1';
     }, 10);
@@ -985,17 +1267,39 @@ async function saveCellProperties() {
       // Use HEADER_CELL_MODEL
       const newProps: any = {};
       for (const fieldDef of HEADER_CELL_MODEL) {
-        const { name, type } = fieldDef;
+        const { name, type, defaultValue } = fieldDef;
         const input = document.getElementById(`dynamic-${name}`) as HTMLInputElement | HTMLSelectElement;
         if (!input) continue;
         if (type === 'BOOLEAN') {
           newProps[name] = (input as HTMLInputElement).checked;
         } else {
-          newProps[name] = input.value;
+          newProps[name] = input.value || defaultValue || '';
         }
       }
-      console.log('[DEBUG] saveCellProperties header', key, newProps);
-      state.cellProperties.set(key, { properties: newProps });
+      
+      // Handle column width for header cells
+      let colWidth: number | undefined = undefined;
+      if (elements.colWidthInput.value) {
+        colWidth = parseInt(elements.colWidthInput.value, 10);
+      }
+      
+      const cellState = getCellState(key);
+      cellState.properties = newProps;
+      
+      // If column width is set, apply it to the entire column
+      if (colWidth) {
+        const col = key.split('-')[1];
+        const colCells = Array.from({length: state.gridRows}, (_, r) => `${r+1},${col}`);
+        for (const k of colCells) {
+          const colCellState = getCellState(k);
+          colCellState.colWidth = colWidth;
+        }
+        // Also set it for the header cell itself
+        cellState.colWidth = colWidth;
+      }
+      
+      console.log('[DEBUG] saveCellProperties header', key, newProps, 'colWidth:', colWidth);
+      state.cellProperties.set(key, cellState);
     } else if (key === 'footer') {
       // Use FOOTER_MODEL
       const newProps: any = {};
@@ -1009,8 +1313,30 @@ async function saveCellProperties() {
           newProps[name] = input.value;
         }
       }
-      console.log('[DEBUG] saveCellProperties footer', key, newProps);
-      state.cellProperties.set(key, { properties: newProps });
+      
+      // Handle column width for footer
+      let colWidth: number | undefined = undefined;
+      if (elements.colWidthInput.value) {
+        colWidth = parseInt(elements.colWidthInput.value, 10);
+      }
+      
+      const cellState = getCellState(key);
+      cellState.properties = newProps;
+      
+      // If column width is set, apply it to the entire table (all columns)
+      if (colWidth) {
+        for (let r = 1; r <= state.gridRows; r++) {
+          for (let c = 1; c <= state.gridCols; c++) {
+            const colCellState = getCellState(`${r},${c}`);
+            colCellState.colWidth = colWidth;
+          }
+        }
+        // Also set it for the footer cell itself
+        cellState.colWidth = colWidth;
+      }
+      
+      console.log('[DEBUG] saveCellProperties footer', key, newProps, 'colWidth:', colWidth);
+      state.cellProperties.set(key, cellState);
     } else {
       // Body cell: save properties without duplication
       const props: any = {};
@@ -1025,22 +1351,38 @@ async function saveCellProperties() {
       const hasSlotProp = availableProps.some(p => p.toLowerCase().includes('slot'));
       const hasStateProp = availableProps.some(p => p.toLowerCase() === 'state' && propertyTypes[p] === 'VARIANT');
       
-      // Save static properties only if they don't exist in dynamic properties
-      if (!hasShowTextProp) {
-        const showText = elements.showText.checked;
-        if (showText && elements.cellText.value) {
-          // Find the correct property key for cell text
-          let cellTextProp = availableProps.find(p => {
-            const type = propertyTypes[p];
-            return type === 'TEXT' && p.toLowerCase().includes('text') && !p.toLowerCase().includes('second');
-          }) || availableProps.find(p => p.toLowerCase().includes('text')) || 'Cell text#12234:16';
-          props[cellTextProp] = elements.cellText.value;
-        }
-        if (showText && elements.secondTextLine.checked && elements.secondCellText.value) {
-          // Find the correct property key for second text
-          let secondTextProp = availableProps.find(p => p.toLowerCase().includes('second')) || 'secondCellText';
-          props[secondTextProp] = elements.secondCellText.value;
-        }
+      // Save custom cell text if provided (regardless of dynamic properties)
+      const showText = elements.customCellTextToggle.checked;
+      const generateSampleData = elements.generateSampleCheckbox.checked;
+      
+      // Find the Show text property
+      const showTextProp = availableProps.find(p => {
+        const type = propertyTypes[p];
+        return type === 'BOOLEAN' && p.toLowerCase().includes('show') && p.toLowerCase().includes('text');
+      });
+      
+      // Turn off Show text if both custom text and AI generation are off
+      if (showTextProp && !showText && !generateSampleData) {
+        props[showTextProp] = false;
+        console.log('[DEBUG] Turning off Show text property:', showTextProp);
+      } else if (showTextProp && (showText || generateSampleData)) {
+        props[showTextProp] = true;
+        console.log('[DEBUG] Turning on Show text property:', showTextProp);
+      }
+      
+      if (showText && elements.customCellText.value) {
+        // Find the correct property key for cell text
+        let cellTextProp = availableProps.find(p => {
+          const type = propertyTypes[p];
+          return type === 'TEXT' && p.toLowerCase().includes('text') && !p.toLowerCase().includes('second');
+        }) || availableProps.find(p => p.toLowerCase().includes('text')) || 'Cell text#12234:16';
+        props[cellTextProp] = elements.customCellText.value;
+        console.log('[DEBUG] Saving custom cell text:', elements.customCellText.value, 'to property:', cellTextProp);
+      }
+      if (showText && elements.secondTextLine.checked && elements.secondCellText.value) {
+        // Find the correct property key for second text
+        let secondTextProp = availableProps.find(p => p.toLowerCase().includes('second')) || 'secondCellText';
+        props[secondTextProp] = elements.secondCellText.value;
       }
       if (!hasStateProp) {
         props['State'] = elements.state.value;
@@ -1055,6 +1397,11 @@ async function saveCellProperties() {
           props[propName] = (input as HTMLInputElement).checked;
         } else {
           props[propName] = input.value;
+        }
+        
+        // Special logging for Slot properties
+        if (propName.toLowerCase().includes('slot')) {
+          console.log(`🔍 UI: Saving Slot property: ${propName} = ${props[propName]} (type: ${type})`);
         }
       }
       
@@ -1154,32 +1501,63 @@ async function saveCellProperties() {
 
 function updateCellVisuals() {
   const availableProps: string[] = state.selectedComponent?.availableProperties || [];
+  console.log(`[updateCellVisuals] availableProps:`, availableProps);
+  console.log(`[updateCellVisuals] selectedComponent:`, state.selectedComponent);
+  
   // Update body cells
   document.querySelectorAll('.cell').forEach(cell => {
     const divCell = cell as HTMLDivElement;
     const key = `${divCell.dataset.row},${divCell.dataset.col}`;
     const props = state.cellProperties.get(key);
+    console.log(`[updateCellVisuals] Cell ${key}:`, props);
+    
     if (props && props.properties && Object.keys(props.properties).length > 0) {
       let displayText = '';
-      // Find any TEXT property to display as cell text
-      for (const propName of availableProps) {
-        const type = state.selectedComponent?.propertyTypes[propName];
-        if (type === 'TEXT' && props.properties[propName]) {
-          displayText += props.properties[propName];
-          break; // Use the first TEXT property found
+      
+      // If we have selectedComponent, use its property types
+      if (state.selectedComponent && availableProps.length > 0) {
+        // Find any TEXT property to display as cell text
+        for (const propName of availableProps) {
+          const type = state.selectedComponent.propertyTypes[propName];
+          if (type === 'TEXT' && props.properties[propName]) {
+            displayText += props.properties[propName];
+            break; // Use the first TEXT property found
+          }
+        }
+        // If no text and slot is checked, show empty
+        const slotProp = availableProps.find(p => p.toLowerCase().includes('slot')) || 'slot';
+        if (!displayText && props.properties[slotProp]) {
+          displayText = '';
+        }
+      } else {
+        // Fallback: look for common text property names in the loaded properties
+        const textProps = Object.keys(props.properties).filter(prop => 
+          prop.toLowerCase().includes('text') && 
+          !prop.toLowerCase().includes('second') &&
+          props.properties[prop] && 
+          typeof props.properties[prop] === 'string' &&
+          props.properties[prop].trim() !== ''
+        );
+        
+        if (textProps.length > 0) {
+          displayText = props.properties[textProps[0]];
+        }
+        
+        // Check for slot property
+        const slotProps = Object.keys(props.properties).filter(prop => 
+          prop.toLowerCase().includes('slot')
+        );
+        if (!displayText && slotProps.length > 0 && props.properties[slotProps[0]]) {
+          displayText = '';
         }
       }
-      // If no text and slot is checked, show empty
-      const slotProp = availableProps.find(p => p.toLowerCase().includes('slot')) || 'slot';
-      if (!displayText && props.properties[slotProp]) {
-        displayText = '';
-      }
+      
       if (!displayText) {
         displayText = `${divCell.dataset.row},${divCell.dataset.col}`;
         divCell.classList.remove('edited');
         divCell.style.fontWeight = 'normal';
       } else {
-      divCell.classList.add('edited');
+        divCell.classList.add('edited');
         divCell.style.fontWeight = 'bold';
       }
       divCell.textContent = displayText;
@@ -1258,9 +1636,34 @@ window.onmessage = (event) => {
   if (!domReady || !elements.grid) return;
   const msg = event.data.pluginMessage;
   if (!msg) return;
+  
+  console.log(`[UI] Received message: ${msg.type}`, msg);
 
   switch (msg.type) {
+    case "table-selected":
+      // Handle when a Data table component is selected
+      state.hasComponent = true;
+      showMessage(`Selected: Data table`, "success");
+      elements.gridContainer.style.display = "none";
+      elements.actionButtons.style.display = "none";
+      // Trigger scan-table to analyze the selected table with a small delay
+      showLoader('Scanning table...');
+      setTimeout(() => {
+        parent.postMessage({ pluginMessage: { type: 'scan-table' } }, '*');
+      }, 100);
+      break;
+
+
+
     case "component-selected":
+      // Reset state when a new component is selected
+      state.cellProperties.clear();
+      state.selectedCells.clear();
+      state.currentEditingCell = null;
+      state.sizeConfirmed = false;
+      state.tableFrameId = undefined;
+      console.log('[DEBUG] Reset state for new component selection');
+      
       state.hasComponent = msg.isValidComponent;
       showMessage(msg.isValidComponent ? `Selected: ${msg.componentName}` : "Please select a component.", msg.isValidComponent ? "success" : "error");
       elements.gridContainer.style.display = "none";
@@ -1281,11 +1684,14 @@ window.onmessage = (event) => {
 
     case "selection-cleared":
       state.hasComponent = false;
-      showMessage("Please select a table cell component.", "error");
-      elements.gridContainer.style.display = "none";
-      elements.actionButtons.style.display = "none";
-      state.selectedComponent = null;
-      elements.landingPage.style.display = 'block';
+      // Only show error if we're not currently editing an existing table
+      if (!state.tableFrameId) {
+        showMessage("Please select a table cell component.", "error");
+        elements.gridContainer.style.display = "none";
+        elements.actionButtons.style.display = "none";
+        state.selectedComponent = null;
+        elements.landingPage.style.display = 'block';
+      }
       break;
 
     case "table-created":
@@ -1299,6 +1705,9 @@ window.onmessage = (event) => {
       elements.propertyEditor.style.display = 'none';
       // Clear all cell properties after table is generated
       state.cellProperties.clear();
+      // Reset button text to "Create Table" for new tables
+      elements.createTableBtn.textContent = 'Create Table';
+      state.tableFrameId = undefined;
       break;
 
     case "fake-data-response":
@@ -1337,7 +1746,10 @@ window.onmessage = (event) => {
           const visibilityProp = getTextVisibilityProp();
 
           if (textProp) {
+            // Always apply AI data, clearing any existing text
+            // This ensures the latest AI-generated data takes precedence
             cellState.properties[textProp] = data;
+            console.log(`🔄 Applied AI data to cell ${cellKey}: "${data}"`);
           }
           if (visibilityProp) {
             // Ensure the text is visible
@@ -1415,6 +1827,14 @@ window.onmessage = (event) => {
 
       if (!msg.success) return;
 
+      // Reset state for new table generation
+      state.cellProperties.clear();
+      state.selectedCells.clear();
+      state.currentEditingCell = null;
+      state.sizeConfirmed = false;
+      state.tableFrameId = undefined;
+      console.log('[DEBUG] Reset state for new table generation');
+
       // Hide the initial landing page message
       elements.landingPage.style.display = 'none';
 
@@ -1468,8 +1888,10 @@ window.onmessage = (event) => {
           <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
               <input type="checkbox" id="scanHeaderToggle" checked> <label for="scanHeaderToggle" style="margin-right: 16px;">Header</label>
               <input type="checkbox" id="scanFooterToggle" ${details.footer ? 'checked' : ''}> <label for="scanFooterToggle" style="margin-right: 16px;">Footer</label>
-              <input type="checkbox" id="scanSelectableToggle" ${details.selectCellComponent ? 'checked' : ''}> <label for="scanSelectableToggle" style="margin-right: 16px;">Selectable</label>
-              <input type="checkbox" id="scanExpandableToggle" ${details.expandCellComponent ? 'checked' : ''}> <label for="scanExpandableToggle">Expandable</label>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+              <input type="checkbox" id="scanSelectableToggle"> <label for="scanSelectableToggle" style="margin-right: 16px;">Selectable</label>
+              <input type="checkbox" id="scanExpandableToggle"> <label for="scanExpandableToggle">Expandable</label>
           </div>
       `;
       // Insert scan options before the grid in the grid container
@@ -1550,39 +1972,153 @@ window.onmessage = (event) => {
       break;
 
     case "edit-existing-table":
-      // This case handles loading a previously generated table for editing
+      console.log(`[UI] Processing edit-existing-table with settings:`, msg.settings);
+      console.log(`[UI] cellProperties keys:`, Object.keys(msg.settings.cellProperties || {}));
       const settings = msg.settings;
       if (!settings) return;
       state.tableFrameId = msg.tableId;
 
-      // Hide landing page, show grid
+      // Reset state
+      state.selectedCells.clear();
+      state.sizeConfirmed = false;
+      state.currentEditingCell = null;
+      state.hasComponent = true; // Ensure this is true for generated tables
+
+      // Show UI
       elements.landingPage.style.display = 'none';
       elements.gridContainer.style.display = 'flex';
       elements.actionButtons.style.display = 'flex';
+      
+      console.log(`[UI] Showing grid and action buttons. Grid display: ${elements.gridContainer.style.display}, Action buttons display: ${elements.actionButtons.style.display}`);
 
       // Update state from settings
       state.gridRows = settings.rows || 5;
       state.gridCols = settings.columns || 5;
-      state.cellProperties = new Map(Object.entries(settings.cellProperties || {}));
+      
+      // Convert backend cell property keys (0-0, 0-1) to UI format (1,1, 1,2)
+      const convertedCellProperties = new Map();
+      if (settings.cellProperties) {
+        Object.entries(settings.cellProperties).forEach(([key, value]) => {
+          if (key === 'footer') {
+            // Keep footer as is
+            convertedCellProperties.set(key, value);
+          } else if (key.startsWith('header-')) {
+            // Keep header keys as is
+            convertedCellProperties.set(key, value);
+          } else if (key.includes('-')) {
+            // Convert "0-0" to "1,1" format (only for body cells)
+            const [row, col] = key.split('-').map(Number);
+            const uiKey = `${row + 1},${col + 1}`;
+            convertedCellProperties.set(uiKey, value);
+          }
+        });
+      }
+      state.cellProperties = convertedCellProperties;
+      console.log(`[UI] Converted cell properties:`, Array.from(convertedCellProperties.keys()));
 
       // Create grid and update visuals
       createGrid();
-      updateCellVisuals();
+      
+      // Request component information from backend for proper display
+      console.log(`[UI] Requesting component info from backend...`);
+      parent.postMessage({ 
+        pluginMessage: { 
+          type: 'request-component-info' 
+        } 
+      }, '*');
+      
+      // Update visuals after a short delay to allow component info to load
+      setTimeout(() => {
+        updateCellVisuals();
+      }, 100);
 
-      // Update UI controls to match settings
-      const rowsInput = document.getElementById('scanRowsInput') as HTMLInputElement;
-      const colsInput = document.getElementById('scanColsInput') as HTMLInputElement;
-      const headerToggleEdit = document.getElementById('scanHeaderToggle') as HTMLInputElement;
-      const footerToggleEdit = document.getElementById('scanFooterToggle') as HTMLInputElement;
-      const selectableToggleEdit = document.getElementById('scanSelectableToggle') as HTMLInputElement;
-      const expandableToggleEdit = document.getElementById('scanExpandableToggle') as HTMLInputElement;
+      // Create scan options for editing existing table
+      if (!elements.scanOptionsContainer) {
+        const optionsDiv = document.createElement('div');
+        optionsDiv.id = 'scanOptionsContainer';
+        optionsDiv.style.display = 'flex';
+        optionsDiv.style.flexDirection = 'column';
+        optionsDiv.style.alignItems = 'flex-start';
+        optionsDiv.style.marginBottom = '12px';
+        optionsDiv.style.gap = '0px';
+        optionsDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; width: 100%; justify-content: flex-start;">
+                <label style="margin-right: 8px;">Rows: <input type="number" id="scanRowsInput" class="styled-input" value="${state.gridRows}" min="1" style="width: 60px;"></label>
+                <label>Cols: <input type="number" id="scanColsInput" class="styled-input" value="${state.gridCols}" min="1" style="width: 60px;"></label>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+                <input type="checkbox" id="scanHeaderToggle" ${settings.includeHeader ? 'checked' : ''}> <label for="scanHeaderToggle" style="margin-right: 16px;">Header</label>
+                <input type="checkbox" id="scanFooterToggle" ${settings.includeFooter ? 'checked' : ''}> <label for="scanFooterToggle" style="margin-right: 16px;">Footer</label>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+                <input type="checkbox" id="scanSelectableToggle" ${settings.includeSelectable ? 'checked' : ''}> <label for="scanSelectableToggle" style="margin-right: 16px;">Selectable</label>
+                <input type="checkbox" id="scanExpandableToggle" ${settings.includeExpandable ? 'checked' : ''}> <label for="scanExpandableToggle">Expandable</label>
+            </div>
+        `;
+        // Insert scan options before the grid in the grid container
+        elements.gridContainer.insertBefore(optionsDiv, elements.gridContainer.firstChild);
+        elements.scanOptionsContainer = optionsDiv;
 
-      if(rowsInput) rowsInput.value = String(state.gridRows);
-      if(colsInput) colsInput.value = String(state.gridCols);
-      if(headerToggleEdit) headerToggleEdit.checked = settings.includeHeader;
-      if(footerToggleEdit) footerToggleEdit.checked = settings.includeFooter;
-      if(selectableToggleEdit) selectableToggleEdit.checked = settings.includeSelectable;
-      if(expandableToggleEdit) expandableToggleEdit.checked = settings.includeExpandable;
+        // Add event listeners for the scan options
+        const updateGridFromInputs = () => {
+            const newRows = parseInt((document.getElementById('scanRowsInput') as HTMLInputElement).value, 10);
+            const newCols = parseInt((document.getElementById('scanColsInput') as HTMLInputElement).value, 10);
+            if (newRows !== state.gridRows || newCols !== state.gridCols) {
+                state.gridRows = newRows;
+                state.gridCols = newCols;
+                createGrid();
+                // Re-select all cells after recreating grid
+                document.querySelectorAll('.cell').forEach(cell => {
+                    const key = `${(cell as HTMLDivElement).dataset.row},${(cell as HTMLDivElement).dataset.col}`;
+                    state.selectedCells.add(key);
+                    cell.classList.add('selected');
+                });
+                // Filter cellProperties to keep only valid cells/headers/footers
+                for (const key of Array.from(state.cellProperties.keys())) {
+                    const match = key.match(/^([0-9]+),([0-9]+)$/);
+                    if (match) {
+                        const row = parseInt(match[1], 10);
+                        const col = parseInt(match[2], 10);
+                        if (row > state.gridRows || col > state.gridCols) {
+                            state.cellProperties.delete(key);
+                        }
+                    }
+                    if (key.startsWith('header-')) {
+                        const col = parseInt(key.split('-')[1], 10);
+                        if (col > state.gridCols) {
+                            state.cellProperties.delete(key);
+                        }
+                    }
+                }
+                updateCellVisuals();
+            }
+        };
+
+        document.getElementById('scanRowsInput')?.addEventListener('change', updateGridFromInputs);
+        document.getElementById('scanColsInput')?.addEventListener('change', updateGridFromInputs);
+        
+        // Add listeners for header/footer toggles
+        const headerToggle = document.getElementById('scanHeaderToggle') as HTMLInputElement;
+        const footerToggle = document.getElementById('scanFooterToggle') as HTMLInputElement;
+        const headerGrid = document.getElementById('headerGrid');
+        const footerGrid = document.getElementById('footerGrid');
+
+        const updateHeaderFooterVisibility = () => {
+            if (headerGrid) {
+                headerGrid.style.display = headerToggle.checked ? 'grid' : 'none';
+            }
+            if (footerGrid) {
+                footerGrid.style.display = footerToggle.checked ? 'grid' : 'none';
+            }
+        };
+
+        // Set initial visibility based on checkbox state
+        updateHeaderFooterVisibility();
+
+        // Add listeners to update visibility on change
+        headerToggle?.addEventListener('change', updateHeaderFooterVisibility);
+        footerToggle?.addEventListener('change', updateHeaderFooterVisibility);
+      }
 
       // Select all cells and confirm size
       document.querySelectorAll('.cell').forEach(cell => {
@@ -1592,12 +2128,15 @@ window.onmessage = (event) => {
       });
       state.sizeConfirmed = true;
 
-      // Change button text to "Update" and disable create
+      // Change button text to "Update" and enable it
       elements.createTableBtn.textContent = 'Update Table';
       elements.createTableBtn.disabled = false;
-      // Optionally, you could hide the button if you have two separate buttons
-      // elements.createTableBtn.style.display = 'inline-block';
-
+      console.log(`[UI] Set button text to: ${elements.createTableBtn.textContent}, disabled: ${elements.createTableBtn.disabled}`);
+      console.log(`[UI] State: hasComponent=${state.hasComponent}, sizeConfirmed=${state.sizeConfirmed}`);
+      
+      // Ensure action buttons are visible
+      updateModeDependentVisibility();
+      
       setMode('edit');
       updateCreateButtonState();
       break;
@@ -1605,6 +2144,21 @@ window.onmessage = (event) => {
     case "table-updated":
       hideLoader();
       showMessage("Table updated successfully!", "success");
+      // Keep the button as "Update Table" since we're still editing the same table
+      elements.createTableBtn.textContent = 'Update Table';
+      break;
+
+    case "component-info":
+      console.log(`[UI] Received component info:`, msg.component);
+      if (msg.component) {
+        state.selectedComponent = msg.component;
+        // Now update the visuals with the component information
+        updateCellVisuals();
+      } else {
+        console.log(`[UI] No component info received, using fallback for cell properties`);
+        // If no component info, we'll still try to display properties from cellProperties
+        updateCellVisuals();
+      }
       break;
   }
 };

@@ -1,5 +1,5 @@
 {
-  "name": "Table Generator",
+  "name": "IBM Table Generator",
   "id": "table-generator",
   "api": "1.0.0",
   "main": "code.js",

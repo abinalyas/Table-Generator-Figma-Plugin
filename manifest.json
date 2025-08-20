@@ -1,11 +1,15 @@
 {
-  "name": "Table Generator",
+  "name": "IBM Table Generator",
   "id": "table-generator",
   "api": "1.0.0",
   "main": "code.js",
   "ui": "ui.html",
   "editorType": ["figma"],
   "networkAccess": {
-    "allowedDomains": ["https://api.datamuse.com"]
+    "allowedDomains": [
+      "https://api.datamuse.com",
+      "https://iam.cloud.ibm.com",
+      "https://us-south.ml.cloud.ibm.com"
+    ]
   }
 } 

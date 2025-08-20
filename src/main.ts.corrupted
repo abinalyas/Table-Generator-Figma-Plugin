@@ -15,6 +15,7 @@ interface ScanResult {
     selectCellComponent: ComponentNode | null;
     expandCellComponent: ComponentNode | null;
     dividerComponent: ComponentNode | null;
+    dividerRectangle?: RectangleNode | null; // Optional divider rectangle from scanned table
 }
 
 let lastScanResult: ScanResult | undefined;
@@ -386,7 +387,7 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
                 console.warn('⚠️ Select cell component not found in scanned table. Selectable functionality will be disabled.');
             }
             
-            // If divider component is not found, try to create a simple one
+            // If divider component is not found, try to create one from scanned rectangle or simple divider
             if (!dividerComponent) {
                 console.log('🔄 Divider component not found, attempting to create simple divider...');
                 try {
@@ -462,8 +463,46 @@ async function autoScanForDataTable(): Promise<ScanResult | null> {
     }
 }
 
+// Function to create a divider component from a copied rectangle
+function createDividerFromRectangle(dividerRect: RectangleNode): ComponentNode {
+    console.log('🔄 Creating divider component from scanned rectangle:', dividerRect.name);
+    
+    // Clone the rectangle to preserve all its properties including color variables
+    const clonedRect = dividerRect.clone();
+    
+    // Create a component to hold the divider
+    const dividerComponent = figma.createComponent();
+    dividerComponent.name = "Divider from Scanned Table";
+    dividerComponent.resize(800, clonedRect.height);
+    
+    // Move the cloned rectangle into the component
+    dividerComponent.appendChild(clonedRect);
+    clonedRect.x = 0;
+    clonedRect.y = 0;
+    
+    // Set auto-layout properties for responsive behavior
+    dividerComponent.layoutMode = "HORIZONTAL";
+    dividerComponent.primaryAxisSizingMode = "AUTO"; // Auto sizing
+    dividerComponent.counterAxisSizingMode = "FIXED"; // Keep height fixed
+    dividerComponent.itemSpacing = 0;
+    dividerComponent.paddingLeft = 0;
+    dividerComponent.paddingRight = 0;
+    dividerComponent.paddingTop = 0;
+    dividerComponent.paddingBottom = 0;
+    
+    // Set the divider rectangle to fill the container width
+    clonedRect.layoutGrow = 1; // Make the rectangle grow to fill available space
+    
+    // Clear default fill to make it theme-compatible
+    dividerComponent.fills = [];
+    
+    console.log('✅ Created divider component from scanned rectangle with preserved properties');
+    
+    return dividerComponent;
+}
+
 // Function to create a simple divider component
-function createSimpleDivider(): ComponentNode {
+function createSimpleDivider(colorVariable?: VariableAlias): ComponentNode {
     // Create a simple horizontal line divider
     const dividerComponent = figma.createComponent();
     dividerComponent.name = "Simple Divider";
@@ -476,8 +515,8 @@ function createSimpleDivider(): ComponentNode {
     dividerLine.x = 0;
     dividerLine.y = 0;
     
-    // Try to apply border-subtle-02 color variable
-    const borderVariable = findBorderColorVariable();
+    // Use the passed color variable if available, otherwise try to find border color variable
+    const borderVariable = colorVariable || findBorderColorVariable();
     if (borderVariable) {
         try {
             const colorVariableFill: Paint = {
@@ -488,9 +527,9 @@ function createSimpleDivider(): ComponentNode {
                 }
             };
             dividerLine.fills = [colorVariableFill];
-            console.log('✅ Applied border color variable to simple divider line');
+            console.log('✅ Applied color variable to simple divider line:', colorVariable ? 'from scanned table' : 'from border variable');
         } catch (error) {
-            console.error('❌ Error applying border color variable to simple divider:', error);
+            console.error('❌ Error applying color variable to simple divider:', error);
             // Fallback to a subtle gray color
             dividerLine.fills = [{
                 type: 'SOLID',
@@ -499,7 +538,7 @@ function createSimpleDivider(): ComponentNode {
             console.log('✅ Applied fallback gray color to simple divider line');
         }
     } else {
-        console.log('⚠️ No border color variable found, using fallback gray color for simple divider');
+        console.log('⚠️ No color variable found, using fallback gray color for simple divider');
         // Apply a subtle gray color as fallback
         dividerLine.fills = [{
             type: 'SOLID',
@@ -951,6 +990,137 @@ figma.ui.onmessage = async (msg: any) => {
             
             // --- Scan for select/expand cell components and divider AFTER updating body row properties ---
             let dividerComponent: ComponentNode | null = null;
+            let dividerRectangle: RectangleNode | null = null;
+            
+                    // First, scan for divider elements in the table frame (including nested ones)
+        if ('findAll' in tableFrame && typeof tableFrame.findAll === 'function') {
+            // Search for ALL elements named "Divider" anywhere in the table structure
+            const allElements = tableFrame.findAll(n => n.name === 'Divider');
+            console.log(`🔍 Found ${allElements.length} elements named "Divider" in table frame (including nested)`);
+            
+            if (allElements.length > 0) {
+                // Log all found dividers to help identify the correct one
+                console.log('🔍 All found divider elements:');
+                allElements.forEach((element, index) => {
+                    console.log(`  ${index + 1}. Name: "${element.name}", Type: ${element.type}, Parent: ${element.parent?.name || 'root'}`);
+                });
+                
+                // Try to find the divider that's inside a body row item (the one we want)
+                let targetDivider = null;
+                for (const element of allElements) {
+                    // Check if this divider is inside a body row item
+                    let parent = element.parent;
+                    let isInBodyRow = false;
+                    while (parent) {
+                        if (parent.name && parent.name.toLowerCase().includes('body row')) {
+                            isInBodyRow = true;
+                            console.log('✅ Found divider inside body row item:', parent.name);
+                            break;
+                        }
+                        parent = parent.parent;
+                    }
+                    
+                    if (isInBodyRow) {
+                        targetDivider = element;
+                        break;
+                    }
+                }
+                
+                // If we didn't find one in a body row, use the first one
+                if (!targetDivider && allElements.length > 0) {
+                    targetDivider = allElements[0];
+                    console.log('⚠️ Using first divider found (not in body row):', targetDivider.name);
+                }
+                
+                if (targetDivider) {
+                    const dividerElement = targetDivider;
+                    console.log('🔍 Selected divider element:', dividerElement.name, `Type: ${dividerElement.type}`);
+                    console.log('🔍 Divider element details:', dividerElement);
+                    
+                    // Log ALL properties regardless of type
+                    console.log('🎨 Divider Element ALL Properties:');
+                    console.log('  - Name:', dividerElement.name);
+                    console.log('  - Type:', dividerElement.type);
+                    
+                    // Try to access common properties
+                    if ('width' in dividerElement) {
+                        console.log('  - Width:', (dividerElement as any).width);
+                    }
+                    if ('height' in dividerElement) {
+                        console.log('  - Height:', (dividerElement as any).height);
+                    }
+                    if ('fills' in dividerElement) {
+                        console.log('  - Fills:', (dividerElement as any).fills);
+                    }
+                    if ('strokes' in dividerElement) {
+                        console.log('  - Strokes:', (dividerElement as any).strokes);
+                    }
+                    
+                    // Log detailed properties of the divider element
+                    if (dividerElement.type === 'RECTANGLE') {
+                        const rect = dividerElement as RectangleNode;
+                        console.log('🎨 Divider Rectangle Properties:');
+                        console.log('  - Name:', rect.name);
+                        console.log('  - Width:', rect.width, 'Height:', rect.height);
+                        console.log('  - Fills:', rect.fills);
+                        console.log('  - Strokes:', rect.strokes);
+                        console.log('  - Stroke Weight:', rect.strokeWeight);
+                        console.log('  - Corner Radius:', rect.cornerRadius);
+                        console.log('  - Effects:', rect.effects);
+                        
+                        // Check for color variables
+                        if (rect.fills && Array.isArray(rect.fills) && rect.fills.length > 0) {
+                            const fill = rect.fills[0];
+                            if (fill.type === 'SOLID') {
+                                console.log('  - Fill Color:', fill.color);
+                                if (fill.boundVariables && fill.boundVariables.color) {
+                                    console.log('  - Color Variable:', fill.boundVariables.color);
+                                }
+                            }
+                        }
+                        
+                        dividerRectangle = rect;
+                    } else {
+                        console.log('⚠️ Divider element is NOT a RECTANGLE, it is:', dividerElement.type);
+                        console.log('⚠️ Full divider element:', dividerElement);
+                        
+                        // If it's an INSTANCE or COMPONENT, try to extract rectangle from children
+                        if (dividerElement.type === 'INSTANCE' || dividerElement.type === 'COMPONENT') {
+                            console.log('🔍 Checking children of divider element...');
+                            if ('children' in dividerElement) {
+                                console.log('  - Children count:', dividerElement.children.length);
+                                for (const child of dividerElement.children) {
+                                    console.log('  - Child:', child.name, 'Type:', child.type);
+                                    if (child.type === 'RECTANGLE') {
+                                        console.log('🎨 Found RECTANGLE child in divider:');
+                                        console.log('  - Name:', child.name);
+                                        console.log('  - Width:', child.width, 'Height:', child.height);
+                                        console.log('  - Fills:', child.fills);
+                                        if (child.fills && Array.isArray(child.fills) && child.fills.length > 0) {
+                                            const fill = child.fills[0];
+                                            if (fill.type === 'SOLID') {
+                                                console.log('  - Fill Color:', fill.color);
+                                                if (fill.boundVariables && fill.boundVariables.color) {
+                                                    console.log('  - Color Variable:', fill.boundVariables.color);
+                                                }
+                                            }
+                                        }
+                                        // Use this rectangle instead
+                                        dividerRectangle = child;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                console.log('❌ No elements named "Divider" found in table frame');
+            }
+        } else {
+            console.log('❌ Table frame does not support findAll method');
+        }
+            
             if ('findAll' in tableFrame && typeof tableFrame.findAll === 'function') {
                 allInstances = tableFrame.findAll(n => n.type === 'INSTANCE' || n.type === 'COMPONENT') as (InstanceNode | ComponentNode)[];
                 for (const node of allInstances) {
@@ -1048,15 +1218,24 @@ figma.ui.onmessage = async (msg: any) => {
                 console.warn('⚠️ Select cell component not found in scanned table. Selectable functionality will be disabled.');
             }
             
-            // If divider component is not found, try to create a simple one
+            // If divider component is not found, try to create one from scanned rectangle or simple divider
             if (!dividerComponent) {
-                console.log('🔄 Divider component not found, attempting to create simple divider...');
+                console.log('🔄 Divider component not found, checking for scanned rectangle...');
                 try {
-                    dividerComponent = createSimpleDivider();
-                    console.log('✅ Created simple divider component');
+                    if (dividerRectangle) {
+                        console.log('✅ Found divider rectangle in scanned table, will use it directly');
+                        // Store the divider rectangle for direct use (no component needed)
+                        dividerComponent = null; // We'll use the rectangle directly
+                    } else {
+                        console.log('🔄 No divider rectangle found, creating simple divider...');
+                        dividerComponent = createSimpleDivider();
+                    }
+                    console.log('✅ Divider handling configured');
                     // Move the divider component to a hidden location to avoid cluttering the document
-                    dividerComponent.x = -10000;
-                    dividerComponent.y = -10000;
+                    if (dividerComponent) {
+                        dividerComponent.x = -10000;
+                        dividerComponent.y = -10000;
+                    }
                 } catch (error) {
                     console.error('❌ Error creating divider component:', error);
                 }
@@ -1398,7 +1577,8 @@ figma.ui.onmessage = async (msg: any) => {
                 numCols,
                 selectCellComponent,
                 expandCellComponent,
-                dividerComponent
+                dividerComponent,
+                dividerRectangle: dividerRectangle // Store the original divider rectangle
             };
             
             // Store header row properties in lastScanResult for later use
@@ -1747,126 +1927,81 @@ figma.ui.onmessage = async (msg: any) => {
                         
                         // Add divider after the data row (except for the last row)
                         if (r < rows - 1) {
-                            if (lastScanResult.dividerComponent) {
+                            if (lastScanResult.dividerRectangle) {
                                 try {
-                                    const divider = lastScanResult.dividerComponent.createInstance();
+                                    // Use the divider rectangle directly by cloning it
+                                    const divider = lastScanResult.dividerRectangle.clone() as RectangleNode;
                                     
-                                    // Apply divider properties from scanned table
-                                    if (lastScanResult && (lastScanResult as any).dividerProperties) {
-                                        const dividerProps = (lastScanResult as any).dividerProperties;
-                                        console.log('🔄 Applying divider properties:', dividerProps);
-                                        
-                                        try {
-                                                                                // Apply fills if present in the original divider
-                                    if (dividerProps.fills && Array.isArray(dividerProps.fills) && dividerProps.fills.length > 0) {
-                                        console.log('🎨 Applying divider fills:', dividerProps.fills);
-                                        divider.fills = dividerProps.fills;
-                                    } else {
-                                        // If fills are empty, try to apply border-subtle-01 color variable
-                                        console.log('🎨 Divider fills are empty, checking for border color variable');
-                                        const borderVariable = findBorderColorVariable();
-                                        if (borderVariable) {
-                                            try {
-                                                const colorVariableFill: Paint = {
-                                                type: 'SOLID',
-                                                color: { r: 0, g: 0, b: 0 }, // Default color (will be overridden by variable)
-                                                boundVariables: {
-                                                        color: borderVariable
-                                                    }
-                                                };
-                                                divider.fills = [colorVariableFill];
-                                                console.log('✅ Applied border-subtle-01 color variable to divider');
-                                            } catch (error) {
-                                                console.error('❌ Error applying border color variable to divider:', error);
+                                    // Log the cloned divider properties to confirm it's correct
+                                    console.log('🎨 Using Divider Rectangle in Table Generation:');
+                                    console.log('  - Name:', divider.name);
+                                    console.log('  - Width:', divider.width, 'Height:', divider.height);
+                                    console.log('  - Fills:', divider.fills);
+                                    if (divider.fills && Array.isArray(divider.fills) && divider.fills.length > 0) {
+                                        const fill = divider.fills[0];
+                                        if (fill.type === 'SOLID') {
+                                            console.log('  - Fill Color:', fill.color);
+                                            if (fill.boundVariables && fill.boundVariables.color) {
+                                                console.log('  - Color Variable:', fill.boundVariables.color);
                                             }
-                                        } else {
-                                            console.log('⚠️ No border color variable found, applying fallback gray color');
-                                            // Apply a subtle gray color as fallback
-                                            divider.fills = [{
-                                                type: 'SOLID',
-                                                color: { r: 0.9, g: 0.9, b: 0.9 } // Light gray
-                                            }];
-                                            console.log('✅ Applied fallback gray color to divider');
                                         }
                                     }
                                     
-                                    // Apply color variable if present
-                                            if (dividerProps.colorVariable) {
-                                                console.log('🎨 Applying color variable to divider:', dividerProps.colorVariable);
-                                                try {
-                                                    // Create a fill with the color variable
-                                                    const colorVariableFill: Paint = {
-                                                        type: 'SOLID',
-                                                        color: { r: 0, g: 0, b: 0 }, // Default color (will be overridden by variable)
-                                                        boundVariables: {
-                                                            color: dividerProps.colorVariable
-                                                        }
-                                                    };
-                                                    divider.fills = [colorVariableFill];
-                                                } catch (error) {
-                                                    console.error('❌ Error applying color variable to divider:', error);
-                                                }
-                                            }
+                                    // IMPORTANT: Don't apply dividerProps.fills since the cloned rectangle already has the correct color variable
+                                    // Just apply other properties like strokes, stroke weight, etc.
+                                    if (lastScanResult && (lastScanResult as any).dividerProperties) {
+                                        const dividerProps = (lastScanResult as any).dividerProperties;
+                                        console.log('🔄 Applying divider properties (excluding fills to preserve color variable):', dividerProps);
+                                        
+                                        try {
+                                            // SKIP applying fills - the cloned rectangle already has the correct color variable
+                                            console.log('✅ Preserving existing color variable in cloned divider');
                                             
-                                            // Apply strokes if present in the original divider
+                                            // Apply other properties (strokes, stroke weight, etc.)
                                             if (dividerProps.strokes && Array.isArray(dividerProps.strokes) && dividerProps.strokes.length > 0) {
                                                 console.log('🎨 Applying divider strokes:', dividerProps.strokes);
                                                 divider.strokes = dividerProps.strokes;
                                             }
                                             
-                                            // Apply stroke weight if present
                                             if (dividerProps.strokeWeight !== undefined && dividerProps.strokeWeight > 0) {
                                                 console.log('🎨 Applying divider stroke weight:', dividerProps.strokeWeight);
                                                 divider.strokeWeight = dividerProps.strokeWeight;
                                             }
                                             
-                                            // Apply corner radius if present
                                             if (dividerProps.cornerRadius !== undefined && dividerProps.cornerRadius > 0) {
                                                 console.log('🎨 Applying divider corner radius:', dividerProps.cornerRadius);
                                                 divider.cornerRadius = dividerProps.cornerRadius;
                                             }
                                             
-                                            // Apply effects if present
                                             if (dividerProps.effects && Array.isArray(dividerProps.effects) && dividerProps.effects.length > 0) {
                                                 console.log('🎨 Applying divider effects:', dividerProps.effects);
                                                 divider.effects = dividerProps.effects;
                                             }
                                             
-                                            // Apply height if present
                                             if (dividerProps.height !== undefined && dividerProps.height > 0) {
                                                 console.log('📏 Applying divider height:', dividerProps.height);
                                                 divider.resize(divider.width, dividerProps.height);
                                             }
-                                            
-                                            // Apply instance properties first (these are from the actual instance)
-                                            if (dividerProps.instanceFills || dividerProps.instanceStrokes || dividerProps.instanceStrokeWeight) {
-                                        console.log('🎨 Applying instance properties to divider');
-                                        if (dividerProps.instanceFills && Array.isArray(dividerProps.instanceFills) && dividerProps.instanceFills.length > 0) {
-                                            console.log('🎨 Applying instance fills to divider');
-                                            divider.fills = dividerProps.instanceFills;
-                                        } else {
-                                            // If instance fills are empty, try to apply border-subtle-01 color variable
-                                            console.log('🎨 Instance fills are empty, checking for border color variable');
-                                            const borderVariable = findBorderColorVariable();
-                                            if (borderVariable) {
-                                                try {
-                                                    const colorVariableFill: Paint = {
-                                                        type: 'SOLID',
-                                                        color: { r: 0, g: 0, b: 0 },
-                                                        boundVariables: {
-                                                            color: borderVariable
-                                                        }
-                                                    };
-                                                    divider.fills = [colorVariableFill];
-                                                    console.log('✅ Applied border-subtle-01 color variable to divider instance');
-                                                } catch (error) {
-                                                    console.error('❌ Error applying border color variable to divider instance:', error);
-                                                }
-                                            }
+                                        } catch (error) {
+                                            console.error('❌ Error applying divider properties:', error);
                                         }
-                                        if (dividerProps.instanceColorVariable) {
-                                            console.log('🎨 Applying instance color variable to divider:', dividerProps.instanceColorVariable);
-                                            try {
+                                    }
+                                    
+                                    // Set divider width to match the table width
+                                    divider.resize(totalTableWidth, divider.height);
+                                    console.log('📏 Set divider width to:', totalTableWidth);
+                                    
+                                    bodyRowItemFrame.appendChild(divider);
+                                    console.log('✅ Added divider after row', r + 1);
+                                } catch (error) { 
+                                    console.error('Error creating divider instance:', error);
+                                }
+                            } else {
+                                console.log('⚠️ No divider component available for row', r + 1);
+                            }
+                        } else {
+                            console.log('ℹ️ Skipping divider for last row', r + 1);
+                        }
                                                 const colorVariableFill: Paint = {
                                                     type: 'SOLID',
                                                     color: { r: 0, g: 0, b: 0 },
@@ -1893,172 +2028,9 @@ figma.ui.onmessage = async (msg: any) => {
                                         }
                                     }
                                     
-                                    // Apply instance child properties to divider's children
-                                    if (dividerProps.instanceChildFills || dividerProps.instanceChildStrokes || dividerProps.instanceChildStrokeWeight) {
-                                        console.log('🎨 Applying instance child properties to divider children');
-                                        if ('children' in divider) {
-                                            console.log('🎨 Divider has', divider.children.length, 'children');
-                                            for (const child of divider.children) {
-                                                console.log('🎨 Processing divider child:', child.name, child.type);
-                                                
-                                                if ('fills' in child && dividerProps.instanceChildFills && Array.isArray(dividerProps.instanceChildFills) && dividerProps.instanceChildFills.length > 0) {
-                                                    console.log('🎨 Applying instance child fills to:', child.name);
-                                                    child.fills = dividerProps.instanceChildFills;
-                                                } else if ('fills' in child) {
-                                                    // If instance child fills are empty, try to apply border-subtle-01 color variable
-                                                    console.log('🎨 Instance child fills are empty, checking for border color variable');
-                                                    const borderVariable = findBorderColorVariable();
-                                                    if (borderVariable) {
-                                                        try {
-                                                            const colorVariableFill: Paint = {
-                                                                type: 'SOLID',
-                                                                color: { r: 0, g: 0, b: 0 },
-                                                                boundVariables: {
-                                                                    color: borderVariable
-                                                                }
-                                                            };
-                                                            child.fills = [colorVariableFill];
-                                                            console.log('✅ Applied border-subtle-01 color variable to divider child');
-                                                        } catch (error) {
-                                                            console.error('❌ Error applying border color variable to divider child:', error);
-                                                        }
-                                                    }
-                                                }
-                                                if ('fills' in child && dividerProps.instanceChildColorVariable) {
-                                                    console.log('🎨 Applying instance child color variable to:', child.name, dividerProps.instanceChildColorVariable);
-                                                    try {
-                                                        const colorVariableFill: Paint = {
-                                                            type: 'SOLID',
-                                                            color: { r: 0, g: 0, b: 0 },
-                                                            boundVariables: {
-                                                                color: dividerProps.instanceChildColorVariable
-                                                            }
-                                                        };
-                                                        child.fills = [colorVariableFill];
-                                                    } catch (error) {
-                                                        console.error('❌ Error applying instance child color variable:', error);
-                                                    }
-                                                }
-                                                if ('strokes' in child && dividerProps.instanceChildStrokes) {
-                                                    console.log('🎨 Applying instance child strokes to:', child.name);
-                                                    child.strokes = dividerProps.instanceChildStrokes;
-                                                }
-                                                if ('strokeWeight' in child && dividerProps.instanceChildStrokeWeight !== undefined) {
-                                                    console.log('🎨 Applying instance child stroke weight to:', child.name);
-                                                    child.strokeWeight = dividerProps.instanceChildStrokeWeight;
-                                                }
-                                                if ('height' in child && dividerProps.instanceChildHeight !== undefined && 'resize' in child) {
-                                                    console.log('📏 Applying instance child height to:', child.name);
-                                                    (child as any).resize(child.width, dividerProps.instanceChildHeight);
-                                                }
-                                                break; // Apply to first child only
-                                            }
-                                        }
-                                    }
+                                    // Note: Rectangle dividers don't have children, so we skip child property application
                                     
-                                    // Apply child properties to divider's children
-                                    if (dividerProps.childFills || dividerProps.childStrokes || dividerProps.childStrokeWeight) {
-                                        console.log('🎨 Applying child properties to divider children');
-                                        if ('children' in divider) {
-                                            console.log('🎨 Divider has', divider.children.length, 'children');
-                                            for (const child of divider.children) {
-                                                console.log('🎨 Processing divider child:', child.name, child.type);
-                                                
-                                                // Apply to direct children
-                                                if ('fills' in child && dividerProps.childFills && Array.isArray(dividerProps.childFills) && dividerProps.childFills.length > 0) {
-                                                    console.log('🎨 Applying child fills to:', child.name);
-                                                    child.fills = dividerProps.childFills;
-                                                } else if ('fills' in child) {
-                                                    // If child fills are empty, try to apply border-subtle-01 color variable
-                                                    console.log('🎨 Child fills are empty, checking for border color variable');
-                                                    const borderVariable = findBorderColorVariable();
-                                                    if (borderVariable) {
-                                                        try {
-                                                            const colorVariableFill: Paint = {
-                                                                type: 'SOLID',
-                                                                color: { r: 0, g: 0, b: 0 },
-                                                                boundVariables: {
-                                                                    color: borderVariable
-                                                                }
-                                                            };
-                                                            child.fills = [colorVariableFill];
-                                                            console.log('✅ Applied border-subtle-01 color variable to child');
-                                                        } catch (error) {
-                                                            console.error('❌ Error applying border color variable to child:', error);
-                                                        }
-                                                    }
-                                                }
-                                                if ('fills' in child && dividerProps.childColorVariable) {
-                                                    console.log('🎨 Applying child color variable to:', child.name, dividerProps.childColorVariable);
-                                                    try {
-                                                        const colorVariableFill: Paint = {
-                                                            type: 'SOLID',
-                                                            color: { r: 0, g: 0, b: 0 },
-                                                            boundVariables: {
-                                                                color: dividerProps.childColorVariable
-                                                            }
-                                                        };
-                                                        child.fills = [colorVariableFill];
-                                                    } catch (error) {
-                                                        console.error('❌ Error applying child color variable:', error);
-                                                    }
-                                                }
-                                                if ('strokes' in child && dividerProps.childStrokes) {
-                                                    console.log('🎨 Applying child strokes to:', child.name);
-                                                    child.strokes = dividerProps.childStrokes;
-                                                }
-                                                if ('strokeWeight' in child && dividerProps.childStrokeWeight !== undefined) {
-                                                    console.log('🎨 Applying child stroke weight to:', child.name);
-                                                    child.strokeWeight = dividerProps.childStrokeWeight;
-                                                }
-                                                if ('height' in child && dividerProps.childHeight !== undefined && 'resize' in child) {
-                                                    console.log('📏 Applying child height to:', child.name);
-                                                    (child as any).resize(child.width, dividerProps.childHeight);
-                                                }
-                                                
-                                                // Also check for nested children
-                                                if ('children' in child && child.children.length > 0) {
-                                                    console.log('🎨 Processing nested children in:', child.name);
-                                                    for (const grandChild of child.children) {
-                                                        console.log('🎨 Processing grandchild:', grandChild.name, grandChild.type);
-                                                        if ('fills' in grandChild && dividerProps.childFills && Array.isArray(dividerProps.childFills) && dividerProps.childFills.length > 0) {
-                                                            console.log('🎨 Applying child fills to grandchild:', grandChild.name);
-                                                            grandChild.fills = dividerProps.childFills;
-                                                        } else if ('fills' in grandChild) {
-                                                            // If grandchild fills are empty, try to apply border-subtle-01 color variable
-                                                            console.log('🎨 Grandchild fills are empty, checking for border color variable');
-                                                            const borderVariable = findBorderColorVariable();
-                                                            if (borderVariable) {
-                                                                try {
-                                                                    const colorVariableFill: Paint = {
-                                                                        type: 'SOLID',
-                                                                        color: { r: 0, g: 0, b: 0 },
-                                                                        boundVariables: {
-                                                                            color: borderVariable
-                                                                        }
-                                                                    };
-                                                                    grandChild.fills = [colorVariableFill];
-                                                                    console.log('✅ Applied border-subtle-01 color variable to grandchild');
-                                                                } catch (error) {
-                                                                    console.error('❌ Error applying border color variable to grandchild:', error);
-                                                                }
-                                                            }
-                                                        }
-                                                        if ('strokes' in grandChild && dividerProps.childStrokes) {
-                                                            console.log('🎨 Applying child strokes to grandchild:', grandChild.name);
-                                                            grandChild.strokes = dividerProps.childStrokes;
-                                                        }
-                                                        if ('strokeWeight' in grandChild && dividerProps.childStrokeWeight !== undefined) {
-                                                            console.log('🎨 Applying child stroke weight to grandchild:', grandChild.name);
-                                                            grandChild.strokeWeight = dividerProps.childStrokeWeight;
-                                                        }
-                                                        break; // Apply to first grandchild only
-                                                    }
-                                                }
-                                                break; // Apply to first child only
-                                            }
-                                        }
-                                    }
+                                    // Note: Rectangle dividers don't have children, so we skip child property application
                                             
                                             console.log('✅ Divider properties applied successfully');
                                         } catch (error) {
@@ -2967,20 +2939,63 @@ figma.ui.onmessage = async (msg: any) => {
                 
                 // Add divider after the data row (except for the last row)
                 if (r < rows - 1) {
-                    if (lastScanResult.dividerComponent) {
+                    if (lastScanResult.dividerRectangle) {
                         try {
-                            const divider = lastScanResult.dividerComponent.createInstance();
+                            // Use the divider rectangle directly by cloning it
+                            const divider = lastScanResult.dividerRectangle.clone() as RectangleNode;
                             
-                            // Apply divider properties from scanned table
+                            // Log the cloned divider properties to confirm it's correct (update)
+                            console.log('🎨 Using Divider Rectangle in Table Update:');
+                            console.log('  - Name:', divider.name);
+                            console.log('  - Width:', divider.width, 'Height:', divider.height);
+                            console.log('  - Fills:', divider.fills);
+                            if (divider.fills && Array.isArray(divider.fills) && divider.fills.length > 0) {
+                                const fill = divider.fills[0];
+                                if (fill.type === 'SOLID') {
+                                    console.log('  - Fill Color:', fill.color);
+                                    if (fill.boundVariables && fill.boundVariables.color) {
+                                        console.log('  - Color Variable:', fill.boundVariables.color);
+                                    }
+                                }
+                            }
+                            
+                            // Log the cloned divider properties to confirm it's correct
+                            console.log('🎨 Using Divider Rectangle in Table Generation:');
+                            console.log('  - Name:', divider.name);
+                            console.log('  - Width:', divider.width, 'Height:', divider.height);
+                            console.log('  - Fills:', divider.fills);
+                            if (divider.fills && Array.isArray(divider.fills) && divider.fills.length > 0) {
+                                const fill = divider.fills[0];
+                                if (fill.type === 'SOLID') {
+                                    console.log('  - Fill Color:', fill.color);
+                                    if (fill.boundVariables && fill.boundVariables.color) {
+                                        console.log('  - Color Variable:', fill.boundVariables.color);
+                                    }
+                                }
+                            }
+                            
+                            // Check if the cloned divider already has the correct color variable
+                            let hasColorVariable = false;
+                            if (divider.fills && Array.isArray(divider.fills) && divider.fills.length > 0) {
+                                const fill = divider.fills[0];
+                                if (fill.type === 'SOLID' && fill.boundVariables && fill.boundVariables.color) {
+                                    hasColorVariable = true;
+                                    console.log('✅ Cloned divider already has color variable:', fill.boundVariables.color);
+                                }
+                            }
+                            
+                            // Apply divider properties from scanned table (but preserve color variable if already present)
                             if (lastScanResult && (lastScanResult as any).dividerProperties) {
                                 const dividerProps = (lastScanResult as any).dividerProperties;
                                 console.log('🔄 Applying divider properties (update):', dividerProps);
                                 
                                 try {
-                                    // Apply fills if present in the original divider
-                                    if (dividerProps.fills && Array.isArray(dividerProps.fills) && dividerProps.fills.length > 0) {
+                                    // Only apply fills if the cloned divider doesn't already have a color variable
+                                    if (!hasColorVariable && dividerProps.fills && Array.isArray(dividerProps.fills) && dividerProps.fills.length > 0) {
                                         console.log('🎨 Applying divider fills (update):', dividerProps.fills);
                                         divider.fills = dividerProps.fills;
+                                    } else if (hasColorVariable) {
+                                        console.log('✅ Preserving existing color variable in cloned divider');
                                     }
                                     
                                     // Apply strokes if present in the original divider
@@ -3049,133 +3064,7 @@ figma.ui.onmessage = async (msg: any) => {
                                         }
                                     }
                                     
-                                    // Apply instance child properties to divider's children
-                                    if (dividerProps.instanceChildFills || dividerProps.instanceChildStrokes || dividerProps.instanceChildStrokeWeight) {
-                                        console.log('🎨 Applying instance child properties to divider children');
-                                        if ('children' in divider) {
-                                            console.log('🎨 Divider has', divider.children.length, 'children');
-                                            for (const child of divider.children) {
-                                                console.log('🎨 Processing divider child:', child.name, child.type);
-                                                
-                                                if ('fills' in child && dividerProps.instanceChildFills && Array.isArray(dividerProps.instanceChildFills) && dividerProps.instanceChildFills.length > 0) {
-                                                    console.log('🎨 Applying instance child fills to:', child.name);
-                                                    child.fills = dividerProps.instanceChildFills;
-                                                } else if ('fills' in child && dividerProps.instanceChildColorVariable) {
-                                                    console.log('🎨 Applying instance child color variable to:', child.name, dividerProps.instanceChildColorVariable);
-                                                    try {
-                                                        const colorVariableFill: Paint = {
-                                                            type: 'SOLID',
-                                                            color: { r: 0, g: 0, b: 0 },
-                                                            boundVariables: {
-                                                                color: dividerProps.instanceChildColorVariable
-                                                            }
-                                                        };
-                                                        child.fills = [colorVariableFill];
-                                                    } catch (error) {
-                                                        console.error('❌ Error applying instance child color variable:', error);
-                                                    }
-                                                }
-                                                if ('strokes' in child && dividerProps.instanceChildStrokes) {
-                                                    console.log('🎨 Applying instance child strokes to:', child.name);
-                                                    child.strokes = dividerProps.instanceChildStrokes;
-                                                }
-                                                if ('strokeWeight' in child && dividerProps.instanceChildStrokeWeight !== undefined) {
-                                                    console.log('🎨 Applying instance child stroke weight to:', child.name);
-                                                    child.strokeWeight = dividerProps.instanceChildStrokeWeight;
-                                                }
-                                                if ('height' in child && dividerProps.instanceChildHeight !== undefined && 'resize' in child) {
-                                                    console.log('📏 Applying instance child height to:', child.name);
-                                                    (child as any).resize(child.width, dividerProps.instanceChildHeight);
-                                                }
-                                                break; // Apply to first child only
-                                            }
-                                        }
-                                    }
-                                    
-                                    // Apply child properties to divider's children
-                                    if (dividerProps.childFills || dividerProps.childStrokes || dividerProps.childStrokeWeight) {
-                                        console.log('🎨 Applying child properties to divider children (update)');
-                                        if ('children' in divider) {
-                                            console.log('🎨 Divider has', divider.children.length, 'children (update)');
-                                            for (const child of divider.children) {
-                                                console.log('🎨 Processing divider child:', child.name, child.type, '(update)');
-                                                
-                                                // Apply to direct children
-                                                if ('fills' in child && dividerProps.childFills && Array.isArray(dividerProps.childFills) && dividerProps.childFills.length > 0) {
-                                                    console.log('🎨 Applying child fills to:', child.name, '(update)');
-                                                    child.fills = dividerProps.childFills;
-                                                }
-                                                if ('fills' in child && dividerProps.childColorVariable) {
-                                                    console.log('🎨 Applying child color variable to:', child.name, dividerProps.childColorVariable);
-                                                    try {
-                                                        const colorVariableFill: Paint = {
-                                                            type: 'SOLID',
-                                                            color: { r: 0, g: 0, b: 0 },
-                                                            boundVariables: {
-                                                                color: dividerProps.childColorVariable
-                                                            }
-                                                        };
-                                                        child.fills = [colorVariableFill];
-                                                    } catch (error) {
-                                                        console.error('❌ Error applying child color variable:', error);
-                                                    }
-                                                }
-                                                if ('strokes' in child && dividerProps.childStrokes) {
-                                                    console.log('🎨 Applying child strokes to:', child.name, '(update)');
-                                                    child.strokes = dividerProps.childStrokes;
-                                                }
-                                                if ('strokeWeight' in child && dividerProps.childStrokeWeight !== undefined) {
-                                                    console.log('🎨 Applying child stroke weight to:', child.name, '(update)');
-                                                    child.strokeWeight = dividerProps.childStrokeWeight;
-                                                }
-                                                if ('height' in child && dividerProps.childHeight !== undefined && 'resize' in child) {
-                                                    console.log('📏 Applying child height to:', child.name);
-                                                    (child as any).resize(child.width, dividerProps.childHeight);
-                                                }
-                                                
-                                                // Also check for nested children
-                                                if ('children' in child && child.children.length > 0) {
-                                                    console.log('🎨 Processing nested children in:', child.name, '(update)');
-                                                    for (const grandChild of child.children) {
-                                                        console.log('🎨 Processing grandchild:', grandChild.name, grandChild.type, '(update)');
-                                                        if ('fills' in grandChild && dividerProps.childFills && Array.isArray(dividerProps.childFills) && dividerProps.childFills.length > 0) {
-                                                            console.log('🎨 Applying child fills to grandchild:', grandChild.name, '(update)');
-                                                            grandChild.fills = dividerProps.childFills;
-                                                        } else if ('fills' in grandChild) {
-                                                            // If grandchild fills are empty, try to apply border-subtle-01 color variable
-                                                            console.log('🎨 Grandchild fills are empty, checking for border color variable');
-                                                            const borderVariable = findBorderColorVariable();
-                                                            if (borderVariable) {
-                                                                try {
-                                                                    const colorVariableFill: Paint = {
-                                                                        type: 'SOLID',
-                                                                        color: { r: 0, g: 0, b: 0 },
-                                                                        boundVariables: {
-                                                                            color: borderVariable
-                                                                        }
-                                                                    };
-                                                                    grandChild.fills = [colorVariableFill];
-                                                                    console.log('✅ Applied border-subtle-01 color variable to grandchild');
-                                                                } catch (error) {
-                                                                    console.error('❌ Error applying border color variable to grandchild:', error);
-                                                                }
-                                                            }
-                                                        }
-                                                        if ('strokes' in grandChild && dividerProps.childStrokes) {
-                                                            console.log('🎨 Applying child strokes to grandchild:', grandChild.name);
-                                                            grandChild.strokes = dividerProps.childStrokes;
-                                                        }
-                                                        if ('strokeWeight' in grandChild && dividerProps.childStrokeWeight !== undefined) {
-                                                            console.log('🎨 Applying child stroke weight to grandchild:', grandChild.name);
-                                                            grandChild.strokeWeight = dividerProps.childStrokeWeight;
-                                                        }
-                                                        break; // Apply to first grandchild only
-                                                    }
-                                                }
-                                                break; // Apply to first child only
-                                            }
-                                        }
-                                    }
+                                    // Note: Rectangle dividers don't have children, so we skip child property application
                                     
                                     console.log('✅ Divider properties applied successfully (update)');
                                 } catch (error) {

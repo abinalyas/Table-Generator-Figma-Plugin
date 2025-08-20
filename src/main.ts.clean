@@ -1,0 +1,1920 @@
+const faker = require('faker');
+
+figma.showUI(__html__, { width: 360, height: 700 });
+
+let selectedComponent: ComponentNode | null = null;
+const cellInstanceMap = new Map<string, InstanceNode>();
+
+interface ScanResult {
+    headerCell: ComponentNode | null;
+    headerRowComponent: ComponentNode | null;
+    bodyCell: ComponentNode | null;
+    bodyRowComponent: ComponentNode | null;
+    footer: ComponentNode | null;
+    numCols: number;
+    selectCellComponent: ComponentNode | null;
+    expandCellComponent: ComponentNode | null;
+    dividerComponent: ComponentNode | null;
+    dividerRectangle?: RectangleNode | null; // Optional divider rectangle from scanned table
+}
+
+let lastScanResult: ScanResult | undefined;
+let isCreatingTable = false;
+
+figma.on("selectionchange", async () => {
+    const selection = figma.currentPage.selection;
+    console.log(`[selectionchange] Selection changed - count: ${selection.length}, types: ${selection.map(s => s.type).join(', ')}, names: ${selection.map(s => s.name).join(', ')}`);
+
+    if (selection.length === 1) {
+        const selectedNode = selection[0];
+
+        // Case 1: Existing "Generated Table" frame is selected for update
+        console.log(`[selectionchange] Checking for generated table: type=${selectedNode.type}, name=${selectedNode.name}, isGeneratedTable=${selectedNode.getPluginData('isGeneratedTable')}`);
+        if (selectedNode.type === "FRAME" && selectedNode.getPluginData('isGeneratedTable') === 'true' && selectedNode.name === 'Generated Table') {
+            const tableFrame = selectedNode as FrameNode;
+            const settings = tableFrame.getPluginData('tableSettings');
+            if (settings) {
+                try {
+                    // Note: We'll rely on the existing lastScanResult or let the user scan again if needed
+                    // The rescan logic was causing memory issues, so we'll keep it simple
+                    const parsedSettings = JSON.parse(settings);
+                    figma.ui.postMessage({
+                        type: 'edit-existing-table',
+                        settings: parsedSettings,
+                        tableId: tableFrame.id
+                    });
+                    return;
+                } catch (e) {
+                    console.error("Error parsing table settings from plugin data", e);
+                }
+            }
+        }
+        // Case 1.5: "Data table" component is selected
+        else if (selectedNode.type === "FRAME" && selectedNode.name.includes('Data table')) {
+            figma.ui.postMessage({
+                type: "table-selected",
+                tableId: selectedNode.id
+            });
+            return;
+        }
+        // Case 2: "Data table" component (Frame, Component, ComponentSet) or instance of one is selected for scanning
+        else if (
+            (selectedNode.type === "FRAME" || selectedNode.type === "COMPONENT" || selectedNode.type === "COMPONENT_SET") && selectedNode.name.includes('Data table')
+        ) {
+            figma.ui.postMessage({
+                type: "table-selected",
+                tableId: selectedNode.id
+            });
+            return;
+        }
+        // Case 3: Instance is selected (could be a Data table instance or a Data table row cell item)
+        else if (selectedNode.type === "INSTANCE") {
+            try {
+                const mainComponent = await selectedNode.getMainComponentAsync();
+                console.log(`Selected Instance: ${selectedNode.name}, Main Component: ${mainComponent?.name}`);
+
+                // FIRST: Check if it's a "Data table row cell item" - ignore these
+                // Check both the main component name and the node name for cell items
+                if ((mainComponent && mainComponent.name === "Data table row cell item") || 
+                    selectedNode.name === "Data table body row item" ||
+                    selectedNode.name.includes("row cell item")) {
+                    console.log(`[selectionchange] Ignoring selection of individual cell item: ${selectedNode.name}`);
+                    return;
+                }
+                
+                // SECOND: Check if it's a "Data table" instance (main component name contains "Data table")
+                if (mainComponent && mainComponent.name.includes('Data table')) {
+                    console.log(`[selectionchange] Found Data table instance, sending table-selected`);
+        figma.ui.postMessage({
+                        type: "table-selected",
+                        tableId: selectedNode.id
+                    });
+                    return; // IMPORTANT: Return here to prevent further processing
+                }
+                
+                // THIRD: Fallback - check if the selected node name contains "Data table" (but not "row cell item")
+                if (selectedNode.name.includes('Data table') && !selectedNode.name.includes('row cell item')) {
+                    console.log(`[selectionchange] Found Data table instance by node name, sending table-selected`);
+      figma.ui.postMessage({
+                        type: "table-selected",
+                        tableId: selectedNode.id
+                    });
+                    return; // IMPORTANT: Return here to prevent further processing
+                }
+    } catch (error) {
+                console.error('❌ Error getting main component or component name:', error);
+            }
+        }
+    }
+
+    // If none of the above conditions are met, clear selection
+    console.log(`[selectionchange] Clearing selection - no valid component found`);
+      selectedComponent = null;
+    lastScanResult = undefined;
+    
+    // Add a small delay to prevent race conditions with subsequent selections
+    setTimeout(() => {
+        // Double-check that selection is still empty before clearing
+        const currentSelection = figma.currentPage.selection;
+        if (currentSelection.length === 0) {
+      figma.ui.postMessage({
+        type: "selection-cleared",
+                isValidComponent: false,
+                clearUI: true
+      });
+    }
+    }, 50);
+    });
+
+// Helper function to find matching property
+function findMatchingProperty(availableProperties: string[], uiPropName: string): string | null {
+   
+    // First try exact match
+    const exactMatch = availableProperties.find((prop: string) => prop === uiPropName);
+    if (exactMatch) {
+        
+        return exactMatch;
+    }
+    // Try match at start of property name
+    const startsWithMatch = availableProperties.find((prop: string) => prop.toLowerCase().startsWith(uiPropName.toLowerCase()));
+    if (startsWithMatch) {
+       
+        return startsWithMatch;
+    }
+    // Try contains match
+    const containsMatch = availableProperties.find((prop: string) => prop.toLowerCase().includes(uiPropName.toLowerCase()));
+    if (containsMatch) {
+        
+        return containsMatch;
+    }
+   
+    return null;
+}
+
+// Helper function to find border color variable
+function findBorderColorVariable(): VariableAlias | null {
+    try {
+        // Try to get local variables
+        const localVariables = figma.variables.getLocalVariables();
+        console.log('🔍 Available local variables:', localVariables.map(v => v.name));
+        
+        // If no local variables, try to get all variables
+        if (localVariables.length === 0) {
+            console.log('🔍 No local variables found, trying to get all variables...');
+            try {
+                // Try to get variables from the current page or document
+                console.log('🔍 Trying alternative methods to find variables...');
+                // Note: getLocalVariablesByMode() doesn't exist, so we'll try other approaches
+                
+                // Also try to get variables from the current selection
+                const selection = figma.currentPage.selection;
+                if (selection.length > 0) {
+                    console.log('🔍 Checking variables from current selection...');
+                    // Try to get variables from the selected node's parent or document
+                    const parent = selection[0].parent;
+                    if (parent) {
+                        console.log('🔍 Parent node:', parent.name, parent.type);
+                    }
+                }
+            } catch (error) {
+                console.log('🔍 Error getting all variables:', error);
+            }
+        }
+        
+        // Look for common border variable names
+        const borderVariableNames = ['border-subtle-02', 'border-subtle-01', 'border-subtle', 'border-01', 'border-subtle-1'];
+        let borderVariable = null;
+        
+        for (const variableName of borderVariableNames) {
+            borderVariable = localVariables.find(v => v.name === variableName);
+            if (borderVariable) {
+                console.log(`🎨 Found border variable: ${variableName}`);
+                break;
+            }
+        }
+        
+        if (borderVariable) {
+            console.log('✅ Using border color variable for empty fills');
+            return {
+                id: borderVariable.id,
+                type: 'VARIABLE_ALIAS'
+            };
+        } else {
+            console.log('⚠️ No border color variable found');
+            return null;
+        }
+    } catch (error) {
+        console.error('❌ Error finding border color variable:', error);
+        return null;
+    }
+}
+
+// Removed createCheckboxComponent function - no longer creating manual components
+
+// Function to perform table scanning on a given component
+async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | null> {
+    console.log('🔄 Performing table scan on:', tableFrame.name);
+    
+    try {
+        // --- Custom scan for specific instances/components ---
+        let expandCellFound = false;
+        let selectCellFound = false;
+        const allInstanceNames: string[] = [];
+        let allInstances: (InstanceNode | ComponentNode)[] = [];
+        let expandCellComponent: ComponentNode | null = null;
+        let selectCellComponent: ComponentNode | null = null;
+        let dividerComponent: ComponentNode | null = null;
+
+        if ('findOne' in tableFrame && typeof tableFrame.findOne === 'function') {
+            // Find header row (INSTANCE)
+            const headerRow = tableFrame.findOne(n =>
+                n.name?.includes('header row') && n.type === 'INSTANCE'
+            ) as InstanceNode | undefined;
+            // Find body group (FRAME)
+            const bodyGroup = tableFrame.findOne(n => n.name === 'Body' && n.type === 'FRAME');
+            // Find footer bar (INSTANCE)
+            const footerBar = tableFrame.findOne(n => n.name === 'Pagination - Table bar' && n.type === 'INSTANCE');
+            // FIRST INSTANCE - Variable declarations for component extraction
+            let headerCell: InstanceNode | null = null;
+            let bodyCell: InstanceNode | null = null;
+            let footer: InstanceNode | null = null;
+            let numCols = 0;
+            let headerRowComponent: ComponentNode | null = null;
+            let bodyRowComponent: ComponentNode | null = null;
+            
+            // Extract header cell template
+            if (headerRow && 'children' in headerRow) {
+                headerRowComponent = await headerRow.getMainComponentAsync();
+                
+                const headerCellInstance = headerRow.children.find((n: SceneNode) =>
+                    n.type === 'INSTANCE' && n.name?.toLowerCase().includes('col 1')
+                ) as InstanceNode | undefined;
+                if (headerCellInstance) {
+                    headerCell = headerCellInstance;
+                    // Count only instances that are visible data columns
+                    numCols = headerRow.children.filter((n: SceneNode) => 
+                        n.type === 'INSTANCE' && 
+                        n.name?.toLowerCase().includes('col') &&
+                        !n.name?.toLowerCase().includes('select') &&
+                        !n.name?.toLowerCase().includes('expand') &&
+                        n.visible
+                    ).length;
+                }
+            }
+            
+            // Extract body cell template
+            if (bodyGroup && 'children' in bodyGroup) {
+                const bodyRowInstance = bodyGroup.children.find((n: SceneNode) => n.type === 'INSTANCE' && n.name === 'Data table body row item') as InstanceNode | undefined;
+                if (bodyRowInstance) {
+                    bodyRowComponent = await bodyRowInstance.getMainComponentAsync();
+                    
+                    if ('children' in bodyRowInstance) {
+                        const dataTableRow = bodyRowInstance.children.find(child => child.type === 'FRAME' && child.name === 'Data table row') as FrameNode | undefined;
+                        if (dataTableRow && 'children' in dataTableRow) {
+                            // Find the first data cell instance whose name includes 'Col 1'
+                            const bodyCellInstance = dataTableRow.children.find((cell: SceneNode) =>
+                                cell.type === 'INSTANCE' && cell.name?.toLowerCase().includes('col 1')
+                            ) as InstanceNode | undefined;
+                            if (bodyCellInstance) {
+                                // REVERTING - Keep as InstanceNode for performTableScan
+                                bodyCell = bodyCellInstance;
+                                console.log('✅ Extracted body cell component from instance:', bodyCell?.name);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Extract footer template
+            if (footerBar && footerBar.type === 'INSTANCE') {
+                footer = footerBar;
+            }
+            
+            // --- Scan for select/expand cell components and divider ---
+            if ('findAll' in tableFrame && typeof tableFrame.findAll === 'function') {
+                allInstances = tableFrame.findAll(n => n.type === 'INSTANCE' || n.type === 'COMPONENT') as (InstanceNode | ComponentNode)[];
+                for (const node of allInstances) {
+                    if (node.name === 'Data table expand cell item') {
+                      expandCellFound = true;
+                      if (node.type === 'INSTANCE' && node.mainComponent) {
+                        expandCellComponent = node.mainComponent;
+                      }
+                    }
+                    // Check for select/checkbox components with various common names
+                    const isSelectCell = node.name === 'Data table select cell item' ||
+                                       node.name.includes('select') ||
+                                       node.name.includes('checkbox') ||
+                                       node.name.includes('check') ||
+                                       node.name.includes('radio') ||
+                                       node.name.toLowerCase().includes('select') ||
+                                       node.name.toLowerCase().includes('checkbox');
+                    
+                    if (isSelectCell && !selectCellFound) {
+                      selectCellFound = true;
+                      console.log('🔍 Found select cell component:', node.name, node.type);
+                      if (node.type === 'INSTANCE' && node.mainComponent) {
+                        selectCellComponent = node.mainComponent;
+                        console.log('✅ Using select cell from instance:', selectCellComponent.name);
+                      } else if (node.type === 'COMPONENT') {
+                        selectCellComponent = node;
+                        console.log('✅ Using select cell component directly:', selectCellComponent.name);
+                      }
+                    }
+                    
+                    // Check for divider components
+                    const isDivider = node.name === 'Divider' || 
+                                    node.name.includes('divider') || 
+                                    node.name.toLowerCase().includes('divider') ||
+                                    node.name.includes('line') ||
+                                    node.name.includes('border') ||
+                                    node.name.includes('separator') ||
+                                    node.name.includes('hr') ||
+                                    node.name.includes('horizontal') ||
+                                    node.name.includes('rule');
+                    
+                    if (isDivider) {
+                      console.log('🔍 Found potential divider component:', node.name, node.type);
+                      
+                      // Check if this component is actually a visual divider (not text-based)
+                      let isValidDivider = false;
+                      
+                      if (node.type === 'INSTANCE' && node.mainComponent) {
+                        if ('children' in node.mainComponent) {
+                          for (const child of node.mainComponent.children) {
+                            if (child.type === 'RECTANGLE' || child.type === 'LINE' || child.type === 'VECTOR') {
+                              isValidDivider = true;
+                              console.log('✅ Valid divider found with visual element:', child.type);
+                              break;
+                            } else if (child.type === 'TEXT') {
+                              console.log('⚠️ Skipping text-based component:', node.name);
+                              break;
+                            }
+                          }
+                        }
+                      } else if (node.type === 'COMPONENT') {
+                        if ('children' in node) {
+                          for (const child of node.children) {
+                            if (child.type === 'RECTANGLE' || child.type === 'LINE' || child.type === 'VECTOR') {
+                              isValidDivider = true;
+                              console.log('✅ Valid divider found with visual element:', child.type);
+                              break;
+                            } else if (child.type === 'TEXT') {
+                              console.log('⚠️ Skipping text-based component:', node.name);
+                              break;
+                            }
+                          }
+                        }
+                      }
+                      
+                      if (isValidDivider) {
+                        if (node.type === 'INSTANCE' && node.mainComponent) {
+                          dividerComponent = node.mainComponent;
+                          console.log('✅ Using divider from instance:', dividerComponent.name);
+                        } else if (node.type === 'COMPONENT') {
+                          dividerComponent = node;
+                          console.log('✅ Using divider component directly:', dividerComponent.name);
+                        }
+                      } else {
+                        console.log('⚠️ Skipping invalid divider component:', node.name);
+                      }
+                    }
+                    allInstanceNames.push(node.name);
+                }
+            }
+            
+            // If select cell component is still not found, log a warning but don't create one
+            if (!selectCellComponent) {
+                console.warn('⚠️ Select cell component not found in scanned table. Selectable functionality will be disabled.');
+            }
+            
+            // If divider component is not found, try to create one from scanned rectangle or simple divider
+            if (!dividerComponent) {
+                console.log('🔄 Divider component not found, attempting to create simple divider...');
+                try {
+                    dividerComponent = createSimpleDivider();
+                    console.log('✅ Created simple divider component');
+                    // Move the divider component to a hidden location to avoid cluttering the document
+                    dividerComponent.x = -10000;
+                    dividerComponent.y = -10000;
+                } catch (error) {
+                    console.error('❌ Error creating divider component:', error);
+                }
+            }
+            
+            // Return the scan result
+            return {
+                headerCell: headerCell as ComponentNode | null,
+                headerRowComponent: headerRowComponent as ComponentNode | null,
+                bodyCell: bodyCell as ComponentNode | null,
+                bodyRowComponent: bodyRowComponent as ComponentNode | null,
+                footer: footer as ComponentNode | null,
+                numCols: numCols || 5,
+                selectCellComponent: selectCellComponent as ComponentNode | null,
+                expandCellComponent: expandCellComponent as ComponentNode | null,
+                dividerComponent: dividerComponent as ComponentNode | null,
+            };
+        }
+        
+        return null;
+        
+    } catch (error) {
+        console.error('❌ Error during table scan:', error);
+        return null;
+    }
+}
+
+// Function to automatically scan for a valid "Data table" component on the page
+async function autoScanForDataTable(): Promise<ScanResult | null> {
+    console.log('🔄 Auto-scanning for Data table components on the page...');
+    
+    try {
+        // Search for any "Data table" components on the current page
+        const dataTableComponents = figma.currentPage.findAll(node => 
+            node.type === 'INSTANCE' && 
+            node.name.toLowerCase().includes('data table') &&
+            !node.getPluginData('isGeneratedTable') // Exclude generated tables
+        ) as InstanceNode[];
+        
+        console.log(`🔍 Found ${dataTableComponents.length} potential Data table components`);
+        
+        if (dataTableComponents.length === 0) {
+            console.log('❌ No Data table components found on the page');
+            return null;
+        }
+        
+        // Use the first valid Data table component found
+        const selectedComponent = dataTableComponents[0];
+        console.log('✅ Using Data table component for auto-scan:', selectedComponent.name);
+        
+        // Simulate the scan process on this component by reusing the existing scan logic
+        const scanResult = await performTableScan(selectedComponent);
+        
+        if (scanResult && scanResult.bodyCell) {
+            console.log('✅ Auto-scan successful, found valid components');
+            return scanResult;
+        } else {
+            console.log('❌ Auto-scan failed, no valid components found');
+            return null;
+        }
+        
+    } catch (error) {
+        console.error('❌ Error during auto-scan:', error);
+        return null;
+    }
+}
+
+// Function to create a divider component from a copied rectangle
+function createDividerFromRectangle(dividerRect: RectangleNode): ComponentNode {
+    console.log('🔄 Creating divider component from scanned rectangle:', dividerRect.name);
+    
+    // Clone the rectangle to preserve all its properties including color variables
+    const clonedRect = dividerRect.clone();
+    
+    // Create a component to hold the divider
+    const dividerComponent = figma.createComponent();
+    dividerComponent.name = "Divider from Scanned Table";
+    dividerComponent.resize(800, clonedRect.height);
+    
+    // Move the cloned rectangle into the component
+    dividerComponent.appendChild(clonedRect);
+    clonedRect.x = 0;
+    clonedRect.y = 0;
+    
+    // Set auto-layout properties for responsive behavior
+    dividerComponent.layoutMode = "HORIZONTAL";
+    dividerComponent.primaryAxisSizingMode = "AUTO"; // Auto sizing
+    dividerComponent.counterAxisSizingMode = "FIXED"; // Keep height fixed
+    dividerComponent.itemSpacing = 0;
+    dividerComponent.paddingLeft = 0;
+    dividerComponent.paddingRight = 0;
+    dividerComponent.paddingTop = 0;
+    dividerComponent.paddingBottom = 0;
+    
+    // Set the divider rectangle to fill the container width
+    clonedRect.layoutGrow = 1; // Make the rectangle grow to fill available space
+    
+    // Clear default fill to make it theme-compatible
+    dividerComponent.fills = [];
+    
+    console.log('✅ Created divider component from scanned rectangle with preserved properties');
+    
+    return dividerComponent;
+}
+
+// Function to create a simple divider component
+function createSimpleDivider(colorVariable?: VariableAlias): ComponentNode {
+    // Create a simple horizontal line divider
+    const dividerComponent = figma.createComponent();
+    dividerComponent.name = "Simple Divider";
+    dividerComponent.resize(800, 1); // Default width, 1px height to match scanned table
+    
+    // Create a rectangle for the divider line
+    const dividerLine = figma.createRectangle();
+    dividerLine.name = "Divider Line";
+    dividerLine.resize(800, 1); // Match the height
+    dividerLine.x = 0;
+    dividerLine.y = 0;
+    
+    // Use the passed color variable if available, otherwise try to find border color variable
+    const borderVariable = colorVariable || findBorderColorVariable();
+    if (borderVariable) {
+        try {
+            const colorVariableFill: Paint = {
+                type: 'SOLID',
+                color: { r: 0, g: 0, b: 0 }, // Default color (will be overridden by variable)
+                boundVariables: {
+                    color: borderVariable
+                }
+            };
+            dividerLine.fills = [colorVariableFill];
+            console.log('✅ Applied color variable to simple divider line:', colorVariable ? 'from scanned table' : 'from border variable');
+        } catch (error) {
+            console.error('❌ Error applying color variable to simple divider:', error);
+            // Fallback to a subtle gray color
+            dividerLine.fills = [{
+                type: 'SOLID',
+                color: { r: 0.9, g: 0.9, b: 0.9 } // Light gray
+            }];
+            console.log('✅ Applied fallback gray color to simple divider line');
+        }
+    } else {
+        console.log('⚠️ No color variable found, using fallback gray color for simple divider');
+        // Apply a subtle gray color as fallback
+        dividerLine.fills = [{
+            type: 'SOLID',
+            color: { r: 0.9, g: 0.9, b: 0.9 } // Light gray
+        }];
+        console.log('✅ Applied fallback gray color to simple divider line');
+    }
+    dividerLine.strokes = []; // No stroke
+    
+    // Add the line to the component
+    dividerComponent.appendChild(dividerLine);
+    
+    // Set auto-layout properties for responsive behavior
+    dividerComponent.layoutMode = "HORIZONTAL";
+    dividerComponent.primaryAxisSizingMode = "AUTO"; // Auto sizing
+    dividerComponent.counterAxisSizingMode = "FIXED"; // Keep height fixed
+    dividerComponent.itemSpacing = 0;
+    dividerComponent.paddingLeft = 0;
+    dividerComponent.paddingRight = 0;
+    dividerComponent.paddingTop = 0;
+    dividerComponent.paddingBottom = 0;
+    
+    // Set the divider line to fill the container width
+    dividerLine.layoutGrow = 1; // Make the line grow to fill available space
+    
+    // Clear default fill to make it theme-compatible
+    dividerComponent.fills = [];
+    
+    console.log('✅ Created simple divider with border color variable and responsive layout');
+    
+    return dividerComponent;
+}
+
+
+figma.ui.onmessage = async (msg: any) => {
+    if (msg.type === "scan-selected-table") {
+        const tableNode = figma.getNodeById(msg.tableId);
+        console.log(`[scan-selected-table] Node found: ${tableNode ? tableNode.type : 'null'}, name: ${tableNode?.name}`);
+        if (tableNode && (tableNode.type === "FRAME" || tableNode.type === "COMPONENT" || tableNode.type === "INSTANCE")) {
+            figma.currentPage.selection = [tableNode];
+            console.log('[scan-selected-table] Triggering selectionchange for table scan');
+            // Trigger the selectionchange handler which will handle the scan
+        } else {
+            console.warn(`[scan-selected-table] Invalid node type for scanning: ${tableNode?.type}`);
+        }
+        return;
+    }
+    else if (msg.type === "generate-fake-data") {
+        const { dataType, count } = msg;
+        const data = [];
+        for (let i = 0; i < (count || 10); i++) {
+            try {
+                const [category, method] = dataType.split('.');
+                if (faker[category] && typeof faker[category][method] === 'function') {
+                    const value = faker[category][method]();
+                    data.push(value);
+                } else {
+                    data.push('Invalid Method');
+                }
+            } catch (e) {
+                data.push('Error');
+            }
+        }
+        figma.ui.postMessage({
+            type: 'fake-data-response',
+            data
+        });
+        return;
+
+    } else if (msg.type === "load-instance-by-id") {
+        const nodeId = msg.nodeId;
+        const node = figma.getNodeById(nodeId);
+
+        if (!node) {
+            figma.ui.postMessage({
+                type: "creation-error",
+                message: "Node not found."
+            });
+            return;
+        }
+        if (node && (node.type === "INSTANCE" || node.type === "COMPONENT" || node.type === "COMPONENT_SET")) {
+            try {
+                let componentNode: ComponentNode | ComponentSetNode | null = null;
+                if (node.type === "INSTANCE") {
+                    componentNode = await node.getMainComponentAsync();
+                } else {
+                    componentNode = node;
+                }
+
+                if (!componentNode) throw new Error("Component not found");
+
+                if (componentNode.type === "COMPONENT_SET") {
+                    componentNode = componentNode.children[0] as ComponentNode;
+                }
+
+                const tempInstance = (componentNode as ComponentNode).createInstance();
+                const propertyValues: { [key: string]: any } = {};
+                const propertyTypes: { [key: string]: "TEXT" | "BOOLEAN" | "INSTANCE_SWAP" | "VARIANT" } = {};
+                const availableProperties = Object.keys(tempInstance.componentProperties);
+                for (const propName of availableProperties) {
+                    const prop = tempInstance.componentProperties[propName];
+                    propertyValues[propName] = prop.value;
+                    propertyTypes[propName] = prop.type;
+                }
+                tempInstance.remove();
+
+                figma.ui.postMessage({
+                    type: "component-selected",
+                    componentName: componentNode.name || "Table Cell",
+                    componentId: componentNode.id || null,
+                    properties: propertyValues,
+                    availableProperties: availableProperties,
+                    propertyTypes: propertyTypes,
+                    isValidComponent: true
+                });
+            } catch (error) {
+                figma.ui.postMessage({
+                    type: "creation-error",
+                    message: "Failed to load component properties."
+                });
+            }
+        } else {
+            figma.ui.postMessage({
+                type: "creation-error",
+                message: "Node not found or not a valid component/instance."
+            });
+        }
+        return;
+    
+    } else if (msg.type === "update-cell-properties") {
+        const { cellKey, properties } = msg as { cellKey: string, properties: { [key: string]: string } };
+        try {
+            const cell = cellInstanceMap.get(cellKey);
+            if (cell) {
+                let mainComponentSet = null;
+                if (cell.mainComponent && cell.mainComponent.parent && cell.mainComponent.parent.type === "COMPONENT_SET") {
+                    mainComponentSet = cell.mainComponent.parent as ComponentSetNode;
+                }
+                
+                if (mainComponentSet && isValidVariantCombination(mainComponentSet, properties)) {
+                    try {
+                await cell.setProperties(properties);
+                figma.notify('✅ Cell properties updated');
+                    } catch (error) {
+                        console.error('Error in update-cell-properties setProperties:', error);
+                        figma.notify('❌ Error updating cell properties');
+                    }
+                } else {
+                    console.warn('Invalid variant combination for cell update:', properties);
+                    figma.notify('⚠️ Invalid property combination');
+                }
+            } else {
+                figma.notify('Error: Cell not found');
+            }
+        } catch (error: any) {
+            figma.notify(`Error: ${error.message}`);
+        }
+    
+    } else if (msg.type === "request-selection-state") {
+        const selection = figma.currentPage.selection;
+        
+        if (selection.length === 1) {
+            const selectedNode = selection[0];
+            
+            // Check if it's a Data table component
+            if (selectedNode.type === "FRAME" && selectedNode.name.includes('Data table')) {
+                figma.ui.postMessage({
+                    type: "table-selected",
+                    tableId: selectedNode.id
+                });
+                return;
+            }
+            
+            // Check if it's a Data table instance
+            if (selectedNode.type === "INSTANCE") {
+                try {
+                    const mainComponent = await selectedNode.getMainComponentAsync();
+                    if (mainComponent && mainComponent.name.includes('Data table')) {
+        figma.ui.postMessage({
+                            type: "table-selected",
+                            tableId: selectedNode.id
+                        });
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error getting main component:', error);
+                }
+            }
+            
+            // Check if it's a Data table row cell item
+            if (selectedNode.type === "INSTANCE") {
+                try {
+                    const mainComponent = await selectedNode.getMainComponentAsync();
+                    if (mainComponent && mainComponent.name === "Data table row cell item") {
+                        // Don't trigger scan for individual cell items - just ignore the selection
+                        console.log(`[request-selection-state] Ignoring selection of individual cell item: ${selectedNode.name}`);
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error getting main component:', error);
+                }
+            }
+        }
+        
+        // If no valid selection found, send selection cleared message
+        figma.ui.postMessage({
+            type: "selection-cleared",
+            isValidComponent: false,
+            clearUI: true
+        });
+    
+    } else if (msg.type === "clear-cell-instances") {
+        cellInstanceMap.forEach(instance => instance.remove());
+
+    } else if (msg.type === 'scan-table') {
+        const selection = figma.currentPage.selection;
+        console.log(`[scan-table] Selection check - count: ${selection.length}, types: ${selection.map(s => s.type).join(', ')}, names: ${selection.map(s => s.name).join(', ')}`);
+        
+        if (selection.length !== 1 || !['FRAME', 'COMPONENT', 'INSTANCE'].includes(selection[0].type)) {
+            console.log(`[scan-table] Invalid selection - count: ${selection.length}, type: ${selection[0]?.type}`);
+            figma.ui.postMessage({
+                type: 'scan-table-result',
+                success: false,
+                message: 'Please select a single table component (Frame, Component or Instance) in Figma.'
+            });
+            return;
+        }
+        console.log(`[scan-table] Valid selection - type: ${selection[0].type}, name: ${selection[0].name}`);
+
+        const tableFrame = selection[0];
+        
+        // Check if the selected item is a cell item that should be ignored
+        if (tableFrame.type === "INSTANCE") {
+            try {
+                const mainComponent = await tableFrame.getMainComponentAsync();
+                if ((mainComponent && mainComponent.name === "Data table row cell item") || 
+                    tableFrame.name === "Data table body row item" ||
+                    tableFrame.name.includes("row cell item")) {
+                    console.log(`[scan-table] Ignoring scan for individual cell item: ${tableFrame.name}`);
+                    figma.ui.postMessage({
+                        type: 'scan-table-result',
+                        success: false,
+                        message: 'Please select a main table component, not individual cells.'
+                    });
+                    return;
+                }
+            } catch (error) {
+                console.error('Error checking main component in scan-table:', error);
+            }
+        }
+        
+        // --- Set the 'type' property to 'Expandable + Selectable' if possible ---
+        if ('componentProperties' in tableFrame && 'setProperties' in tableFrame && typeof tableFrame.setProperties === 'function') {
+          const typeProp = tableFrame.componentProperties['type'];
+          
+          // Find the correct property name for the type/variant property
+          let typePropertyName = null;
+          for (const [propName, prop] of Object.entries(tableFrame.componentProperties)) {
+            if (prop.type === 'VARIANT') {
+              // Check if this property has expandable/selectable options
+              if ('mainComponent' in tableFrame && tableFrame.mainComponent && 'variantProperties' in tableFrame.mainComponent) {
+                const variantProps = tableFrame.mainComponent.variantProperties as any;
+                const variantKey = Object.keys(variantProps).find(k => k.startsWith(propName));
+                if (variantKey && variantProps[variantKey] && typeof variantProps[variantKey] === 'object' && 'values' in variantProps[variantKey] && Array.isArray(variantProps[variantKey].values)) {
+                  const possibleValues = variantProps[variantKey].values as string[];
+                  // Find a case-insensitive match for expandable + selectable
+                  const found = possibleValues.find(v => v.trim().toLowerCase().includes('expandable') && v.trim().toLowerCase().includes('selectable'));
+                  if (found) {
+                    typePropertyName = propName;
+                  }
+                } else {
+                }
+              } else {
+              }
+            }
+          }
+          
+          
+          if (typePropertyName && tableFrame.mainComponent) {
+            // Find the correct variantKey again for setting
+            const variantProps = tableFrame.mainComponent.variantProperties as any;
+            const variantKey = Object.keys(variantProps).find(k => k.startsWith(typePropertyName));
+            let targetValue = 'Expandable + Selectable';
+            let variantValue = targetValue;
+            if (variantKey && variantProps[variantKey] && typeof variantProps[variantKey] === 'object' && 'values' in variantProps[variantKey] && Array.isArray(variantProps[variantKey].values)) {
+              const possibleValues = variantProps[variantKey].values as string[];
+              // Find a case-insensitive match
+              const found = possibleValues.find(v => v.trim().toLowerCase().includes('expandable') && v.trim().toLowerCase().includes('selectable'));
+              if (found) {
+                variantValue = found;
+              } else {
+              }
+            }
+            const propertiesToSet: any = {};
+            propertiesToSet[typePropertyName] = variantValue;
+            
+            // Check if the combination is valid before setting
+            let mainComponentSet = null;
+            if (tableFrame.mainComponent && tableFrame.mainComponent.parent && tableFrame.mainComponent.parent.type === "COMPONENT_SET") {
+                mainComponentSet = tableFrame.mainComponent.parent as ComponentSetNode;
+            }
+            
+            if (mainComponentSet && isValidVariantCombination(mainComponentSet, propertiesToSet)) {
+                try {
+            tableFrame.setProperties(propertiesToSet);
+            // Wait for Figma to update the instance tree
+            await Promise.resolve();
+            // Add additional delay to ensure the instance tree is updated
+            await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (error) {
+                    console.error('Error in tableFrame setProperties:', error);
+                }
+            } else {
+                console.warn('Invalid variant combination for table frame:', propertiesToSet);
+            }
+          } else {
+          }
+        } else {
+        }
+        // --- Custom scan for specific instances/components ---
+        let expandCellFound = false;
+        let selectCellFound = false;
+        const allInstanceNames: string[] = [];
+        let allInstances: (InstanceNode | ComponentNode)[] = [];
+        let expandCellComponent: ComponentNode | null = null;
+        let selectCellComponent: ComponentNode | null = null;
+
+        // --- Check for 'type' property with value 'expandable + selectable' ---
+        let hasExpandableSelectableType = false;
+        if ('componentProperties' in tableFrame) {
+          const typeProp = tableFrame.componentProperties['type'];
+          if (typeProp && typeProp.value && typeof typeProp.value === 'string') {
+            if (typeProp.value.trim().toLowerCase() === 'expandable + selectable') {
+              hasExpandableSelectableType = true;
+            }
+          }
+        }
+
+        // --- Print all componentProperties and their possible values ---
+        if ('componentProperties' in tableFrame) {
+          const props = tableFrame.componentProperties;
+          let variantValues: { [key: string]: string[] } = {};
+          if ('mainComponent' in tableFrame && tableFrame.mainComponent && 'variantProperties' in tableFrame.mainComponent) {
+            // Figma API: mainComponent.variantProperties[key].values
+            for (const [k, v] of Object.entries(tableFrame.mainComponent.variantProperties || {})) {
+              if (v && typeof v === 'object' && 'values' in v && Array.isArray((v as any).values)) {
+                variantValues[k] = (v as any).values;
+              }
+            }
+          }
+          for (const [key, prop] of Object.entries(props)) {
+            let possibleValues = undefined;
+            if (prop.type === 'VARIANT' && variantValues[key]) {
+              possibleValues = variantValues[key];
+            } else if (prop.type === 'BOOLEAN') {
+              possibleValues = [true, false];
+            }
+          }
+        }
+
+        // --- Generate unique instances/components in a preview frame ---
+        // Preview frame creation removed as requested
+
+        if ('children' in tableFrame) {
+        }
+        if ('findOne' in tableFrame && typeof tableFrame.findOne === 'function') {
+            // Find header row (INSTANCE)
+            const headerRow = tableFrame.findOne(n =>
+                n.name?.includes('header row') && n.type === 'INSTANCE'
+            ) as InstanceNode | undefined;
+            // Find body group (FRAME)
+            const bodyGroup = tableFrame.findOne(n => n.name === 'Body' && n.type === 'FRAME');
+            // Find footer bar (INSTANCE)
+            const footerBar = tableFrame.findOne(n => n.name === 'Pagination - Table bar' && n.type === 'INSTANCE');
+            // FIRST INSTANCE - Variable declarations for component extraction
+            let headerCell: InstanceNode | null = null;
+            let bodyCell: InstanceNode | null = null;
+            let footer: InstanceNode | null = null;
+            let numCols = 0;
+            let headerRowComponent: ComponentNode | null = null;
+            let bodyRowComponent: ComponentNode | null = null;
+            // Extract header cell template
+            if (headerRow && 'children' in headerRow) {
+                headerRowComponent = await headerRow.getMainComponentAsync();
+                
+                // Update header row properties to enable selectable/expandable functionality
+                console.log('🔄 Updating header row properties to add select/expand cells...');
+                const headerUpdateSuccess = await updateBodyRowProperties(headerRow);
+                if (headerUpdateSuccess) {
+                    console.log('✅ Header row properties updated successfully');
+                    // Wait a bit more for Figma to fully update the table structure
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                } else {
+                    console.warn('⚠️ Failed to update header row properties');
+                }
+                
+                const headerCellInstance = headerRow.children.find((n: SceneNode) =>
+                    n.type === 'INSTANCE' && n.name?.toLowerCase().includes('col 1')
+                ) as InstanceNode | undefined;
+                if (headerCellInstance) {
+                    headerCell = headerCellInstance;
+                    // Count only instances that are visible data columns (name includes 'col' but not select/expand cells)
+                    numCols = headerRow.children.filter((n: SceneNode) => 
+                        n.type === 'INSTANCE' && 
+                        n.name?.toLowerCase().includes('col') &&
+                        !n.name?.toLowerCase().includes('select') &&
+                        !n.name?.toLowerCase().includes('expand') &&
+                        n.visible
+                    ).length;
+                }
+            }
+            // Extract body cell template
+            if (bodyGroup && 'children' in bodyGroup) {
+                const bodyRowInstance = bodyGroup.children.find((n: SceneNode) => n.type === 'INSTANCE' && n.name === 'Data table body row item') as InstanceNode | undefined;
+                if (bodyRowInstance) {
+                    bodyRowComponent = await bodyRowInstance.getMainComponentAsync();
+                    
+                    // Update body row properties to enable selectable/expandable functionality
+                    console.log('🔄 Updating body row properties to add select/expand cells...');
+                    const updateSuccess = await updateBodyRowProperties(bodyRowInstance);
+                    if (updateSuccess) {
+                        console.log('✅ Body row properties updated successfully');
+                        // Wait a bit more for Figma to fully update the table structure
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    } else {
+                        console.warn('⚠️ Failed to update body row properties');
+                    }
+                    
+                    if ('children' in bodyRowInstance) {
+                        const dataTableRow = bodyRowInstance.children.find(child => child.type === 'FRAME' && child.name === 'Data table row') as FrameNode | undefined;
+                        if (dataTableRow && 'children' in dataTableRow) {
+                            // Find the first data cell instance whose name includes 'Col 1'
+                            const bodyCellInstance = dataTableRow.children.find((cell: SceneNode) =>
+                                cell.type === 'INSTANCE' && cell.name?.toLowerCase().includes('col 1')
+                            ) as InstanceNode | undefined;
+                            if (bodyCellInstance) {
+                                // REVERTING - Keep as InstanceNode for performTableScan
+                                bodyCell = bodyCellInstance;
+                                console.log('✅ Extracted body cell component from instance:', bodyCell?.name);
+                            }
+                        }
+                    }
+                }
+            }
+            // Extract footer template
+            if (footerBar && footerBar.type === 'INSTANCE') {
+                footer = footerBar;
+            }
+            
+            // --- Scan for select/expand cell components and divider AFTER updating body row properties ---
+            let dividerComponent: ComponentNode | null = null;
+            let dividerRectangle: RectangleNode | null = null;
+            
+                    // First, scan for divider elements in the table frame (including nested ones)
+        if ('findAll' in tableFrame && typeof tableFrame.findAll === 'function') {
+            // Search for ALL elements named "Divider" anywhere in the table structure
+            const allElements = tableFrame.findAll(n => n.name === 'Divider');
+            console.log(`🔍 Found ${allElements.length} elements named "Divider" in table frame (including nested)`);
+            
+            if (allElements.length > 0) {
+                // Log all found dividers to help identify the correct one
+                console.log('🔍 All found divider elements:');
+                allElements.forEach((element, index) => {
+                    console.log(`  ${index + 1}. Name: "${element.name}", Type: ${element.type}, Parent: ${element.parent?.name || 'root'}`);
+                });
+                
+                // Try to find the divider that's inside a body row item (the one we want)
+                let targetDivider = null;
+                for (const element of allElements) {
+                    // Check if this divider is inside a body row item
+                    let parent = element.parent;
+                    let isInBodyRow = false;
+                    while (parent) {
+                        if (parent.name && parent.name.toLowerCase().includes('body row')) {
+                            isInBodyRow = true;
+                            console.log('✅ Found divider inside body row item:', parent.name);
+                            break;
+                        }
+                        parent = parent.parent;
+                    }
+                    
+                    if (isInBodyRow) {
+                        targetDivider = element;
+                        break;
+                    }
+                }
+                
+                // If we didn't find one in a body row, use the first one
+                if (!targetDivider && allElements.length > 0) {
+                    targetDivider = allElements[0];
+                    console.log('⚠️ Using first divider found (not in body row):', targetDivider.name);
+                }
+                
+                if (targetDivider) {
+                    const dividerElement = targetDivider;
+                    console.log('🔍 Selected divider element:', dividerElement.name, `Type: ${dividerElement.type}`);
+                    console.log('🔍 Divider element details:', dividerElement);
+                    
+                    // Log ALL properties regardless of type
+                    console.log('🎨 Divider Element ALL Properties:');
+                    console.log('  - Name:', dividerElement.name);
+                    console.log('  - Type:', dividerElement.type);
+                    
+                    // Try to access common properties
+                    if ('width' in dividerElement) {
+                        console.log('  - Width:', (dividerElement as any).width);
+                    }
+                    if ('height' in dividerElement) {
+                        console.log('  - Height:', (dividerElement as any).height);
+                    }
+                    if ('fills' in dividerElement) {
+                        console.log('  - Fills:', (dividerElement as any).fills);
+                    }
+                    if ('strokes' in dividerElement) {
+                        console.log('  - Strokes:', (dividerElement as any).strokes);
+                    }
+                    
+                    // Log detailed properties of the divider element
+                    if (dividerElement.type === 'RECTANGLE') {
+                        const rect = dividerElement as RectangleNode;
+                        console.log('🎨 Divider Rectangle Properties:');
+                        console.log('  - Name:', rect.name);
+                        console.log('  - Width:', rect.width, 'Height:', rect.height);
+                        console.log('  - Fills:', rect.fills);
+                        console.log('  - Strokes:', rect.strokes);
+                        console.log('  - Stroke Weight:', rect.strokeWeight);
+                        console.log('  - Corner Radius:', rect.cornerRadius);
+                        console.log('  - Effects:', rect.effects);
+                        
+                        // Check for color variables
+                        if (rect.fills && Array.isArray(rect.fills) && rect.fills.length > 0) {
+                            const fill = rect.fills[0];
+                            if (fill.type === 'SOLID') {
+                                console.log('  - Fill Color:', fill.color);
+                                if (fill.boundVariables && fill.boundVariables.color) {
+                                    console.log('  - Color Variable:', fill.boundVariables.color);
+                                }
+                            }
+                        }
+                        
+                        dividerRectangle = rect;
+                    } else {
+                        console.log('⚠️ Divider element is NOT a RECTANGLE, it is:', dividerElement.type);
+                        console.log('⚠️ Full divider element:', dividerElement);
+                        
+                        // If it's an INSTANCE or COMPONENT, try to extract rectangle from children
+                        if (dividerElement.type === 'INSTANCE' || dividerElement.type === 'COMPONENT') {
+                            console.log('🔍 Checking children of divider element...');
+                            if ('children' in dividerElement) {
+                                console.log('  - Children count:', dividerElement.children.length);
+                                for (const child of dividerElement.children) {
+                                    console.log('  - Child:', child.name, 'Type:', child.type);
+                                    if (child.type === 'RECTANGLE') {
+                                        console.log('🎨 Found RECTANGLE child in divider:');
+                                        console.log('  - Name:', child.name);
+                                        console.log('  - Width:', child.width, 'Height:', child.height);
+                                        console.log('  - Fills:', child.fills);
+                                        if (child.fills && Array.isArray(child.fills) && child.fills.length > 0) {
+                                            const fill = child.fills[0];
+                                            if (fill.type === 'SOLID') {
+                                                console.log('  - Fill Color:', fill.color);
+                                                if (fill.boundVariables && fill.boundVariables.color) {
+                                                    console.log('  - Color Variable:', fill.boundVariables.color);
+                                                }
+                                            }
+                                        }
+                                        // Use this rectangle instead
+                                        dividerRectangle = child;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                console.log('❌ No elements named "Divider" found in table frame');
+            }
+        } else {
+            console.log('❌ Table frame does not support findAll method');
+        }
+            
+            if ('findAll' in tableFrame && typeof tableFrame.findAll === 'function') {
+                allInstances = tableFrame.findAll(n => n.type === 'INSTANCE' || n.type === 'COMPONENT') as (InstanceNode | ComponentNode)[];
+                for (const node of allInstances) {
+                    if (node.name === 'Data table expand cell item') {
+                      expandCellFound = true;
+                      if (node.type === 'INSTANCE' && node.mainComponent) {
+                        expandCellComponent = node.mainComponent;
+                      }
+                    }
+                    // Check for select/checkbox components with various common names
+                    const isSelectCell = node.name === 'Data table select cell item' ||
+                                       node.name.includes('select') ||
+                                       node.name.includes('checkbox') ||
+                                       node.name.includes('check') ||
+                                       node.name.includes('radio') ||
+                                       node.name.toLowerCase().includes('select') ||
+                                       node.name.toLowerCase().includes('checkbox');
+                    
+                    if (isSelectCell && !selectCellFound) {
+                      selectCellFound = true;
+                      console.log('🔍 Found select cell component:', node.name, node.type);
+                      if (node.type === 'INSTANCE' && node.mainComponent) {
+                        selectCellComponent = node.mainComponent;
+                        console.log('✅ Using select cell from instance:', selectCellComponent.name);
+                      } else if (node.type === 'COMPONENT') {
+                        selectCellComponent = node;
+                        console.log('✅ Using select cell component directly:', selectCellComponent.name);
+                      }
+                    }
+                    // Check for divider components with various common names
+                    const isDivider = node.name === 'Divider' || 
+                                    node.name.includes('divider') || 
+                                    node.name.toLowerCase().includes('divider') ||
+                                    node.name.includes('line') ||
+                                    node.name.includes('border') ||
+                                    node.name.includes('separator') ||
+                                    node.name.includes('hr') ||
+                                    node.name.includes('horizontal') ||
+                                    node.name.includes('rule');
+                    
+                    if (isDivider) {
+                      console.log('🔍 Found potential divider component:', node.name, node.type);
+                      
+                      // Check if this component is actually a visual divider (not text-based)
+                      let isValidDivider = false;
+                      
+                      if (node.type === 'INSTANCE' && node.mainComponent) {
+                        // Check the main component's children
+                        if ('children' in node.mainComponent) {
+                          for (const child of node.mainComponent.children) {
+                            if (child.type === 'RECTANGLE' || child.type === 'LINE' || child.type === 'VECTOR') {
+                              isValidDivider = true;
+                              console.log('✅ Valid divider found with visual element:', child.type);
+                              break;
+                            } else if (child.type === 'TEXT') {
+                              console.log('⚠️ Skipping text-based component:', node.name);
+                              break;
+                            }
+                          }
+                        }
+                      } else if (node.type === 'COMPONENT') {
+                        // Check the component's children
+                        if ('children' in node) {
+                          for (const child of node.children) {
+                            if (child.type === 'RECTANGLE' || child.type === 'LINE' || child.type === 'VECTOR') {
+                              isValidDivider = true;
+                              console.log('✅ Valid divider found with visual element:', child.type);
+                              break;
+                            } else if (child.type === 'TEXT') {
+                              console.log('⚠️ Skipping text-based component:', node.name);
+                              break;
+                            }
+                          }
+                        }
+                      }
+                      
+                      if (isValidDivider) {
+                        if (node.type === 'INSTANCE' && node.mainComponent) {
+                          dividerComponent = node.mainComponent;
+                          console.log('✅ Using divider from instance:', dividerComponent.name);
+                        } else if (node.type === 'COMPONENT') {
+                          dividerComponent = node;
+                          console.log('✅ Using divider component directly:', dividerComponent.name);
+                        }
+                      } else {
+                        console.log('⚠️ Skipping invalid divider component:', node.name);
+                      }
+                    }
+                    allInstanceNames.push(node.name);
+                }
+            }
+            
+            // If select cell component is still not found, log a warning but don't create one
+            if (!selectCellComponent) {
+                console.warn('⚠️ Select cell component not found in scanned table. Selectable functionality will be disabled.');
+            }
+            
+            // If divider component is not found, try to create one from scanned rectangle or simple divider
+            if (!dividerComponent) {
+                console.log('🔄 Divider component not found, checking for scanned rectangle...');
+                try {
+                    if (dividerRectangle) {
+                        console.log('✅ Found divider rectangle in scanned table, will use it directly');
+                        // Store the divider rectangle for direct use (no component needed)
+                        dividerComponent = null; // We'll use the rectangle directly
+                    } else {
+                        console.log('🔄 No divider rectangle found, creating simple divider...');
+                        dividerComponent = createSimpleDivider();
+                    }
+                    console.log('✅ Divider handling configured');
+                    // Move the divider component to a hidden location to avoid cluttering the document
+                    if (dividerComponent) {
+                        dividerComponent.x = -10000;
+                        dividerComponent.y = -10000;
+                    }
+                } catch (error) {
+                    console.error('❌ Error creating divider component:', error);
+                }
+            }
+            
+            // Get properties for the bodyCell template to send to UI
+            let bodyCellComponent = null;
+            if (bodyCell) {
+                try {
+                const mainComponent = bodyCell.mainComponent;
+                    if (mainComponent) {
+                        const instance = bodyCell;
+                const propertyValues: { [key: string]: any } = {};
+                const propertyTypes: { [key: string]: any } = {};
+                const availableProperties = Object.keys(instance.componentProperties);
+                for (const propName of availableProperties) {
+                    const prop = instance.componentProperties[propName];
+                    propertyValues[propName] = prop.value;
+                    propertyTypes[propName] = prop.type;
+                }
+                        let instanceWidth = instance?.width || 100; // Use optional chaining
+                bodyCellComponent = {
+                    id: mainComponent.id,
+                    name: mainComponent.name,
+                            width: instanceWidth,
+                    properties: propertyValues,
+                    availableProperties,
+                    propertyTypes,
+                };
+                    }
+                } catch (error) {
+                    console.error('Error accessing bodyCell mainComponent:', error);
+                }
+            }
+            // Get properties for the headerCell template to send to UI
+            let headerCellComponent = null;
+            if (headerCell) {
+                try {
+                const mainComponent = headerCell.mainComponent;
+                    if (mainComponent) {
+                        const instance = headerCell;
+                const propertyValues: { [key: string]: any } = {};
+                const propertyTypes: { [key: string]: any } = {};
+                const availableProperties = Object.keys(instance.componentProperties);
+                for (const propName of availableProperties) {
+                    const prop = instance.componentProperties[propName];
+                    propertyValues[propName] = prop.value;
+                    propertyTypes[propName] = prop.type;
+                }
+                        let instanceWidth = instance?.width || 100; // Use optional chaining
+                headerCellComponent = {
+                    id: mainComponent.id,
+                    name: mainComponent.name,
+                            width: instanceWidth,
+                    properties: propertyValues,
+                    availableProperties,
+                    propertyTypes,
+                };
+                    }
+                } catch (error) {
+                    console.error('Error accessing headerCell mainComponent:', error);
+                }
+            }
+            // Get properties for the footer template to send to UI
+            let footerComponent = null;
+            if (footer) {
+                try {
+                const mainComponent = footer.mainComponent;
+                    if (mainComponent) {
+                        const instance = footer;
+                const propertyValues: { [key: string]: any } = {};
+                const propertyTypes: { [key: string]: any } = {};
+                const availableProperties = Object.keys(instance.componentProperties);
+                for (const propName of availableProperties) {
+                    const prop = instance.componentProperties[propName];
+                    propertyValues[propName] = prop.value;
+                    propertyTypes[propName] = prop.type;
+                }
+                        let instanceWidth = instance?.width || 100; // Use optional chaining
+                footerComponent = {
+                    id: mainComponent.id,
+                    name: mainComponent.name,
+                            width: instanceWidth,
+                    properties: propertyValues,
+                    availableProperties,
+                    propertyTypes,
+                };
+                    }
+                } catch (error) {
+                    console.error('Error accessing footer mainComponent:', error);
+                }
+            }
+            // Store header row properties for applying to generated header row
+            let headerRowProperties: { [key: string]: any } = {};
+            if (headerRow) {
+                console.log('🔍 Header row properties available:', {
+                    fills: headerRow.fills,
+                    strokes: headerRow.strokes,
+                    strokeWeight: headerRow.strokeWeight,
+                    cornerRadius: headerRow.cornerRadius,
+                    effects: headerRow.effects
+                });
+                
+                // Store the actual visual properties from the header row
+                headerRowProperties = {
+                    fills: headerRow.fills,
+                    strokes: headerRow.strokes,
+                    strokeWeight: headerRow.strokeWeight,
+                    cornerRadius: headerRow.cornerRadius,
+                    effects: headerRow.effects
+                };
+                
+                // Also store component properties if available
+                if ('componentProperties' in headerRow) {
+                    for (const [key, prop] of Object.entries(headerRow.componentProperties)) {
+                        headerRowProperties[`component_${key}`] = prop.value;
+                    }
+                }
+            }
+            
+            // Store table properties for applying to generated table frame
+            let tableProperties: { [key: string]: any } = {};
+            if (tableFrame && 'fills' in tableFrame) {
+                const tableFrameWithFills = tableFrame as FrameNode | ComponentNode | InstanceNode;
+                console.log('🔍 Table properties available:', {
+                    fills: tableFrameWithFills.fills,
+                    strokes: tableFrameWithFills.strokes,
+                    strokeWeight: tableFrameWithFills.strokeWeight,
+                    cornerRadius: tableFrameWithFills.cornerRadius,
+                    effects: tableFrameWithFills.effects
+                });
+                
+                // Store the actual visual properties from the table frame
+                tableProperties = {
+                    fills: tableFrameWithFills.fills,
+                    strokes: tableFrameWithFills.strokes,
+                    strokeWeight: tableFrameWithFills.strokeWeight,
+                    cornerRadius: tableFrameWithFills.cornerRadius,
+                    effects: tableFrameWithFills.effects
+                };
+                
+                // Also store component properties if available
+                if ('componentProperties' in tableFrame) {
+                    for (const [key, prop] of Object.entries(tableFrame.componentProperties)) {
+                        tableProperties[`component_${key}`] = prop.value;
+                    }
+                }
+            }
+            
+            // Store divider properties for applying to generated dividers
+            let dividerProperties: { [key: string]: any } = {};
+            if (dividerComponent) {
+                console.log('🔍 Divider component properties available:', {
+                    fills: dividerComponent.fills,
+                    strokes: dividerComponent.strokes,
+                    strokeWeight: dividerComponent.strokeWeight,
+                    cornerRadius: dividerComponent.cornerRadius,
+                    effects: dividerComponent.effects
+                });
+                
+                // Store the actual visual properties from the divider component
+                dividerProperties = {
+                    fills: dividerComponent.fills,
+                    strokes: dividerComponent.strokes,
+                    strokeWeight: dividerComponent.strokeWeight,
+                    cornerRadius: dividerComponent.cornerRadius,
+                    effects: dividerComponent.effects,
+                    height: dividerComponent.height // Capture the height
+                };
+                
+                // Check for color variables in main component fills
+                if (dividerComponent.fills && Array.isArray(dividerComponent.fills) && dividerComponent.fills.length > 0) {
+                    for (const fill of dividerComponent.fills) {
+                        if (fill.type === 'SOLID' && fill.boundVariables && fill.boundVariables.color) {
+                            console.log('🎨 Found color variable in main component:', fill.boundVariables.color);
+                            dividerProperties.colorVariable = fill.boundVariables.color;
+                        }
+                    }
+                }
+                
+                // Also store component properties if available
+                if ('componentProperties' in dividerComponent && dividerComponent.componentProperties) {
+                    for (const [key, prop] of Object.entries(dividerComponent.componentProperties as any)) {
+                        if (prop && typeof prop === 'object' && 'value' in prop) {
+                            dividerProperties[`component_${key}`] = (prop as any).value;
+                        }
+                    }
+                }
+                
+                // Try to create a temporary instance to get the actual visual properties
+                try {
+                    const tempDividerInstance = dividerComponent.createInstance();
+                    console.log('🔍 Temporary divider instance properties:', {
+                        fills: tempDividerInstance.fills,
+                        strokes: tempDividerInstance.strokes,
+                        strokeWeight: tempDividerInstance.strokeWeight
+                    });
+                    
+                    // Store instance properties
+                    dividerProperties.instanceFills = tempDividerInstance.fills;
+                    dividerProperties.instanceStrokes = tempDividerInstance.strokes;
+                    dividerProperties.instanceStrokeWeight = tempDividerInstance.strokeWeight;
+                    dividerProperties.instanceHeight = tempDividerInstance.height; // Capture instance height
+                    
+                    // Check for color variables in instance fills
+                    if (tempDividerInstance.fills && Array.isArray(tempDividerInstance.fills) && tempDividerInstance.fills.length > 0) {
+                        for (const fill of tempDividerInstance.fills) {
+                            if (fill.type === 'SOLID' && fill.boundVariables && fill.boundVariables.color) {
+                                console.log('🎨 Found color variable in instance:', fill.boundVariables.color);
+                                dividerProperties.instanceColorVariable = fill.boundVariables.color;
+                            }
+                        }
+                    }
+                    
+                    // Check instance children
+                    if ('children' in tempDividerInstance) {
+                        console.log('🔍 Temporary divider instance children:', tempDividerInstance.children.length);
+                        for (const child of tempDividerInstance.children) {
+                            console.log('🔍 Temporary instance child:', child.name, child.type, {
+                                fills: 'fills' in child ? child.fills : 'N/A',
+                                strokes: 'strokes' in child ? child.strokes : 'N/A',
+                                strokeWeight: 'strokeWeight' in child ? child.strokeWeight : 'N/A'
+                            });
+                            
+                            if ('fills' in child && child.fills && Array.isArray(child.fills) && child.fills.length > 0) {
+                                dividerProperties.instanceChildFills = child.fills;
+                                console.log('✅ Found instance child fills:', child.fills);
+                                
+                                // Check for color variables in fills
+                                for (const fill of child.fills) {
+                                    if (fill.type === 'SOLID' && fill.boundVariables && fill.boundVariables.color) {
+                                        console.log('🎨 Found color variable in instance child:', fill.boundVariables.color);
+                                        dividerProperties.instanceChildColorVariable = fill.boundVariables.color;
+                                    }
+                                }
+                            }
+                            if ('strokes' in child && child.strokes && Array.isArray(child.strokes) && child.strokes.length > 0) {
+                                dividerProperties.instanceChildStrokes = child.strokes;
+                                console.log('✅ Found instance child strokes:', child.strokes);
+                            }
+                            if ('strokeWeight' in child && child.strokeWeight !== undefined) {
+                                dividerProperties.instanceChildStrokeWeight = child.strokeWeight;
+                                console.log('✅ Found instance child stroke weight:', child.strokeWeight);
+                            }
+                            if ('height' in child && child.height !== undefined) {
+                                dividerProperties.instanceChildHeight = child.height;
+                                console.log('✅ Found instance child height:', child.height);
+                            }
+                            break;
+                        }
+                    }
+                    
+                    tempDividerInstance.remove();
+                } catch (error) {
+                    console.error('❌ Error creating temporary divider instance:', error);
+                }
+                
+                // Find and store properties from divider's child elements (like rectangles, lines, etc.)
+                if ('children' in dividerComponent) {
+                    console.log('🔍 Divider children found:', dividerComponent.children.length);
+                    for (const child of dividerComponent.children) {
+                        console.log('🔍 Examining divider child:', child.name, child.type);
+                        
+                        // Check if child has fills
+                        if ('fills' in child) {
+                            console.log('🔍 Divider child with fills:', child.name, child.type, {
+                                fills: child.fills,
+                                strokes: 'strokes' in child ? child.strokes : undefined,
+                                strokeWeight: 'strokeWeight' in child ? child.strokeWeight : undefined
+                            });
+                            
+                            // Store the first child's properties as the main divider properties
+                            if (child.fills && Array.isArray(child.fills) && child.fills.length > 0) {
+                                dividerProperties.childFills = child.fills;
+                                console.log('✅ Found child fills:', child.fills);
+                                
+                                // Check for color variables in fills
+                                for (const fill of child.fills) {
+                                    if (fill.type === 'SOLID' && fill.boundVariables && fill.boundVariables.color) {
+                                        console.log('🎨 Found color variable in child:', fill.boundVariables.color);
+                                        dividerProperties.childColorVariable = fill.boundVariables.color;
+                                    }
+                                }
+                            }
+                            if ('strokes' in child && child.strokes && Array.isArray(child.strokes) && child.strokes.length > 0) {
+                                dividerProperties.childStrokes = child.strokes;
+                                console.log('✅ Found child strokes:', child.strokes);
+                            }
+                            if ('strokeWeight' in child && child.strokeWeight !== undefined) {
+                                dividerProperties.childStrokeWeight = child.strokeWeight;
+                                console.log('✅ Found child stroke weight:', child.strokeWeight);
+                            }
+                            if ('height' in child && child.height !== undefined) {
+                                dividerProperties.childHeight = child.height;
+                                console.log('✅ Found child height:', child.height);
+                            }
+                            break; // Use the first child's properties
+                        }
+                        
+                        // Also check if child has children (nested structure)
+                        if ('children' in child && child.children.length > 0) {
+                            console.log('🔍 Divider child has nested children:', child.children.length);
+                            for (const grandChild of child.children) {
+                                console.log('🔍 Examining grandchild:', grandChild.name, grandChild.type);
+                                if ('fills' in grandChild) {
+                                    console.log('🔍 Grandchild with fills:', grandChild.name, grandChild.type, {
+                                        fills: grandChild.fills,
+                                        strokes: 'strokes' in grandChild ? grandChild.strokes : undefined,
+                                        strokeWeight: 'strokeWeight' in grandChild ? grandChild.strokeWeight : undefined
+                                    });
+                                    
+                                    if (grandChild.fills && Array.isArray(grandChild.fills) && grandChild.fills.length > 0) {
+                                        dividerProperties.childFills = grandChild.fills;
+                                        console.log('✅ Found grandchild fills:', grandChild.fills);
+                                    }
+                                    if ('strokes' in grandChild && grandChild.strokes && Array.isArray(grandChild.strokes) && grandChild.strokes.length > 0) {
+                                        dividerProperties.childStrokes = grandChild.strokes;
+                                        console.log('✅ Found grandchild strokes:', grandChild.strokes);
+                                    }
+                                    if ('strokeWeight' in grandChild && grandChild.strokeWeight !== undefined) {
+                                        dividerProperties.childStrokeWeight = grandChild.strokeWeight;
+                                        console.log('✅ Found grandchild stroke weight:', grandChild.strokeWeight);
+                                    }
+                                    break; // Use the first grandchild's properties
+                                }
+                            }
+                            break; // Use the first child with children
+                        }
+                    }
+                }
+            }
+            
+            lastScanResult = {
+                headerCell: headerCell ? headerCell.mainComponent : null,
+                headerRowComponent,
+                bodyCell: bodyCell ? bodyCell.mainComponent : null,
+                bodyRowComponent,
+                footer: footer ? footer.mainComponent : null,
+                numCols,
+                selectCellComponent,
+                expandCellComponent,
+                dividerComponent,
+                dividerRectangle: dividerRectangle // Store the original divider rectangle
+            };
+            
+            // Store header row properties in lastScanResult for later use
+            (lastScanResult as any).headerRowProperties = headerRowProperties;
+            // Store table properties in lastScanResult for later use
+            (lastScanResult as any).tableProperties = tableProperties;
+            // Store divider properties in lastScanResult for later use
+            (lastScanResult as any).dividerProperties = dividerProperties;
+            
+            // Store scan result in table frame's plugin data for persistence
+            try {
+                if (tableFrame && 'setPluginData' in tableFrame) {
+                    const scanData = {
+                        headerCellId: headerCell ? headerCell.id : null,
+                        bodyCellId: bodyCell ? bodyCell.id : null,
+                        footerId: footer ? footer.id : null,
+                        selectCellId: selectCellComponent?.id || null,
+                        expandCellId: expandCellComponent?.id || null,
+                        dividerId: dividerComponent?.id || null,
+                        numCols,
+                        timestamp: Date.now()
+                    };
+                    tableFrame.setPluginData('tableGeneratorScan', JSON.stringify(scanData));
+                    console.log('✅ Stored scan result in table frame plugin data');
+                }
+            } catch (error) {
+                console.log('⚠️ Could not store scan result in plugin data:', error);
+            }
+       
+            // Send summary to UI with updated body row component
+            figma.ui.postMessage({
+                type: 'scan-table-result',
+                success: true,
+                message: `Tap on the cells below to personalize your table.`,
+                details: {
+                    footer: !!footer,
+                    numCols,
+                    bodyCellComponent,
+                    headerCellComponent,
+                    footerComponent,
+                    expandCellComponent,
+                    selectCellComponent,
+                    bodyRowComponent: bodyRowComponent
+                }
+            });
+        }
+    
+    } else if (msg.type === 'create-table-from-scan') {
+        if (isCreatingTable) {
+            figma.notify("Already creating a table. Please wait.");
+            return;
+        }
+        isCreatingTable = true;
+        try {
+        if (!lastScanResult) {
+                figma.notify('❌ No scan result available. Please scan a table first.');
+            return;
+        }
+        
+            const { headerCell, bodyCell, footer, numCols } = lastScanResult;
+        figma.ui.postMessage({ type: 'show-loader', message: 'Generating table...' });
+        
+        const includeHeader = msg.includeHeader !== false;
+        const includeFooter = msg.includeFooter === true;
+        const includeSelectable = msg.includeSelectable === true;
+        const includeExpandable = msg.includeExpandable === true;
+        const rows = msg.rows || 3;
+        const cols = msg.cols || numCols || 3;
+        const cellProps = msg.cellProps || {};
+
+            if (includeSelectable && !lastScanResult.selectCellComponent) {
+                figma.notify('⚠️ Selectable cells not available');
+            }
+            if (includeExpandable && !lastScanResult.expandCellComponent) {
+                figma.notify('⚠️ Expandable cells not available');
+            }
+
+        const columnWidths: number[] = [];
+        let totalTableWidth = 0;
+            
+            if (includeExpandable && lastScanResult.expandCellComponent) {
+                try {
+                    const expandCellInstance = lastScanResult.expandCellComponent.createInstance();
+                    totalTableWidth += expandCellInstance.width;
+                    expandCellInstance.remove();
+                } catch (error) {
+                    totalTableWidth += 52;
+                }
+            }
+            if (includeSelectable && lastScanResult.selectCellComponent) {
+                try {
+                    const selectCellInstance = lastScanResult.selectCellComponent.createInstance();
+                    totalTableWidth += selectCellInstance.width;
+                    selectCellInstance.remove();
+                } catch (error) {
+                    totalTableWidth += 52;
+                }
+            }
+            
+        for (let c = 0; c < cols; c++) {
+            let widthFound = false;
+            for (let r = 0; r < rows; r++) {
+                const key = `${r}-${c}`;
+                const cellData = cellProps[key];
+                if (cellData && cellData.colWidth) {
+                    columnWidths[c] = cellData.colWidth;
+                    widthFound = true;
+                        break;
+                }
+            }
+            if (!widthFound) {
+                    columnWidths[c] = 96;
+            }
+            totalTableWidth += columnWidths[c];
+        }
+
+        const tableFrame = figma.createFrame();
+        tableFrame.name = "Generated Table";
+        tableFrame.layoutMode = "VERTICAL";
+        tableFrame.counterAxisSizingMode = "AUTO";
+        tableFrame.primaryAxisSizingMode = "AUTO";
+        tableFrame.itemSpacing = 0;
+            tableFrame.paddingLeft = 0;
+            tableFrame.paddingRight = 0;
+            tableFrame.paddingTop = 0;
+            tableFrame.paddingBottom = 0;
+        // Clear default fill to make it theme-compatible
+        tableFrame.fills = [];
+        
+        // Apply table properties from scanned table to maintain color variables
+        if (lastScanResult && (lastScanResult as any).tableProperties) {
+            const tableProps = (lastScanResult as any).tableProperties;
+            console.log('🔄 Applying table properties to generated table frame:', tableProps);
+            
+            try {
+                // Apply fills if present in the original table
+                if (tableProps.fills && Array.isArray(tableProps.fills) && tableProps.fills.length > 0) {
+                    console.log('🎨 Applying table fills:', tableProps.fills);
+                    tableFrame.fills = tableProps.fills;
+                }
+                
+                // Apply strokes if present in the original table
+                if (tableProps.strokes && Array.isArray(tableProps.strokes) && tableProps.strokes.length > 0) {
+                    console.log('🎨 Applying table strokes:', tableProps.strokes);
+                    tableFrame.strokes = tableProps.strokes;
+                }
+                
+                // Apply stroke weight if present
+                if (tableProps.strokeWeight !== undefined && tableProps.strokeWeight > 0) {
+                    console.log('🎨 Applying table stroke weight:', tableProps.strokeWeight);
+                    tableFrame.strokeWeight = tableProps.strokeWeight;
+                }
+                
+                // Apply corner radius if present
+                if (tableProps.cornerRadius !== undefined && tableProps.cornerRadius > 0) {
+                    console.log('🎨 Applying table corner radius:', tableProps.cornerRadius);
+                    tableFrame.cornerRadius = tableProps.cornerRadius;
+                }
+                
+                // Apply effects if present
+                if (tableProps.effects && Array.isArray(tableProps.effects) && tableProps.effects.length > 0) {
+                    console.log('🎨 Applying table effects:', tableProps.effects);
+                    tableFrame.effects = tableProps.effects;
+                }
+                
+                console.log('✅ Table properties applied successfully');
+            } catch (error) {
+                console.error('❌ Error applying table properties:', error);
+            }
+        } else {
+            console.log('⚠️ No table properties available to apply');
+        }
+
+            if (includeHeader && headerCell) {
+                try {
+                    const headerRowFrame = figma.createFrame();
+            headerRowFrame.name = "Header Row";
+            headerRowFrame.layoutMode = "HORIZONTAL";
+            headerRowFrame.primaryAxisSizingMode = "AUTO";
+            headerRowFrame.counterAxisSizingMode = "AUTO";
+            headerRowFrame.itemSpacing = 0;
+                    headerRowFrame.paddingLeft = 0;
+                    headerRowFrame.paddingRight = 0;
+                    headerRowFrame.paddingTop = 0;
+                    headerRowFrame.paddingBottom = 0;
+            // Clear default fill to make it theme-compatible
+            headerRowFrame.fills = [];
+            
+            // Apply header row properties from scanned table to maintain color variables
+            if (lastScanResult && (lastScanResult as any).headerRowProperties) {
+                const headerRowProps = (lastScanResult as any).headerRowProperties;
+                console.log('🔄 Applying header row properties to generated header row:', headerRowProps);
+                
+                try {
+                    // Apply fills if present in the original header row
+                    if (headerRowProps.fills && Array.isArray(headerRowProps.fills) && headerRowProps.fills.length > 0) {
+                        console.log('🎨 Applying fills:', headerRowProps.fills);
+                        headerRowFrame.fills = headerRowProps.fills;
+                    }
+                    
+                    // Apply strokes if present in the original header row
+                    if (headerRowProps.strokes && Array.isArray(headerRowProps.strokes) && headerRowProps.strokes.length > 0) {
+                        console.log('🎨 Applying strokes:', headerRowProps.strokes);
+                        headerRowFrame.strokes = headerRowProps.strokes;
+                    }
+                    
+                    // Apply stroke weight if present
+                    if (headerRowProps.strokeWeight !== undefined && headerRowProps.strokeWeight > 0) {
+                        console.log('🎨 Applying stroke weight:', headerRowProps.strokeWeight);
+                        headerRowFrame.strokeWeight = headerRowProps.strokeWeight;
+                    }
+                    
+                    // Apply corner radius if present
+                    if (headerRowProps.cornerRadius !== undefined && headerRowProps.cornerRadius > 0) {
+                        console.log('🎨 Applying corner radius:', headerRowProps.cornerRadius);
+                        headerRowFrame.cornerRadius = headerRowProps.cornerRadius;
+                    }
+                    
+                    // Apply effects if present
+                    if (headerRowProps.effects && Array.isArray(headerRowProps.effects) && headerRowProps.effects.length > 0) {
+                        console.log('🎨 Applying effects:', headerRowProps.effects);
+                        headerRowFrame.effects = headerRowProps.effects;
+                    }
+                    
+                    console.log('✅ Header row properties applied successfully');
+                } catch (error) {
+                    console.error('❌ Error applying header row properties:', error);
+                }
+            } else {
+                console.log('⚠️ No header row properties available to apply');
+            }
+                
+                    if (includeExpandable && lastScanResult.expandCellComponent) {
+                        try {
+                            const expandCell = lastScanResult.expandCellComponent.createInstance();
+                            headerRowFrame.appendChild(expandCell);
+                        } catch (error) { console.error('Error creating header expand cell'); }
+                    }
+
+                    if (includeSelectable && lastScanResult.selectCellComponent) {
+                        try {
+                            const selectCell = lastScanResult.selectCellComponent.createInstance();
+                            headerRowFrame.appendChild(selectCell);
+                        } catch (error) { console.error('Error creating header select cell'); }
+            }
+
+            for (let c = 1; c <= cols; c++) {
+                        const hCell = headerCell.createInstance();
+                hCell.layoutSizingHorizontal = 'FIXED';
+                hCell.resize(columnWidths[c - 1], hCell.height);
+                headerRowFrame.appendChild(hCell);
+
+                const key = `header-${c}`;
+                const cellData = cellProps[key];
+                if (cellData && cellData.properties) {
+                    try {
+                        const validProps = mapPropertyNames(cellData.properties, hCell.componentProperties);
+                        hCell.setProperties(validProps);
+                            } catch (e) { console.warn('Could not set properties for header cell', key, e); }
+                }
+            }
+            tableFrame.appendChild(headerRowFrame);
+                } catch (error) {
+                    console.error('Error creating header row:', error);
+                    figma.notify('⚠️ Header cell component is no longer available');
+                }
+            }
+
+            if (bodyCell) {
+                try {
+                    const bodyWrapperFrame = figma.createFrame();
+            bodyWrapperFrame.name = 'Body';
+            bodyWrapperFrame.layoutMode = 'VERTICAL';
+            bodyWrapperFrame.primaryAxisSizingMode = 'AUTO';
+            bodyWrapperFrame.counterAxisSizingMode = 'AUTO';
+            bodyWrapperFrame.itemSpacing = 0;
+                    bodyWrapperFrame.paddingLeft = 0;
+                    bodyWrapperFrame.paddingRight = 0;
+                    bodyWrapperFrame.paddingTop = 0;
+                    bodyWrapperFrame.paddingBottom = 0;
+            // Clear default fill to make it theme-compatible
+            bodyWrapperFrame.fills = [];
+            tableFrame.appendChild(bodyWrapperFrame);
+
+            for (let r = 0; r < rows; r++) {
+                // Create a body row item frame (similar to "Data table body row item")
+                const bodyRowItemFrame = figma.createFrame();
+                bodyRowItemFrame.name = `Body Row Item ${r + 1}`;
+                bodyRowItemFrame.layoutMode = "VERTICAL";
+                bodyRowItemFrame.primaryAxisSizingMode = "AUTO";
+                bodyRowItemFrame.counterAxisSizingMode = "AUTO";
+                bodyRowItemFrame.itemSpacing = 0;
+                bodyRowItemFrame.paddingLeft = 0;
+                bodyRowItemFrame.paddingRight = 0;
+                bodyRowItemFrame.paddingTop = 0;
+                bodyRowItemFrame.paddingBottom = 0;
+                // Clear default fill to make it theme-compatible
+                bodyRowItemFrame.fills = [];
+                
+                // Create the data row frame (similar to "Data table row")
+                const rowFrame = figma.createFrame();
+                rowFrame.name = `Row ${r + 1}`;
+                rowFrame.layoutMode = "HORIZONTAL";
+                rowFrame.primaryAxisSizingMode = "AUTO";
+                rowFrame.counterAxisSizingMode = "AUTO";
+                rowFrame.itemSpacing = 0;
+                        rowFrame.paddingLeft = 0;
+                        rowFrame.paddingRight = 0;
+                        rowFrame.paddingTop = 0;
+                        rowFrame.paddingBottom = 0;
+                // Clear default fill to make it theme-compatible
+                rowFrame.fills = [];
+
+                        if (includeExpandable && lastScanResult.expandCellComponent) {
+                            try {
+                                const expandCell = lastScanResult.expandCellComponent.createInstance();
+                                rowFrame.appendChild(expandCell);
+                            } catch (error) { console.error('Error creating expand cell instance'); }
+                        }
+
+                        if (includeSelectable && lastScanResult.selectCellComponent) {
+                            try {
+                    const selectCell = lastScanResult.selectCellComponent.createInstance();
+                    rowFrame.appendChild(selectCell);
+                            } catch (error) { console.error('Error creating select cell instance'); }
+                        }
+
+                        for (let c = 0; c < cols; c++) {
+                            const cell = bodyCell.createInstance();
+                            cell.layoutSizingHorizontal = 'FIXED';
+                            cell.resize(columnWidths[c], cell.height);
+                            rowFrame.appendChild(cell);
+
+                            const key = `${r}-${c}`;
+                            const cellData = cellProps[key];
+                            if (cellData && cellData.properties) {
+                                try {
+                                    const validProps = mapPropertyNames(cellData.properties, cell.componentProperties);
+                                    cell.setProperties(validProps);

@@ -610,6 +610,14 @@
       </div>
       <div class="property-section" id="bodyOnlyPropertySection">
         <div class="property-field checkbox">
+          <input type="checkbox" id="customCellTextToggle" checked>
+          <label for="customCellTextToggle" style="margin-bottom: 0px;">Custom cell text</label>
+        </div>
+        <div class="property-field" id="customCellTextContainer">
+          <input type="text" id="customCellText" class="styled-input" placeholder="Enter custom cell text">
+        </div>
+
+        <div class="property-field checkbox">
           <input type="checkbox" id="generateSampleCheckbox">
           <label for="generateSampleCheckbox" style="margin-bottom: 0px;">Generate sample data using AI</label>
         </div>
@@ -618,14 +626,6 @@
             <input type="text" id="fakerMethodInput" style="margin-bottom: 10px;" class="styled-input" autocomplete="off" placeholder="e.g., name.firstName">
             <div id="fakerDropdown" class="dropdown-content"></div>
           </div>
-        </div>
-        <div class="property-field checkbox">
-          <input type="checkbox" id="showText" checked>
-          <label for="showText" style="margin-bottom: 0px;">Show text</label>
-        </div>
-        <div class="property-field" id="cellTextContainer">
-          <label for="cellText">Cell text</label>
-          <input type="text" id="cellText" class="styled-input" placeholder="Content">
         </div>
         <div class="property-field checkbox" id="secondLineContainer" style="display: none;">
           <input type="checkbox" id="secondTextLine">
