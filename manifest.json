@@ -4,14 +4,6 @@
   "api": "1.0.0",
   "main": "code.js",
   "ui": "ui.html",
-  "editorType": ["figma"],
-  "networkAccess": {
-    "allowedDomains": [
-      "https://api.datamuse.com"
-    ],
-    "devAllowedDomains": [
-      "http://localhost:3000"
-    ],
-    "reasoning": "Localhost access is needed for the proxy server that handles watsonx.ai API calls to bypass CORS restrictions in the Figma plugin environment."
-  }
-} 
+  "editorType": ["figma"]
+
+}

@@ -597,10 +597,9 @@ figma.ui.onmessage = async (msg: any) => {
                 figma.notify('Missing watsonx endpoint or credentials');
                 return;
             }
-            // token + generation flow via proxy or direct
+            // API call handling
             let accessToken = (useAccessToken && uiAccessToken) ? uiAccessToken : '';
             if (useProxy && proxyUrl) {
-                console.log('Using proxy server:', proxyUrl);
                 // Use proxy endpoints
                 if (!accessToken) {
                     console.log('Getting token via proxy...');
@@ -669,8 +668,8 @@ figma.ui.onmessage = async (msg: any) => {
     } else if (msg.type === 'generate-table-with-ai') {
         try {
             const { prompt, apiKey, rows, cols } = msg as { prompt: string, apiKey: string, rows: number, cols: number };
-            const proxyUrl = 'http://localhost:3000';
-            const endpoint = 'https://us-south.ml.cloud.ibm.com';
+            const proxyUrl = '';
+            const endpoint = '';
 
             const tokenRes = await fetch(`${proxyUrl}/token`, {
                 method: 'POST',
@@ -1706,7 +1705,7 @@ figma.ui.onmessage = async (msg: any) => {
                 }
             }
             if (!widthFound) {
-                    columnWidths[c] = 96;
+                    columnWidths[c] = 120;
             }
             totalTableWidth += columnWidths[c];
         }
@@ -3032,7 +3031,7 @@ figma.ui.onmessage = async (msg: any) => {
                     }
                 }
                 if (!widthFound) {
-                    columnWidths[c] = 96;
+                    columnWidths[c] = 120;
                 }
                 totalTableWidth += columnWidths[c];
             }
@@ -3987,5 +3986,3 @@ function cleanupExternalComponents() {
 
 // Call cleanup when the plugin starts
 cleanupExternalComponents();
-
- 
