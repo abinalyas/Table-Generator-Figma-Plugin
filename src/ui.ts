@@ -134,6 +134,52 @@ state.tooltip.className = 'cell-tooltip';
 // document.body.appendChild(state.tooltip);
 
 let domReady = false;
+// Ensure property editor scaffold exists
+function ensurePropertyEditorScaffold() {
+  try {
+    const editor = elements.propertyEditor;
+    if (!editor) return;
+    // Create dynamicPropertyFields if missing
+    let dyn = document.getElementById('dynamicPropertyFields');
+    if (!dyn) {
+      dyn = document.createElement('div');
+      dyn.id = 'dynamicPropertyFields';
+      editor.insertBefore(dyn, editor.querySelector('.property-actions'));
+      console.log('[DEBUG] Created #dynamicPropertyFields at runtime');
+    }
+    // Create colWidthContainer + input if missing
+    let colWrap = document.getElementById('colWidthContainer');
+    if (!colWrap) {
+      colWrap = document.createElement('div');
+      colWrap.id = 'colWidthContainer';
+      colWrap.className = 'property-field';
+      colWrap.style.display = 'none';
+      const label = document.createElement('label');
+      label.htmlFor = 'colWidthInput';
+      label.textContent = 'Column width';
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.id = 'colWidthInput';
+      input.className = 'styled-input';
+      input.min = '1';
+      input.placeholder = 'Enter width';
+      colWrap.appendChild(label);
+      colWrap.appendChild(input);
+      editor.insertBefore(colWrap, editor.querySelector('.property-actions'));
+      // refresh element refs
+      elements.colWidthContainer = colWrap as HTMLElement;
+      elements.colWidthInput = input as HTMLInputElement;
+      console.log('[DEBUG] Created #colWidthContainer and #colWidthInput at runtime');
+    } else {
+      // Refresh references in case they were null
+      const input = document.getElementById('colWidthInput') as HTMLInputElement | null;
+      if (input) elements.colWidthInput = input;
+      elements.colWidthContainer = colWrap as HTMLElement;
+    }
+  } catch (e) {
+    console.error('[DEBUG] ensurePropertyEditorScaffold failed:', e);
+  }
+}
 
 // Static property models for header and footer
 const HEADER_CELL_MODEL = [
@@ -205,6 +251,54 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Now safe to call setup functions
   createGrid();
+
+  // Wire main-page single prompt controls
+  const useSinglePrompt = document.getElementById('useSinglePrompt') as HTMLInputElement | null;
+  const singlePromptContainer = document.getElementById('singlePromptContainer') as HTMLElement | null;
+  const singlePromptSource = document.getElementById('singlePromptSource') as HTMLSelectElement | null;
+  const singlePromptWatsonx = document.getElementById('singlePromptWatsonx') as HTMLElement | null;
+  const generateTableFromPromptBtn = document.getElementById('generateTableFromPromptBtn') as HTMLButtonElement | null;
+  useSinglePrompt?.addEventListener('change', () => {
+    if (singlePromptContainer) singlePromptContainer.style.display = useSinglePrompt.checked ? 'block' : 'none';
+  });
+  singlePromptSource?.addEventListener('change', () => {
+    if (singlePromptWatsonx) singlePromptWatsonx.style.display = singlePromptSource.value === 'watsonx' ? 'block' : 'none';
+  });
+  generateTableFromPromptBtn?.addEventListener('click', () => {
+    const rows = parseInt((document.getElementById('scanRowsInput') as HTMLInputElement)?.value || String(state.gridRows), 10);
+    const cols = parseInt((document.getElementById('scanColsInput') as HTMLInputElement)?.value || String(state.gridCols), 10);
+    const includeHeader = (document.getElementById('scanHeaderToggle') as HTMLInputElement)?.checked;
+    const includeFooter = (document.getElementById('scanFooterToggle') as HTMLInputElement)?.checked;
+    const includeSelectable = (document.getElementById('scanSelectableToggle') as HTMLInputElement)?.checked;
+    const includeExpandable = (document.getElementById('scanExpandableToggle') as HTMLInputElement)?.checked;
+
+    const prompt = (document.getElementById('singlePromptText') as HTMLTextAreaElement | null)?.value?.trim();
+    if (!prompt) { showMessage('Enter a prompt', 'error'); return; }
+    const source = singlePromptSource?.value || 'watsonx';
+    if (source === 'faker') {
+      const headers = Array.from({ length: cols }, (_, i) => `Column ${i+1}`);
+      const rowsData = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ''));
+      const cellProps: any = {};
+      for (let c = 1; c <= cols; c++) cellProps[`header-${c}`] = { properties: { 'Cell text': headers[c-1] } };
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) cellProps[`${r}-${c}`] = { properties: { 'Cell text': rowsData[r][c] } };
+      }
+      parent.postMessage({ pluginMessage: { type: 'create-table-from-scan', rows, cols, cellProps, includeHeader, includeFooter, includeSelectable, includeExpandable } }, '*');
+      return;
+    }
+    const apiKey = ((document.getElementById('spApiKey') as HTMLInputElement | null)?.value || '').trim();
+    if (!apiKey) { showMessage('Provide IBM Cloud API key', 'error'); return; }
+    
+    // Debug: Log what we're sending to the backend
+    console.log('=== DEBUG: UI sending generate-table-with-ai message ===');
+    console.log('Prompt:', prompt);
+    console.log('Rows:', rows);
+    console.log('Cols:', cols);
+    console.log('API Key length:', apiKey.length);
+    console.log('=== END DEBUG ===');
+    
+    parent.postMessage({ pluginMessage: { type: 'generate-table-with-ai', prompt, apiKey, rows, cols } }, '*');
+  });
   setupEventListeners();
   setMode('selection');
 
@@ -351,6 +445,19 @@ function setupEventListeners() {
     // Disable custom cell text toggle when AI generation is enabled
     elements.customCellTextToggle.disabled = isChecked;
   });
+  // AI source toggle
+  // AI source toggle back
+  const aiSource = document.getElementById('aiSource') as HTMLSelectElement | null;
+  const fakerConfig = document.getElementById('fakerConfig') as HTMLElement | null;
+  const watsonxConfig = document.getElementById('watsonxConfig') as HTMLElement | null;
+  aiSource?.addEventListener('change', () => {
+    const v = aiSource.value;
+    if (fakerConfig) fakerConfig.style.display = v === 'faker' ? 'block' : 'none';
+    if (watsonxConfig) watsonxConfig.style.display = v === 'watsonx' ? 'block' : 'none';
+  });
+
+  // Load persisted watsonx settings
+  parent.postMessage({ pluginMessage: { type: 'load-watsonx-settings' } }, '*');
   document.addEventListener('mouseover', function (e) {
     const target = e.target as HTMLElement;
     if (target.classList.contains('cell')) {
@@ -958,12 +1065,24 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
       console.log('[DEBUG] Setting customCellTextContainer display to', cellTextPropKey ? 'none' : 'block', 'in updateStaticFieldsVisibilityAndValues');
     }
   }
-  elements.secondLineContainer.style.display = secondTextPropKey ? 'none' : (!!elements.secondCellText.value && elements.customCellTextToggle?.checked ? '' : 'none');
-  elements.secondCellTextContainer.style.display = secondTextPropKey ? 'none' : (!!elements.secondCellText.value && elements.customCellTextToggle?.checked ? 'block' : 'none');
-  const slotField = elements.slotCheckbox.parentElement;
+  console.log('[DEBUG] updateStaticFieldsVisibilityAndValues elements presence', {
+    customCellText: !!elements.customCellText,
+    secondCellText: !!elements.secondCellText,
+    secondLineContainer: !!elements.secondLineContainer,
+    secondCellTextContainer: !!elements.secondCellTextContainer,
+    slotCheckbox: !!elements.slotCheckbox,
+    state: !!elements.state
+  });
+  if (elements.secondLineContainer && elements.secondCellText && elements.customCellTextToggle) {
+    elements.secondLineContainer.style.display = secondTextPropKey ? 'none' : (!!elements.secondCellText.value && elements.customCellTextToggle?.checked ? '' : 'none');
+  }
+  if (elements.secondCellTextContainer && elements.secondCellText && elements.customCellTextToggle) {
+    elements.secondCellTextContainer.style.display = secondTextPropKey ? 'none' : (!!elements.secondCellText.value && elements.customCellTextToggle?.checked ? 'block' : 'none');
+  }
+  const slotField = elements.slotCheckbox?.parentElement;
   if (slotField) slotField.style.display = slotPropKey ? 'none' : '';
-  const stateField = elements.state.parentElement;
-  if(stateField) stateField.style.display = statePropKey ? 'none' : '';
+  const stateField = elements.state?.parentElement;
+  if (stateField) stateField.style.display = statePropKey ? 'none' : '';
 
   // Populate static fields from props or reset to default
   if (elements.showText) {
@@ -973,34 +1092,37 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
     elements.customCellTextToggle.checked = true; // Always default to true for custom cell text
   }
   // Set custom cell text value - show component default if no custom text is set
-  if (cellTextPropKey && props[cellTextPropKey]) {
-    // Use the custom text if it exists
-    elements.customCellText.value = props[cellTextPropKey];
-  } else if (state.selectedComponent && state.selectedComponent.properties && cellTextPropKey) {
-    // Show the component's default text as a placeholder/example
-    const defaultText = state.selectedComponent.properties[cellTextPropKey] || 'Content';
-    elements.customCellText.value = defaultText;
-    elements.customCellText.placeholder = `Default: ${defaultText}`;
-    console.log('[DEBUG] Setting custom cell text to component default:', defaultText);
-  } else {
-    elements.customCellText.value = '';
-    elements.customCellText.placeholder = 'Enter custom cell text';
+  if (elements.customCellText) {
+    if (cellTextPropKey && props[cellTextPropKey]) {
+      // Use the custom text if it exists
+      elements.customCellText.value = props[cellTextPropKey];
+    } else if (state.selectedComponent && state.selectedComponent.properties && cellTextPropKey) {
+      // Show the component's default text as a placeholder/example
+      const defaultText = state.selectedComponent.properties[cellTextPropKey] || 'Content';
+      elements.customCellText.value = defaultText;
+      elements.customCellText.placeholder = `Default: ${defaultText}`;
+      console.log('[DEBUG] Setting custom cell text to component default:', defaultText);
+    } else {
+      elements.customCellText.value = '';
+      elements.customCellText.placeholder = 'Enter custom cell text';
+    }
   }
   const secondTextValue = secondTextPropKey ? (props[secondTextPropKey] || '') : '';
-  elements.secondCellText.value = secondTextValue;
-  elements.secondTextLine.checked = !!secondTextValue;
-  elements.slotCheckbox.checked = slotPropKey ? (props[slotPropKey] || false) : false;
-  elements.state.value = props['State'] || 'Enabled';
+  if (elements.secondCellText) elements.secondCellText.value = secondTextValue;
+  if (elements.secondTextLine) elements.secondTextLine.checked = !!secondTextValue;
+  if (elements.slotCheckbox) elements.slotCheckbox.checked = slotPropKey ? (props[slotPropKey] || false) : false;
+  if (elements.state) elements.state.value = props['State'] || 'Enabled';
 
   // Always reset AI-related fields
-  elements.generateSampleCheckbox.checked = false;
-  (document.getElementById('fakerMethodInput') as HTMLInputElement).value = '';
-  elements.aiPromptContainer.style.display = 'none';
-  elements.customCellText.disabled = false;
-  elements.customCellTextToggle.disabled = false;
+  if (elements.generateSampleCheckbox) elements.generateSampleCheckbox.checked = false;
+  const fakerInput = document.getElementById('fakerMethodInput') as HTMLInputElement | null;
+  if (fakerInput) fakerInput.value = '';
+  if (elements.aiPromptContainer) elements.aiPromptContainer.style.display = 'none';
+  if (elements.customCellText) elements.customCellText.disabled = false;
+  if (elements.customCellTextToggle) elements.customCellTextToggle.disabled = false;
 
   // --- For static property fields ---
-  if (elements.secondLineContainer && !secondTextPropKey) {
+  if (elements.secondLineContainer && elements.secondCellText && elements.secondCellTextContainer && elements.secondTextLine && !secondTextPropKey) {
     elements.secondLineContainer.style.display = !!elements.secondCellText.value ? '' : 'none';
     if (!elements.secondCellText.value) {
       elements.secondTextLine.checked = false;
@@ -1048,6 +1170,8 @@ function openPropertyEditor(key: string) {
 
 function openPropertyEditorInternal(key: string) {
   try {
+    // Guarantee the editor has required nodes
+    ensurePropertyEditorScaffold();
     // Show column width option based on current apply mode
     if (state.applyMode === 'cell' || state.applyMode === 'column') {
       elements.colWidthContainer.style.display = 'block';
@@ -1202,14 +1326,16 @@ function openPropertyEditorInternal(key: string) {
       if (width === undefined) {
         width = state.headerCellComponent?.width || 100;
       }
-      elements.colWidthContainer.style.display = 'block';
-      elements.colWidthInput.value = String(width);
+      console.log('[DEBUG] Header col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width);
+      if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'block';
+      if (elements.colWidthInput) elements.colWidthInput.value = String(width);
       console.log(`[DEBUG] Header cell ${key} - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
     } else if (key === 'footer') {
       // For footer, use a default width
       width = state.footerComponent?.width || 100;
-      elements.colWidthContainer.style.display = 'block';
-      elements.colWidthInput.value = String(width);
+      console.log('[DEBUG] Footer col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width);
+      if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'block';
+      if (elements.colWidthInput) elements.colWidthInput.value = String(width);
       console.log(`[DEBUG] Footer cell - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
     } else {
       // For body cells, get width from the column
@@ -1225,8 +1351,9 @@ function openPropertyEditorInternal(key: string) {
       if (width === undefined) {
         width = state.selectedComponent?.width || 100;
       }
-      elements.colWidthContainer.style.display = 'block';
-      elements.colWidthInput.value = String(width);
+      console.log('[DEBUG] Body col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width, 'for key', key);
+      if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'block';
+      if (elements.colWidthInput) elements.colWidthInput.value = String(width);
       console.log(`[DEBUG] Body cell ${key} - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
     }
 
@@ -1235,6 +1362,7 @@ function openPropertyEditorInternal(key: string) {
     elements.editingCellCoords.textContent = label;
     elements.propertyEditorOverlay.style.display = 'block';
     elements.propertyEditor.style.display = 'block';
+    // Single-prompt UI wiring moved to main page; no wiring here
     
     // Final check: Ensure custom cell text input is shown for body cells if toggle is checked
     if (!key.startsWith('header-') && key !== 'footer') {
@@ -1279,8 +1407,10 @@ async function saveCellProperties() {
       
       // Handle column width for header cells
       let colWidth: number | undefined = undefined;
-      if (elements.colWidthInput.value) {
+      if (elements.colWidthInput && elements.colWidthInput.value) {
         colWidth = parseInt(elements.colWidthInput.value, 10);
+      } else {
+        console.log('[DEBUG] colWidthInput missing or empty when saving cell (footer)');
       }
       
       const cellState = getCellState(key);
@@ -1316,8 +1446,10 @@ async function saveCellProperties() {
       
       // Handle column width for footer
       let colWidth: number | undefined = undefined;
-      if (elements.colWidthInput.value) {
+      if (elements.colWidthInput && elements.colWidthInput.value) {
         colWidth = parseInt(elements.colWidthInput.value, 10);
+      } else {
+        console.log('[DEBUG] colWidthInput missing or empty when saving cell (header)');
       }
       
       const cellState = getCellState(key);
@@ -1407,9 +1539,11 @@ async function saveCellProperties() {
       
       // Col width logic: always set colWidth as a top-level property on first row of column
     let colWidth: number | undefined = undefined;
-      if (elements.colWidthInput.value) {
-      colWidth = parseInt(elements.colWidthInput.value, 10);
-    }
+      if (elements.colWidthInput && elements.colWidthInput.value) {
+        colWidth = parseInt(elements.colWidthInput.value, 10);
+      } else {
+        console.log('[DEBUG] colWidthInput missing or empty when saving cell (body)');
+      }
       const applyProps = (key: string, props: any, colWidthTopLevel?: number) => {
         const cellState = getCellState(key);
         const existingProps = { ...cellState };
@@ -1467,8 +1601,9 @@ async function saveCellProperties() {
       
       // Now handle AI sample data generation
       const generateAI = elements.generateSampleCheckbox.checked;
+      const aiChoice = (document.getElementById('aiSource') as HTMLSelectElement | null)?.value || 'faker';
       const fakerMethod = fakerMethodInput.value.trim();
-      if (generateAI && fakerMethod) {
+      if (generateAI && aiChoice === 'faker' && fakerMethod) {
         let count = 1;
         let mode: 'cell' | 'row' | 'column' = 'cell';
         if (state.applyMode === 'row') {
@@ -1481,6 +1616,32 @@ async function saveCellProperties() {
         pendingFakerContext = { mode, key, fakerMethod };
         parent.postMessage({ pluginMessage: { type: 'generate-fake-data', dataType: fakerMethod, count } }, '*');
         return; // Wait for response before closing editor
+      }
+      if (generateAI && aiChoice === 'watsonx') {
+        let count = 1;
+        let mode: 'cell' | 'row' | 'column' = 'cell';
+        if (state.applyMode === 'row') {
+          count = state.gridCols;
+          mode = 'row';
+        } else if (state.applyMode === 'column') {
+          count = state.gridRows;
+          mode = 'column';
+        }
+        const prompt = (document.getElementById('watsonxPrompt') as HTMLTextAreaElement | null)?.value || 'Generate short realistic values';
+        const endpoint = 'https://us-south.ml.cloud.ibm.com';
+        const apiKey = (document.getElementById('watsonxApiKey') as HTMLInputElement | null)?.value || '';
+        const useAccessToken = false;
+        const accessToken = '';
+        if (!apiKey) {
+          showMessage('Provide IBM Cloud API key', 'error');
+          return;
+        }
+        const remember = true;
+        const useProxy = true;
+        const proxyUrl = 'http://localhost:3000';
+        pendingFakerContext = { mode, key, fakerMethod: 'watsonx' };
+        parent.postMessage({ pluginMessage: { type: 'generate-watsonx-data', prompt, endpoint, apiKey, accessToken, useAccessToken, useProxy, proxyUrl, count, remember } }, '*');
+        return;
       }
     }
     closePropertyEditor();
@@ -1576,8 +1737,12 @@ function updateCellVisuals() {
       if (cell) {
         const key = `header-${c}`;
         const props = state.cellProperties.get(key);
-        if (props && props.properties && props.properties['Cell text#12234:32']) {
-          cell.textContent = props.properties['Cell text#12234:32'];
+        const availableProps: string[] = state.selectedComponent?.availableProperties || [];
+        const propertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
+        const textKey = availableProps.find(p => propertyTypes[p] === 'TEXT') || 'Cell text';
+        const value = props && props.properties ? props.properties[textKey] : '';
+        if (value && typeof value === 'string' && value.trim().length > 0) {
+          cell.textContent = value;
           cell.classList.add('edited');
           cell.style.fontWeight = 'bold';
         } else {
@@ -1640,6 +1805,77 @@ window.onmessage = (event) => {
   console.log(`[UI] Received message: ${msg.type}`, msg);
 
   switch (msg.type) {
+    case 'ai-table-response': {
+      hideLoader();
+      const headers: string[] = (msg.headers || []).map(String);
+      const rowsData: string[][] = Array.isArray(msg.rows) ? msg.rows.map((r: any) => Array.isArray(r) ? r.map(String) : []) : [];
+      if (!headers.length || !rowsData.length) {
+        showMessage('AI did not return usable table data.', 'error');
+        break;
+      }
+      // Helper to sanitize noisy AI strings
+      const sanitize = (s: string): string => {
+        if (!s) return '';
+        let t = String(s).trim();
+        t = t.replace(/^```[a-zA-Z]*\n?|```$/g, '').trim();
+        if (t.includes(':')) {
+          const parts = t.split(':');
+          t = parts[parts.length - 1];
+        }
+        t = t.replace(/[\[\]\{\}]/g, '').replace(/^"|"$/g, '').replace(/^'|'$/g, '');
+        t = t.trim().replace(/^"|"$/g, '').replace(/^'|'$/g, '');
+        t = t.replace(/\s+/g, ' ').trim();
+        return t;
+      };
+
+      // Enforce the selected grid size; do not resize to AI result
+      const desiredRows = state.gridRows;
+      const desiredCols = state.gridCols;
+
+      // Build fixed headers sized exactly to desiredCols
+      const fixedHeaders: string[] = [];
+      for (let c = 0; c < desiredCols; c++) {
+        fixedHeaders.push(sanitize(headers[c] || `Column ${c + 1}`));
+      }
+
+      // Build fixed rows sized exactly desiredRows x desiredCols
+      const fixedRows: string[][] = [];
+      for (let r = 0; r < desiredRows; r++) {
+        const src = rowsData[r] || [];
+        const row: string[] = [];
+        for (let c = 0; c < desiredCols; c++) {
+          row.push(sanitize(src[c] || ''));
+        }
+        fixedRows.push(row);
+      }
+
+      // Render into current grid
+      createGrid();
+      elements.gridContainer.style.display = 'flex';
+      elements.actionButtons.style.display = 'flex';
+
+      const availableProps: string[] = state.selectedComponent?.availableProperties || [];
+      const propertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
+      const textKey = availableProps.find(p => propertyTypes[p] === 'TEXT') || 'Cell text';
+
+      for (let c = 1; c <= desiredCols; c++) {
+        const key = `header-${c}`;
+        const cellState = getCellState(key);
+        cellState.properties[textKey] = fixedHeaders[c - 1] || `H${c}`;
+      }
+      for (let r = 0; r < desiredRows; r++) {
+        for (let c = 0; c < desiredCols; c++) {
+          const key = `${r+1},${c+1}`;
+          const cellState = getCellState(key);
+          cellState.properties[textKey] = fixedRows[r][c] || '';
+        }
+      }
+
+      updateCellVisuals();
+      if (elements.createTableBtn) elements.createTableBtn.disabled = false;
+      showMessage(`AI content applied (clamped to ${desiredRows} rows x ${desiredCols} cols). Review/edit then click Create Table.`, 'success');
+      break;
+    }
     case "table-selected":
       // Handle when a Data table component is selected
       state.hasComponent = true;
@@ -1696,7 +1932,11 @@ window.onmessage = (event) => {
 
     case "table-created":
       hideLoader();
-      showMessage("Table created successfully!", "success");
+      if (msg.isComponent) {
+        showMessage("Table component created successfully! You can now reuse it.", "success");
+      } else {
+        showMessage("Table created successfully!", "success");
+      }
       // Show landing page and componentModeBtn again for new table generation
       elements.landingPage.style.display = 'flex';
       elements.componentModeBtn.style.display = 'inline-block';
@@ -1783,6 +2023,53 @@ window.onmessage = (event) => {
           if (state.selectedCells.has(key)) {
             divCell.classList.add('selected');
           }
+        });
+      }
+      break;
+
+    case "watsonx-data-response":
+      hideLoader();
+      const wx = msg.data;
+      if (!Array.isArray(wx) || wx.length === 0) {
+        showMessage('No data generated from watsonx.ai.', 'error');
+        break;
+      }
+      if (pendingFakerContext) {
+        const { mode, key } = pendingFakerContext;
+        const availableProps: string[] = state.selectedComponent?.availableProperties || [];
+        const propertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
+        function getCellTextProp() { return availableProps.find(p => propertyTypes[p] === 'TEXT'); }
+        function getTextVisibilityProp() { return availableProps.find(p => propertyTypes[p] === 'BOOLEAN' && (p.toLowerCase().includes('show') || p.toLowerCase().includes('text')) && !p.toLowerCase().includes('slot')); }
+        const applyAiData = (cellKey: string, data: string) => {
+          const cellState = getCellState(cellKey);
+          const textProp = getCellTextProp();
+          const visibilityProp = getTextVisibilityProp();
+          if (textProp) cellState.properties[textProp] = data;
+          if (visibilityProp) cellState.properties[visibilityProp] = true;
+          state.selectedCells.add(cellKey);
+        };
+        if (mode === 'cell') {
+          applyAiData(key, wx[0]);
+        } else if (mode === 'row') {
+          const [row] = key.split(',').map(Number);
+          for (let c = 1; c <= state.gridCols; c++) {
+            const k = `${row},${c}`;
+            applyAiData(k, wx[(c-1) % wx.length]);
+          }
+        } else if (mode === 'column') {
+          const [, col] = key.split(',').map(Number);
+          for (let r = 1; r <= state.gridRows; r++) {
+            const k = `${r},${col}`;
+            applyAiData(k, wx[(r-1) % wx.length]);
+          }
+        }
+        pendingFakerContext = null;
+        updateCellVisuals();
+        closePropertyEditor();
+        document.querySelectorAll('.cell').forEach(cell => {
+          const divCell = cell as HTMLDivElement;
+          const k = `${divCell.dataset.row},${divCell.dataset.col}`;
+          if (state.selectedCells.has(k)) divCell.classList.add('selected');
         });
       }
       break;
@@ -2158,6 +2445,16 @@ window.onmessage = (event) => {
         console.log(`[UI] No component info received, using fallback for cell properties`);
         // If no component info, we'll still try to display properties from cellProperties
         updateCellVisuals();
+      }
+      break;
+
+    case "watsonx-settings":
+      {
+        const { apiKeyMasked, endpoint } = msg;
+        const endpointInput = document.getElementById('watsonxEndpoint') as HTMLInputElement | null;
+        const apiKeyInput = document.getElementById('watsonxApiKey') as HTMLInputElement | null;
+        if (endpointInput && endpoint) endpointInput.value = endpoint;
+        if (apiKeyInput && apiKeyMasked) apiKeyInput.placeholder = apiKeyMasked;
       }
       break;
   }

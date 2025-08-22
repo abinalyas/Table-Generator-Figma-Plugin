@@ -27,10 +27,10 @@ figma.on("selectionchange", async () => {
     if (selection.length === 1) {
         const selectedNode = selection[0];
 
-        // Case 1: Existing "Generated Table" frame is selected for update
+        // Case 1: Existing "Generated Table" frame or component is selected for update
         console.log(`[selectionchange] Checking for generated table: type=${selectedNode.type}, name=${selectedNode.name}, isGeneratedTable=${selectedNode.getPluginData('isGeneratedTable')}`);
-        if (selectedNode.type === "FRAME" && selectedNode.getPluginData('isGeneratedTable') === 'true' && selectedNode.name === 'Generated Table') {
-            const tableFrame = selectedNode as FrameNode;
+        if ((selectedNode.type === "FRAME" || selectedNode.type === "COMPONENT") && selectedNode.getPluginData('isGeneratedTable') === 'true' && (selectedNode.name === 'Generated Table' || selectedNode.name.startsWith('Generated Table ('))) {
+            const tableFrame = selectedNode as FrameNode | ComponentNode;
             const settings = tableFrame.getPluginData('tableSettings');
             if (settings) {
                 try {
@@ -569,6 +569,140 @@ figma.ui.onmessage = async (msg: any) => {
         });
         return;
 
+    } else if (msg.type === "generate-watsonx-data") {
+        try {
+            const { prompt, endpoint, apiKey, accessToken: uiAccessToken, useAccessToken, useProxy, proxyUrl, count, remember } = msg as { prompt: string, endpoint: string, apiKey: string, accessToken?: string, useAccessToken?: boolean, useProxy?: boolean, proxyUrl?: string, count: number, remember?: boolean };
+            let endpointToUse = endpoint;
+            let apiKeyToUse = apiKey;
+            // Fallback to stored values if missing
+            if (!endpointToUse) {
+                const storedEndpoint = await figma.clientStorage.getAsync('watsonx.endpoint');
+                if (storedEndpoint) endpointToUse = String(storedEndpoint);
+            }
+            if (!apiKeyToUse) {
+                const storedKey = await figma.clientStorage.getAsync('watsonx.apiKey');
+                if (storedKey) apiKeyToUse = String(storedKey);
+            }
+            if (remember) {
+                try {
+                    if (endpoint) await figma.clientStorage.setAsync('watsonx.endpoint', endpoint);
+                    // Store API key securely in clientStorage (still local to the user’s device)
+                    if (apiKey) await figma.clientStorage.setAsync('watsonx.apiKey', apiKey);
+                } catch (e) {
+                    console.warn('Failed to persist watsonx settings', e);
+                }
+            }
+            if (!endpointToUse || (!useAccessToken && !apiKeyToUse && !uiAccessToken)) {
+                figma.ui.postMessage({ type: 'watsonx-data-response', data: [] });
+                figma.notify('Missing watsonx endpoint or credentials');
+                return;
+            }
+            // token + generation flow via proxy or direct
+            let accessToken = (useAccessToken && uiAccessToken) ? uiAccessToken : '';
+            if (useProxy && proxyUrl) {
+                console.log('Using proxy server:', proxyUrl);
+                // Use proxy endpoints
+                if (!accessToken) {
+                    console.log('Getting token via proxy...');
+                    const tokenRes = await fetch(`${proxyUrl.replace(/\/$/, '')}/token`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ apiKey: apiKeyToUse })
+                    });
+                    if (!tokenRes.ok) throw new Error('Proxy token fetch failed');
+                    const tokenJson = await tokenRes.json();
+                    accessToken = tokenJson.access_token as string;
+                    console.log('Got token via proxy');
+                }
+                console.log('Generating text via proxy...');
+                const genRes = await fetch(`${proxyUrl.replace(/\/$/, '')}/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ endpoint: endpointToUse, accessToken, prompt, count })
+                });
+                if (!genRes.ok) {
+                    const t = await genRes.text();
+                    throw new Error(`proxy watsonx error: ${genRes.status} ${t}`);
+                }
+                const genJson = await genRes.json();
+                console.log('Proxy response:', genJson);
+                const lines = genJson.data || [];
+                figma.ui.postMessage({ type: 'watsonx-data-response', data: lines });
+            } else {
+                console.log('Using direct API calls (may fail due to CORS)');
+                // Direct endpoints (may CORS fail depending on Figma env)
+                if (!accessToken) {
+                    const tokenRes = await fetch('https://iam.cloud.ibm.com/identity/token', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+                        body: `grant_type=urn:ibm:params:oauth:grant-type:apikey&apikey=${encodeURIComponent(apiKeyToUse)}`
+                    });
+                    if (!tokenRes.ok) throw new Error('Failed to fetch IAM token');
+                    const tokenJson = await tokenRes.json();
+                    accessToken = tokenJson.access_token as string;
+                }
+                const genUrl = `${endpointToUse.replace(/\/$/, '')}/ml/v1/text/chat?version=2023-05-29`;
+                const wxBody = {
+                    input: `${prompt}\nReturn ${count} short values as a plain list, one per line, no numbering.`,
+                    parameters: { decoding_method: 'greedy', max_new_tokens: 16, stop_sequences: ['\n\n'] }
+                } as any;
+                const genRes = await fetch(genUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` }, body: JSON.stringify(wxBody) });
+                if (!genRes.ok) {
+                    const t = await genRes.text();
+                    throw new Error(`watsonx error: ${genRes.status} ${t}`);
+                }
+                const genJson = await genRes.json();
+                let text = '';
+                if (Array.isArray(genJson.results) && genJson.results[0]?.generated_text) text = genJson.results[0].generated_text as string;
+                else if (genJson.generated_text) text = genJson.generated_text as string;
+                else text = String(genJson.output || '');
+                const lines = text.split('\n').map((s: string) => s.replace(/^[-*\d\.\)\s]+/, '').trim()).filter((s: string) => s.length > 0).slice(0, count);
+                figma.ui.postMessage({ type: 'watsonx-data-response', data: lines });
+            }
+        } catch (err: any) {
+            figma.ui.postMessage({ type: 'watsonx-data-response', data: [] });
+            figma.notify('watsonx.ai request failed');
+            console.error('watsonx.ai error', err);
+        }
+        return;
+
+    } else if (msg.type === 'generate-table-with-ai') {
+        try {
+            const { prompt, apiKey, rows, cols } = msg as { prompt: string, apiKey: string, rows: number, cols: number };
+            const proxyUrl = 'http://localhost:3000';
+            const endpoint = 'https://us-south.ml.cloud.ibm.com';
+
+            const tokenRes = await fetch(`${proxyUrl}/token`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey })
+            });
+            if (!tokenRes.ok) {
+                const t = await tokenRes.text();
+                throw new Error(`proxy token error: ${tokenRes.status} ${t}`);
+            }
+            const { access_token } = await tokenRes.json();
+
+            const tableRes = await fetch(`${proxyUrl}/generateTable`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ endpoint, accessToken: access_token, prompt, rows, cols })
+            });
+            if (!tableRes.ok) {
+                const t = await tableRes.text();
+                throw new Error(`proxy generateTable error: ${tableRes.status} ${t}`);
+            }
+            const tableJson = await tableRes.json();
+            const headers: string[] = Array.isArray(tableJson.headers) ? tableJson.headers.map(String).slice(0, cols) : Array(cols).fill('').map((_, i) => `Column ${i+1}`);
+            const rowsData: string[][] = Array.isArray(tableJson.rows) ? tableJson.rows.map((r: any) => Array.isArray(r) ? r.map(String) : []) : [];
+            figma.ui.postMessage({ type: 'ai-table-response', headers, rows: rowsData });
+        } catch (e) {
+            console.error('generate-table-with-ai error', e);
+            figma.ui.postMessage({ type: 'ai-table-response', headers: [], rows: [] });
+            figma.notify('Failed to generate table with AI');
+        }
+        return;
+
     } else if (msg.type === "load-instance-by-id") {
         const nodeId = msg.nodeId;
         const node = figma.getNodeById(nodeId);
@@ -658,6 +792,17 @@ figma.ui.onmessage = async (msg: any) => {
             figma.notify(`Error: ${error.message}`);
         }
     
+    } else if (msg.type === "load-watsonx-settings") {
+        try {
+            const endpoint = await figma.clientStorage.getAsync('watsonx.endpoint');
+            const apiKey = await figma.clientStorage.getAsync('watsonx.apiKey');
+            const masked = apiKey ? `${String(apiKey).slice(0,4)}••••${String(apiKey).slice(-4)}` : '';
+            figma.ui.postMessage({ type: 'watsonx-settings', endpoint, apiKeyMasked: masked });
+        } catch (e) {
+            figma.ui.postMessage({ type: 'watsonx-settings', endpoint: '', apiKeyMasked: '' });
+        }
+        return;
+
     } else if (msg.type === "request-selection-state") {
         const selection = figma.currentPage.selection;
         
@@ -1446,6 +1591,57 @@ figma.ui.onmessage = async (msg: any) => {
             });
         }
     
+    } else if (msg.type === 'create-table-from-ai') {
+        // Build a table directly from provided headers + rows
+        try {
+            const headers: string[] = (msg.headers || []).map(String);
+            const rowsData: string[][] = Array.isArray(msg.rows) ? msg.rows.map((r: any) => Array.isArray(r) ? r.map(String) : []) : [];
+            const includeHeader = msg.includeHeader !== false;
+            const includeFooter = msg.includeFooter === true;
+            const includeSelectable = msg.includeSelectable === true;
+            const includeExpandable = msg.includeExpandable === true;
+            const rows = rowsData.length;
+            const cols = headers.length || (rowsData[0]?.length || 0);
+
+            // Reuse lastScanResult to create structure
+            if (!lastScanResult) {
+                figma.notify('❌ No scanned template available. Scan a table first.');
+                return;
+            }
+
+            // Prepare cellProps mapping for create-table-from-scan
+            const cellProps: { [key: string]: any } = {};
+            // Header properties
+            for (let c = 1; c <= cols; c++) {
+                const key = `header-${c}`;
+                cellProps[key] = { properties: { 'Cell text#': headers[c - 1] || `Column ${c}` } };
+            }
+            // Body properties
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const key = `${r}-${c}`;
+                    cellProps[key] = { properties: { 'Cell text#': rowsData[r][c] || '' } };
+                }
+            }
+
+            // Delegate to existing flow
+            figma.ui.postMessage({ type: 'ai-table-mapped' });
+            figma.ui.postMessage({
+                type: 'create-table-from-scan',
+                includeHeader,
+                includeFooter,
+                includeSelectable,
+                includeExpandable,
+                rows,
+                cols,
+                cellProps
+            });
+        } catch (e) {
+            console.error('create-table-from-ai error', e);
+            figma.notify('Failed to build table from AI data');
+        }
+        return;
+
     } else if (msg.type === 'create-table-from-scan') {
         if (isCreatingTable) {
             figma.notify("Already creating a table. Please wait.");
@@ -2163,10 +2359,56 @@ figma.ui.onmessage = async (msg: any) => {
                 }
             }
 
-            figma.currentPage.appendChild(tableFrame);
-            figma.viewport.scrollAndZoomIntoView([tableFrame]);
-            figma.notify('Table created successfully!');
-            figma.ui.postMessage({ type: 'table-created', success: true });
+            // Convert the table frame to a component for reusability
+            try {
+                const tableComponent = figma.createComponent();
+                tableComponent.name = `Generated Table (${cols}×${rows})`;
+                tableComponent.resize(tableFrame.width, tableFrame.height);
+                
+                // Move all children from the frame to the component
+                const children = [...tableFrame.children];
+                for (const child of children) {
+                    tableComponent.appendChild(child);
+                }
+                
+                // Copy all properties from the frame to the component
+                tableComponent.layoutMode = tableFrame.layoutMode;
+                tableComponent.counterAxisSizingMode = tableFrame.counterAxisSizingMode;
+                tableComponent.primaryAxisSizingMode = tableFrame.primaryAxisSizingMode;
+                tableComponent.itemSpacing = tableFrame.itemSpacing;
+                tableComponent.paddingLeft = tableFrame.paddingLeft;
+                tableComponent.paddingRight = tableFrame.paddingRight;
+                tableComponent.paddingTop = tableFrame.paddingTop;
+                tableComponent.paddingBottom = tableFrame.paddingBottom;
+                tableComponent.fills = tableFrame.fills;
+                tableComponent.strokes = tableFrame.strokes;
+                tableComponent.strokeWeight = tableFrame.strokeWeight;
+                tableComponent.cornerRadius = tableFrame.cornerRadius;
+                tableComponent.effects = tableComponent.effects;
+                
+                // Copy plugin data
+                tableComponent.setPluginData('isGeneratedTable', tableFrame.getPluginData('isGeneratedTable'));
+                tableComponent.setPluginData('tableSettings', tableFrame.getPluginData('tableSettings'));
+                tableComponent.setPluginData('tableGeneratorScan', tableFrame.getPluginData('tableGeneratorScan'));
+                
+                // Remove the original frame
+                tableFrame.remove();
+                
+                // Add the component to the page
+                figma.currentPage.appendChild(tableComponent);
+                figma.viewport.scrollAndZoomIntoView([tableComponent]);
+                
+                console.log('✅ Table converted to component successfully');
+                figma.notify('Table component created successfully!');
+                figma.ui.postMessage({ type: 'table-created', success: true, isComponent: true });
+            } catch (error) {
+                console.error('❌ Error converting table to component:', error);
+                // Fallback: use the original frame
+                figma.currentPage.appendChild(tableFrame);
+                figma.viewport.scrollAndZoomIntoView([tableFrame]);
+                figma.notify('Table created successfully! (as frame)');
+                figma.ui.postMessage({ type: 'table-created', success: true, isComponent: false });
+            }
 
         } catch (error) {
             console.error('Error in create-table-from-scan:', error);
@@ -2184,12 +2426,15 @@ figma.ui.onmessage = async (msg: any) => {
         // Make this async to support font loading
         (async () => {
         try {
-            // Get the table frame first
-            const tableFrame = figma.getNodeById(msg.tableId) as FrameNode;
-            if (!tableFrame || tableFrame.type !== 'FRAME') {
+            // Get the table frame or component first
+            const tableNode = figma.getNodeById(msg.tableId);
+            if (!tableNode || (tableNode.type !== 'FRAME' && tableNode.type !== 'COMPONENT')) {
                 figma.notify("❌ Table to update not found.");
                 return;
             }
+            
+            // Cast to the appropriate type for processing
+            const tableFrame = tableNode as FrameNode | ComponentNode;
             
             // For updates, try to restore lastScanResult from table frame plugin data first
             if (!lastScanResult) {

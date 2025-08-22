@@ -1,12 +1,13 @@
 {
-  "name": "table-generator",
+  "name": "IBM Table Generator",
   "version": "1.0.0",
   "description": "Figma plugin for generating tables",
   "main": "dist/code.js",
   "scripts": {
     "prebuild": "node scripts/generate-faker-methods.js",
     "build": "webpack --mode production",
-    "watch": "webpack --watch --mode development"
+    "watch": "webpack --watch --mode development",
+    "proxy": "node proxy-server.js"
   },
   "author": "",
   "license": "MIT",
@@ -22,6 +23,9 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
-    "faker": "^5.5.3"
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "faker": "^5.5.3",
+    "node-fetch": "^2.7.0"
   }
 }

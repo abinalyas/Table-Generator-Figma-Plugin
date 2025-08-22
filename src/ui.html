@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Table Generator 2.0</title>
+  <title>IBM Table Generator by Abin</title>
   <style>
     :root {
       --primary-color: #1162fe;
@@ -548,7 +548,7 @@
 <body>
   <div id="propertyEditorOverlay"></div>
   <div class="container">
-    <h2 style="padding-bottom: 10px;">Table Generator 2.0</h2>
+    <h2 style="padding-bottom: 10px;">IBM Table Generator by Abin</h2>
     <div id="landingPage">
       <p style="padding-bottom: 10px;">Select a table cell component in Figma</p>
     </div>
@@ -576,6 +576,31 @@
         </div>
       </div>
       <div id="footerGrid" class="footer-grid"></div>
+
+      <!-- Single-prompt AI section moved to just after footer grid -->
+      <div id="singlePromptMain" class="form-group" style="margin: 10px 0 12px 0;">
+        <div class="property-field checkbox" style="margin-bottom: 8px;">
+          <input type="checkbox" id="useSinglePrompt">
+          <label for="useSinglePrompt" style="margin-bottom:0;">Create entire table from a single prompt</label>
+        </div>
+        <div id="singlePromptContainer" style="display:none; margin-bottom:8px;">
+          <label for="singlePromptText">Prompt</label>
+          <textarea id="singlePromptText" class="styled-input" placeholder="e.g., Create a table for user management"></textarea>
+          <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+            <label for="singlePromptSource">AI Source</label>
+            <select id="singlePromptSource" class="styled-input" style="max-width:180px;">
+              <option value="watsonx">watsonx.ai</option>
+              <option value="faker">Faker (local)</option>
+            </select>
+          </div>
+          <div id="singlePromptWatsonx" style="margin-top:8px;">
+            <label for="spApiKey">IBM Cloud API Key</label>
+            <input type="password" id="spApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
+            <p class="hint">Uses local proxy http://localhost:3000 and endpoint https://us-south.ml.cloud.ibm.com</p>
+          </div>
+          <button id="generateTableFromPromptBtn" class="btn btn-primary" style="margin-top:8px;">Generate content with AI</button>
+        </div>
+      </div>
     </div>
 
     <div class="button-group" style="display:none" id="actionButtons">
@@ -622,9 +647,25 @@
           <label for="generateSampleCheckbox" style="margin-bottom: 0px;">Generate sample data using AI</label>
         </div>
         <div class="form-group" id="aiPromptContainer" style="display: none;">
-          <div class="search-container">
-            <input type="text" id="fakerMethodInput" style="margin-bottom: 10px;" class="styled-input" autocomplete="off" placeholder="e.g., name.firstName">
-            <div id="fakerDropdown" class="dropdown-content"></div>
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+            <label for="aiSource">AI Source</label>
+            <select id="aiSource" class="styled-input" style="max-width:180px;">
+              <option value="faker">Faker (local)</option>
+              <option value="watsonx">watsonx.ai</option>
+            </select>
+          </div>
+          <div id="fakerConfig">
+            <div class="search-container">
+              <input type="text" id="fakerMethodInput" style="margin-bottom: 10px;" class="styled-input" autocomplete="off" placeholder="e.g., name.firstName">
+              <div id="fakerDropdown" class="dropdown-content"></div>
+            </div>
+          </div>
+          <div id="watsonxConfig" style="display:none;">
+            <label for="watsonxPrompt">Prompt</label>
+            <textarea id="watsonxPrompt" class="styled-input" placeholder="Describe the content to generate, e.g., IBM product names"></textarea>
+            <label for="watsonxApiKey">IBM Cloud API Key</label>
+            <input type="password" id="watsonxApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
+            <p class="hint">watsonx.ai via proxy http://localhost:3000 (endpoint fixed to https://us-south.ml.cloud.ibm.com)</p>
           </div>
         </div>
         <div class="property-field checkbox" id="secondLineContainer" style="display: none;">
@@ -669,4 +710,4 @@
     <div id="message"></div>
   </div>
 </body>
-</html> 
+</html>
