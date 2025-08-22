@@ -117,16 +117,22 @@ Each item should be 2-4 words and domain-relevant.`
 
     const genData = await genRes.json();
     
-    // Parse the response to extract generated text
+    // Ensure the response is correctly extracted
     let text = '';
-    if (Array.isArray(genData.results) && genData.results[0]?.generated_text) {
+    if (genData.choices && genData.choices[0] && genData.choices[0].message) {
+      text = genData.choices[0].message.content;
+    } else if (Array.isArray(genData.results) && genData.results[0]?.generated_text) {
       text = genData.results[0].generated_text;
-    } else if (genData.generated_text) {
-      text = genData.generated_text;
     } else {
       text = String(genData.output || '');
     }
 
+    // Debug: Log the extracted text
+    console.log('=== DEBUG: Extracted text from watsonx.ai response ===');
+    console.log(text);
+    console.log('=== END DEBUG ===');
+
+    // Pass the extracted text to normalizeToList
     let list = normalizeToList(text);
     // Ensure we have at least 'count' values by cycling
     if (list.length === 0) list = [];
