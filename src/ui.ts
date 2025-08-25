@@ -184,7 +184,6 @@ function ensurePropertyEditorScaffold() {
 // Static property models for header and footer
 const HEADER_CELL_MODEL = [
   { name: "Cell text#12234:32", label: "Header Text", type: "TEXT" },
-  { name: "Size", label: "Size", type: "VARIANT", options: ["Extra large", "Large", "Small"] },
   { name: "State", label: "State", type: "VARIANT", options: ["Enabled", "Disabled", "Focus"] },
   { name: "Sortable", label: "Sortable", type: "VARIANT", options: ["True", "False"], defaultValue: "False" },
   { name: "Sorted", label: "Sorted", type: "VARIANT", options: ["Ascending", "Descending"], defaultValue: "Ascending", dependsOn: "Sortable", showWhen: "True" }
@@ -700,8 +699,8 @@ function renderDynamicPropertyFields(availableProps: string[], propertyTypes: { 
   };
 
   for (const propName of availableProps) {
-    // Size property is now available for all apply modes (cell, row, column)
-    // if (propName === 'Size' && state.applyMode !== 'row') continue;
+    // Skip Size property for all cell types since it can't be updated
+    if (propName === 'Size') continue;
     
     // Skip "Cell text" property since we now have custom cell text functionality
     if (propName.toLowerCase().includes('cell text') && !propName.toLowerCase().includes('second')) {
