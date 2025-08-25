@@ -255,14 +255,11 @@ window.addEventListener('DOMContentLoaded', () => {
   // Wire main-page single prompt controls
   const useSinglePrompt = document.getElementById('useSinglePrompt') as HTMLInputElement | null;
   const singlePromptContainer = document.getElementById('singlePromptContainer') as HTMLElement | null;
-  const singlePromptSource = document.getElementById('singlePromptSource') as HTMLSelectElement | null;
-  const singlePromptWatsonx = document.getElementById('singlePromptWatsonx') as HTMLElement | null;
   const generateTableFromPromptBtn = document.getElementById('generateTableFromPromptBtn') as HTMLButtonElement | null;
   useSinglePrompt?.addEventListener('change', () => {
-    if (singlePromptContainer) singlePromptContainer.style.display = useSinglePrompt.checked ? 'block' : 'none';
-  });
-  singlePromptSource?.addEventListener('change', () => {
-    if (singlePromptWatsonx) singlePromptWatsonx.style.display = singlePromptSource.value === 'watsonx' ? 'block' : 'none';
+    if (singlePromptContainer) {
+      singlePromptContainer.style.display = useSinglePrompt.checked ? 'block' : 'none';
+    }
   });
   generateTableFromPromptBtn?.addEventListener('click', () => {
     const rows = parseInt((document.getElementById('scanRowsInput') as HTMLInputElement)?.value || String(state.gridRows), 10);
@@ -274,18 +271,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
     const prompt = (document.getElementById('singlePromptText') as HTMLTextAreaElement | null)?.value?.trim();
     if (!prompt) { showMessage('Enter a prompt', 'error'); return; }
-    const source = singlePromptSource?.value || 'watsonx';
-    if (source === 'faker') {
-      const headers = Array.from({ length: cols }, (_, i) => `Column ${i+1}`);
-      const rowsData = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ''));
-      const cellProps: any = {};
-      for (let c = 1; c <= cols; c++) cellProps[`header-${c}`] = { properties: { 'Cell text': headers[c-1] } };
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) cellProps[`${r}-${c}`] = { properties: { 'Cell text': rowsData[r][c] } };
-      }
-      parent.postMessage({ pluginMessage: { type: 'create-table-from-scan', rows, cols, cellProps, includeHeader, includeFooter, includeSelectable, includeExpandable } }, '*');
-      return;
-    }
+    
+    // Only using watsonx.ai for single prompt generation
     const apiKey = ((document.getElementById('spApiKey') as HTMLInputElement | null)?.value || '').trim();
     if (!apiKey) { showMessage('Provide IBM Cloud API key', 'error'); return; }
     
