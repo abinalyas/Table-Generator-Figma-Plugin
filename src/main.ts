@@ -3032,7 +3032,8 @@ figma.ui.onmessage = async (msg: any) => {
                     }
                 }
                 if (!widthFound) {
-                    columnWidths[c] = 96;
+                    // Use default width of 120 for initial table generation
+                    columnWidths[c] = 120;
                 }
                 totalTableWidth += columnWidths[c];
             }

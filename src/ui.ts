@@ -1746,12 +1746,35 @@ function updateCellVisuals() {
       if (cell) {
         const key = `header-${c}`;
         const props = state.cellProperties.get(key);
-        const availableProps: string[] = state.selectedComponent?.availableProperties || [];
-        const propertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
-        const textKey = availableProps.find(p => propertyTypes[p] === 'TEXT') || 'Cell text';
-        const value = props && props.properties ? props.properties[textKey] : '';
-        if (value && typeof value === 'string' && value.trim().length > 0) {
-          cell.textContent = value;
+        let displayText = '';
+        
+        // Try to get text from properties
+        if (props && props.properties) {
+          // Use header cell component properties if available
+          let textKey = '';
+          if (state.headerCellComponent?.availableProperties && state.headerCellComponent?.propertyTypes) {
+            const availableProps: string[] = state.headerCellComponent.availableProperties;
+            const propertyTypes: { [key: string]: any } = state.headerCellComponent.propertyTypes;
+            textKey = availableProps.find(p => propertyTypes[p] === 'TEXT') || '';
+          }
+          
+          // If we couldn't find the text key from the component, try to find it in the properties
+          if (!textKey) {
+            textKey = Object.keys(props.properties).find(p => 
+              p.toLowerCase().includes('text') && 
+              !p.toLowerCase().includes('second') &&
+              typeof props.properties[p] === 'string'
+            ) || '';
+          }
+          
+          if (textKey && props.properties[textKey]) {
+            displayText = props.properties[textKey];
+          }
+        }
+        
+        // Set the display text or fallback to default
+        if (displayText && typeof displayText === 'string' && displayText.trim().length > 0) {
+          cell.textContent = displayText;
           cell.classList.add('edited');
           cell.style.fontWeight = 'bold';
         } else {
@@ -1863,20 +1886,28 @@ window.onmessage = (event) => {
       elements.gridContainer.style.display = 'flex';
       elements.actionButtons.style.display = 'flex';
 
-      const availableProps: string[] = state.selectedComponent?.availableProperties || [];
-      const propertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
-      const textKey = availableProps.find(p => propertyTypes[p] === 'TEXT') || 'Cell text';
+      // Use header cell component properties if available, otherwise fallback to body cell properties
+      const headerAvailableProps: string[] = state.headerCellComponent?.availableProperties || state.selectedComponent?.availableProperties || [];
+      const headerPropertyTypes: { [key: string]: any } = state.headerCellComponent?.propertyTypes || state.selectedComponent?.propertyTypes || {};
+      const bodyAvailableProps: string[] = state.selectedComponent?.availableProperties || [];
+      const bodyPropertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
+      
+      const headerTextKey = headerAvailableProps.find(p => headerPropertyTypes[p] === 'TEXT') || 'Cell text';
+      const bodyTextKey = bodyAvailableProps.find(p => bodyPropertyTypes[p] === 'TEXT') || 'Cell text';
 
+      // Apply header cell properties
       for (let c = 1; c <= desiredCols; c++) {
         const key = `header-${c}`;
         const cellState = getCellState(key);
-        cellState.properties[textKey] = fixedHeaders[c - 1] || `H${c}`;
+        cellState.properties[headerTextKey] = fixedHeaders[c - 1] || `H${c}`;
       }
+      
+      // Apply body cell properties
       for (let r = 0; r < desiredRows; r++) {
         for (let c = 0; c < desiredCols; c++) {
           const key = `${r+1},${c+1}`;
           const cellState = getCellState(key);
-          cellState.properties[textKey] = fixedRows[r][c] || '';
+          cellState.properties[bodyTextKey] = fixedRows[r][c] || '';
         }
       }
 
