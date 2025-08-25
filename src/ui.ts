@@ -1188,21 +1188,36 @@ function openPropertyEditorInternal(key: string) {
       }
     }
     
+    // Show/hide apply options based on cell type
+    const applyOptionsContainer = document.querySelector('.apply-options') as HTMLElement;
+    if (key === 'footer' || key.startsWith('header-')) {
+      // Hide apply options for footer and header cells
+      if (applyOptionsContainer) {
+        applyOptionsContainer.style.display = 'none';
+      }
+    } else {
+      // Show apply options for body cells
+      if (applyOptionsContainer) {
+        applyOptionsContainer.style.display = '';
+      }
+    }
+    
     // Show all apply options for body cells, hide column option for header cells
     const applyToCellOption = document.querySelector('.apply-option[data-apply="cell"]') as HTMLElement;
     const applyToRowOption = document.querySelector('.apply-option[data-apply="row"]') as HTMLElement;
     const applyToColumnOption = document.querySelector('.apply-option[data-apply="column"]') as HTMLElement;
     
     if (key.startsWith('header-')) {
-      // For header cells, show cell and row options (row makes sense for header)
-      if (applyToCellOption) applyToCellOption.style.display = '';
-      if (applyToRowOption) applyToRowOption.style.display = '';
+      // For header cells, hide all apply options (we already hide the container above)
+      if (applyToCellOption) applyToCellOption.style.display = 'none';
+      if (applyToRowOption) applyToRowOption.style.display = 'none';
       if (applyToColumnOption) applyToColumnOption.style.display = 'none';
     } else {
       // For body cells, show all options
-      if (applyToCellOption) applyToCellOption.style.display = '';
-      if (applyToRowOption) applyToRowOption.style.display = '';
-      if (applyToColumnOption) applyToColumnOption.style.display = '';
+      // For footer and header, we've already hidden the entire container, but let's make sure
+      if (applyToCellOption) applyToCellOption.style.display = (key === 'footer' || key.startsWith('header-')) ? 'none' : '';
+      if (applyToRowOption) applyToRowOption.style.display = (key === 'footer' || key.startsWith('header-')) ? 'none' : '';
+      if (applyToColumnOption) applyToColumnOption.style.display = (key === 'footer' || key.startsWith('header-')) ? 'none' : '';
     }
     
     console.log(`[DEBUG] Apply options visibility for ${key}:`, {
@@ -1286,7 +1301,10 @@ function openPropertyEditorInternal(key: string) {
       props = (cellState && cellState.properties) ? cellState.properties : {};
       label = 'Footer';
       console.log('[DEBUG] openPropertyEditor footer', { props });
-      renderDynamicPropertyFieldsFromModel(FOOTER_MODEL, props);
+      
+      // For footer, only show the "Type" property
+      const footerModel = FOOTER_MODEL.filter(field => field.label === "Type");
+      renderDynamicPropertyFieldsFromModel(footerModel, props);
     } else {
       const cellState = getCellState(key);
       props = cellState.properties || {};
@@ -1321,7 +1339,8 @@ function openPropertyEditorInternal(key: string) {
       // For footer, use a default width
       width = state.footerComponent?.width || 100;
       console.log('[DEBUG] Footer col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width);
-      if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'block';
+      // Hide column width for footer cells
+      if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'none';
       if (elements.colWidthInput) elements.colWidthInput.value = String(width);
       console.log(`[DEBUG] Footer cell - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
     } else {
@@ -1431,31 +1450,34 @@ async function saveCellProperties() {
         }
       }
       
-      // Handle column width for footer
-      let colWidth: number | undefined = undefined;
-      if (elements.colWidthInput && elements.colWidthInput.value) {
-        colWidth = parseInt(elements.colWidthInput.value, 10);
-      } else {
-        console.log('[DEBUG] colWidthInput missing or empty when saving cell (header)');
-      }
-      
+      // For footer cells, we don't process column width since the input is hidden
+      // Just save the properties without any column width changes
       const cellState = getCellState(key);
       cellState.properties = newProps;
       
-      // If column width is set, apply it to the entire table (all columns)
-      if (colWidth) {
-        for (let r = 1; r <= state.gridRows; r++) {
-          for (let c = 1; c <= state.gridCols; c++) {
-            const colCellState = getCellState(`${r},${c}`);
-            colCellState.colWidth = colWidth;
-          }
+      console.log('[DEBUG] saveCellProperties footer', key, newProps);
+      state.cellProperties.set(key, cellState);
+    } else if (key === 'footer') {
+      // Use FOOTER_MODEL
+      const newProps: any = {};
+      for (const fieldDef of FOOTER_MODEL) {
+        const { name, type } = fieldDef;
+        const input = document.getElementById(`dynamic-${name}`) as HTMLInputElement | HTMLSelectElement;
+        if (!input) continue;
+        if (type === 'BOOLEAN') {
+          newProps[name] = (input as HTMLInputElement).checked;
+        } else {
+          newProps[name] = input.value;
         }
-        // Also set it for the footer cell itself
-        cellState.colWidth = colWidth;
       }
       
-      console.log('[DEBUG] saveCellProperties footer', key, newProps, 'colWidth:', colWidth);
-      state.cellProperties.set(key, cellState);
+      // For footer cells, we don't process column width since the input is hidden
+      // Just save the properties without any column width changes
+      const cellStateFooter = getCellState(key);
+      cellStateFooter.properties = newProps;
+      
+      console.log('[DEBUG] saveCellProperties footer', key, newProps);
+      state.cellProperties.set(key, cellStateFooter);
     } else {
       // Body cell: save properties without duplication
       const props: any = {};
