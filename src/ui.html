@@ -617,7 +617,7 @@
             <label for="spApiKey">IBM Cloud API Key</label>
             <input type="password" id="spApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
           </div>
-          <p class="hint">Uses local proxy http://localhost:3000 and endpoint https://us-south.ml.cloud.ibm.com</p>
+          <!-- <p class="hint">Uses local proxy http://localhost:3000 and endpoint https://us-south.ml.cloud.ibm.com</p> -->
           <button id="generateTableFromPromptBtn" class="btn btn-primary">Generate content with AI</button>
         </div>
       </div>
@@ -681,11 +681,15 @@
             </div>
           </div>
           <div id="watsonxConfig" style="display:none;">
-            <label for="watsonxPrompt">Prompt</label>
-            <textarea id="watsonxPrompt" class="styled-input" placeholder="Describe the content to generate, e.g., IBM product names"></textarea>
-            <label for="watsonxApiKey">IBM Cloud API Key</label>
-            <input type="password" id="watsonxApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
-            <p class="hint">watsonx.ai via proxy http://localhost:3000 (endpoint fixed to https://us-south.ml.cloud.ibm.com)</p>
+            <div class="property-field">
+              <label for="watsonxPrompt">Prompt</label>
+              <textarea id="watsonxPrompt" class="styled-input" placeholder="Describe the content to generate, e.g., IBM product names"></textarea>
+            </div>
+            <div class="property-field">
+              <label for="watsonxApiKey">IBM Cloud API Key</label>
+              <input type="password" id="watsonxApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
+            </div>
+            <!-- <p class="hint">watsonx.ai via proxy http://localhost:3000 (endpoint fixed to https://us-south.ml.cloud.ibm.com)</p> -->
           </div>
         </div>
         <div class="property-field checkbox" id="secondLineContainer" style="display: none;">
