@@ -78,53 +78,121 @@
     }
 
     .cell {
-      width: 30px;
-      height: 30px;
-      background: #fff;
+      background: white;
       border: 1px solid var(--border-color);
-      cursor: pointer;
-      transition: all 0.15s ease;
-      position: relative;
+      border-radius: 4px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 10px;
+      height: 40px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.1s ease;
+      position: relative;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 2px;
     }
-
+    
+    .cell:hover {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 1px var(--primary-color);
+      z-index: 2;
+    }
+    
     .cell.selected {
-      background: var(--primary-color);
-      color: var(--text-light);
+      background: #e3f0ff;
       border-color: var(--primary-color);
     }
-
-    .cell.edited {
-      background-color: var(--edited-cell-color);
-      border-color: var(--secondary-color);
+    
+    .cell.selected::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      border: 2px solid var(--primary-color);
+      border-radius: 4px;
+      pointer-events: none;
     }
-
+    
+    .cell.edited {
+      font-weight: bold;
+    }
+    
     .grid-highlight {
       position: absolute;
-      background-color: var(--primary-light);
-      border: 2px solid var(--primary-color);
-      border-radius: 3px;
+      background: rgba(0, 98, 255, 0.1);
+      border: 1px dashed var(--primary-color);
       pointer-events: none;
+      display: none;
       z-index: 1;
-      transition: all 0.1s ease;
+    }
+    
+    .header-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--header-cols, 5), 60px);
+      grid-gap: 4px;
+      margin-bottom: 4px;
+    }
+    
+    .header-cell {
+      background: #e3f0ff;
+      color: #1a3a5d;
+      font-weight: bold;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 30px;
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 2px;
+    }
+    
+    .footer-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--footer-cols, 5), 60px);
+      grid-gap: 4px;
+      margin-top: 4px;
+    }
+    
+    .footer-cell {
+      background: #f7e3ff;
+      color: #5d1a3a;
+      font-weight: bold;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 30px;
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 2px;
+    }
+    
+    .cell-tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 8px;
+      font-size: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
+      pointer-events: none;
+      max-width: 200px;
       display: none;
     }
-
-    .dimensions-display {
-      position: absolute;
-      background: var(--primary-color);
-      color: var(--text-light);
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: bold;
-      transition: all 0.1s ease;
-      z-index: 3;
-    }
-
+    
     .btn {
       padding: 8px 16px;
       border: none;
@@ -572,6 +640,7 @@
 </head>
 <body>
   <div id="propertyEditorOverlay"></div>
+  <div class="cell-tooltip"></div>
   <div class="container">
     <h2 style="padding-bottom: 10px;">IBM Table Generator by Abin</h2>
     <div id="landingPage">

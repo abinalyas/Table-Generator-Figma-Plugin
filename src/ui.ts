@@ -1,10 +1,19 @@
 import { fakerMethods } from './faker-methods';
 
+interface ComponentInfo {
+  id: string | null;
+  name: string;
+  width?: number;
+  properties: { [key: string]: any };
+  availableProperties: string[];
+  propertyTypes: { [key: string]: any };
+}
+
 interface State {
   selectedCells: Set<string>;
   isDragging: boolean;
-  startCell: HTMLDivElement | null;
-  endCell: HTMLDivElement | null;
+  startCell: string | null;
+  endCell: string | null;
   componentProps: { [key: string]: any };
   cellProperties: Map<string, any>;
   gridCols: number;
@@ -15,33 +24,12 @@ interface State {
   applyMode: 'cell' | 'row' | 'column';
   hoverTimeout: number | null;
   tooltip: HTMLDivElement;
-  selectedSize: string | null;
-  selectedComponent: {
-    id: string | null;
-    name: string;
-    width?: number;
-    properties: { [key: string]: any };
-    availableProperties: string[];
-    propertyTypes: { [key: string]: any };
-  } | null;
+  selectedSize: { width: number; height: number } | null;
+  selectedComponent: ComponentInfo | null;
   sizeConfirmed: boolean;
-  componentWidth?: number;
-  headerCellComponent?: {
-    id: string | null;
-    name: string;
-    width?: number;
-    properties: { [key: string]: any };
-    availableProperties: string[];
-    propertyTypes: { [key: string]: any };
-  } | null;
-  footerComponent?: {
-    id: string | null;
-    name: string;
-    width?: number;
-    properties: { [key: string]: any };
-    availableProperties: string[];
-    propertyTypes: { [key: string]: any };
-  } | null;
+  componentWidth: number | undefined;
+  headerCellComponent: ComponentInfo | null;
+  footerComponent: ComponentInfo | null;
   tableFrameId: string | undefined;
 }
 
@@ -97,14 +85,18 @@ interface Elements {
   scanOptionsContainer: HTMLElement | null;
 }
 
+// Add mouse position tracking
+let mouseX = 0;
+let mouseY = 0;
+
 // State Management
 const state: State = {
-  selectedCells: new Set(),
+  selectedCells: new Set<string>(),
   isDragging: false,
   startCell: null,
   endCell: null,
   componentProps: {},
-  cellProperties: new Map(),
+  cellProperties: new Map<string, any>(),
   gridCols: 5,
   gridRows: 5,
   hasComponent: false,
@@ -119,8 +111,22 @@ const state: State = {
   componentWidth: undefined,
   headerCellComponent: null,
   footerComponent: null,
-  tableFrameId: undefined
+  tableFrameId: undefined,
 };
+
+// Initialize the tooltip element
+state.tooltip.className = 'cell-tooltip';
+state.tooltip.style.position = 'fixed';
+state.tooltip.style.display = 'none';
+state.tooltip.style.background = 'rgba(0, 0, 0, 0.85)';
+state.tooltip.style.color = 'white';
+state.tooltip.style.padding = '8px 12px';
+state.tooltip.style.borderRadius = '4px';
+state.tooltip.style.fontSize = '12px';
+state.tooltip.style.zIndex = '10000';
+state.tooltip.style.maxWidth = '300px';
+state.tooltip.style.wordWrap = 'break-word';
+state.tooltip.style.pointerEvents = 'none';
 
 // DOM Elements
 let elements = {} as Elements;
@@ -129,9 +135,7 @@ let elements = {} as Elements;
 const fakerMethodInput = document.getElementById('fakerMethodInput') as HTMLInputElement;
 const fakerDropdown = document.getElementById('fakerDropdown')!;
 
-// Create tooltip element
-state.tooltip.className = 'cell-tooltip';
-// document.body.appendChild(state.tooltip);
+// Create tooltip element has been moved to state initialization
 
 let domReady = false;
 // Ensure property editor scaffold exists
@@ -237,9 +241,9 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.landingPage = document.getElementById('landingPage')!;
   elements.componentModeBtn = document.getElementById('componentModeBtn') as HTMLButtonElement;
   elements.propertyEditorOverlay = document.getElementById('propertyEditorOverlay')!;
-  elements.scanTableSection = null;
-  elements.scanTableBtn = null;
-  elements.scanTableInstructions = null;
+  elements.scanTableSection = document.getElementById('scanTableSection');
+  elements.scanTableBtn = document.getElementById('scanTableBtn') as HTMLButtonElement | null;
+  elements.scanTableInstructions = document.getElementById('scanTableInstructions') as HTMLElement | null;
   elements.componentDisplay = document.getElementById('componentDisplay')!;
   elements.scanOptionsContainer = null;
 
@@ -302,6 +306,10 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.componentModeBtn.onclick = () => {
     elements.landingPage.style.display = 'none';
   };
+  
+  // Initialize tooltip
+  state.tooltip.className = 'cell-tooltip';
+
 });
 
 function renderHeaderFooterGrids() {
@@ -313,10 +321,16 @@ function renderHeaderFooterGrids() {
     for (let c = 1; c <= state.gridCols; c++) {
       const cell = document.createElement('div');
       cell.className = 'header-cell';
+      cell.dataset.col = String(c); // Add dataset for tooltip identification
       cell.textContent = `H${c}`;
       cell.addEventListener('click', () => {
         openPropertyEditor(`header-${c}`);
       });
+      
+      // Add hover events for tooltip
+      cell.addEventListener('mouseenter', (e) => showCellTooltip(e.target as HTMLDivElement));
+      cell.addEventListener('mouseleave', hideCellTooltip);
+      
       headerGrid.appendChild(cell);
     }
   }
@@ -332,6 +346,11 @@ function renderHeaderFooterGrids() {
     cell.addEventListener('click', () => {
       openPropertyEditor('footer');
     });
+    
+    // Add hover events for tooltip
+    cell.addEventListener('mouseenter', (e) => showCellTooltip(e.target as HTMLDivElement));
+    cell.addEventListener('mouseleave', hideCellTooltip);
+    
     footerGrid.appendChild(cell);
   }
 }
@@ -353,6 +372,11 @@ function createGrid() {
         const key = `${r},${c}`;
         openPropertyEditor(key);
       });
+      
+      // Add hover events for tooltip
+      cell.addEventListener('mouseenter', (e) => showCellTooltip(e.target as HTMLDivElement));
+      cell.addEventListener('mouseleave', hideCellTooltip);
+      
       grid.appendChild(cell);
     }
   }
@@ -382,7 +406,6 @@ function handleApplyOptionClick(this: HTMLElement) {
   // Update state
   const newApplyMode = this.dataset.apply as 'cell' | 'row' | 'column';
   state.applyMode = newApplyMode;
-  console.log(`[DEBUG] Apply mode changed to: ${state.applyMode}`);
   
   // Show column width option only for cell and column apply modes
   if (state.applyMode === 'cell' || state.applyMode === 'column') {
@@ -444,16 +467,29 @@ function setupEventListeners() {
 
   // Load persisted watsonx settings
   parent.postMessage({ pluginMessage: { type: 'load-watsonx-settings' } }, '*');
+  
   document.addEventListener('mouseover', function (e) {
     const target = e.target as HTMLElement;
-    if (target.classList.contains('cell')) {
+    if (target.classList.contains('cell') || target.classList.contains('header-cell') || target.classList.contains('footer-cell')) {
       showCellTooltip(target as HTMLDivElement);
     }
   });
   document.addEventListener('mouseout', function (e) {
     const target = e.target as HTMLElement;
-    if (target.classList.contains('cell')) {
+    if (target.classList.contains('cell') || target.classList.contains('header-cell') || target.classList.contains('footer-cell')) {
       hideCellTooltip();
+    }
+  });
+  
+  // Track mouse movement for better tooltip positioning
+  document.addEventListener('mousemove', function (e) {
+    mouseX = e.pageX;
+    mouseY = e.pageY;
+    
+    // Update tooltip position if it's visible
+    if (state.tooltip.style.display === 'block') {
+      state.tooltip.style.left = `${mouseX + 10}px`;
+      state.tooltip.style.top = `${mouseY - 10}px`;
     }
   });
 }
@@ -607,39 +643,96 @@ function showMessage(text: string, type: 'success' | 'error') {
 }
 
 function showCellTooltip(cell: HTMLDivElement) {
-  const key = `${cell.dataset.row},${cell.dataset.col}`;
-  const props = state.cellProperties.get(key);
-  const availableProps: string[] = state.selectedComponent?.availableProperties || [];
-
-  if (props && props.properties && Object.keys(props.properties).length > 0) {
-    clearTimeout(state.hoverTimeout!);
-    state.hoverTimeout = window.setTimeout(() => {
-      let tooltipContent = '';
-      let cellTextProp = availableProps.find(p => p.toLowerCase().includes('text') && !p.toLowerCase().includes('second'));
-      if (!cellTextProp) cellTextProp = Object.keys(props.properties).find(p => p.toLowerCase().includes('text') && !p.toLowerCase().includes('second')) || 'cellText';
-      let secondTextProp = availableProps.find(p => p.toLowerCase().includes('second')) || Object.keys(props.properties).find(p => p.toLowerCase().includes('second')) || 'secondCellText';
-      let showTextProp = availableProps.find(p => p.toLowerCase().includes('showtext')) || Object.keys(props.properties).find(p => p.toLowerCase().includes('showtext')) || 'showText';
-      let stateProp = availableProps.find(p => p.toLowerCase().includes('state')) || Object.keys(props.properties).find(p => p.toLowerCase().includes('state')) || 'state';
-      if (props.properties[showTextProp]) {
-        tooltipContent += `<strong>Text:</strong> ${props.properties[cellTextProp] || 'Empty'}<br>`;
-      }
-      if (props.properties['secondTextLine'] || props.properties[secondTextProp]) {
-        tooltipContent += `<strong>Second line:</strong> ${props.properties[secondTextProp] || 'Empty'}<br>`;
-      }
-      tooltipContent += `<strong>State:</strong> ${props.properties[stateProp] || 'Enabled'}<br>`;
-      state.tooltip.innerHTML = tooltipContent;
-      state.tooltip.style.display = 'block';
-      const rect = cell.getBoundingClientRect();
-      state.tooltip.style.left = `${rect.left}px`;
-      state.tooltip.style.top = `${rect.bottom + 5}px`;
-    }, 300);
-  } else {
-    hideCellTooltip();
+  // Clear any existing timeout
+  if (state.hoverTimeout) {
+    clearTimeout(state.hoverTimeout);
   }
+
+  // Set a new timeout to show the tooltip after a delay
+  state.hoverTimeout = window.setTimeout(() => {
+    const row = cell.dataset.row;
+    const col = cell.dataset.col;
+
+    let cellKey = '';
+    let cellProperties: any = null;
+
+    // Determine the cell key based on the cell type with improved detection
+    if (cell.classList.contains('header-cell')) {
+      // Handle header cells
+      cellKey = `header-${col}`;
+      cellProperties = state.cellProperties.get(cellKey);
+    } else if (cell.classList.contains('footer-cell')) {
+      // Handle footer cells
+      cellKey = 'footer';
+      cellProperties = state.cellProperties.get(cellKey);
+    } else if (row && col) {
+      // Handle regular cells
+      cellKey = `${row},${col}`;
+      cellProperties = state.cellProperties.get(cellKey);
+    }
+
+    // If we have cell properties, create tooltip content
+    if (cellProperties && cellProperties.properties && Object.keys(cellProperties.properties).length > 0) {
+      let tooltipContent = '<div class="tooltip-content">';
+      
+      // Add all properties to the tooltip with better formatting
+      for (const [key, value] of Object.entries(cellProperties.properties)) {
+        // Clean the property name for display
+        const cleanKey = key.split('#')[0].trim();
+        
+        // Format value based on type
+        let displayValue = value;
+        if (typeof value === 'object' && value !== null) {
+          displayValue = JSON.stringify(value);
+        } else if (value === null) {
+          displayValue = 'null';
+        } else if (value === undefined) {
+          displayValue = 'undefined';
+        }
+        
+        tooltipContent += `
+          <div class="tooltip-row">
+            <span class="tooltip-key">${cleanKey}</span>
+            <span class="tooltip-value">${displayValue}</span>
+          </div>
+        `;
+      }
+      
+      tooltipContent += '</div>';
+
+      // Update tooltip content
+      state.tooltip.innerHTML = tooltipContent;
+
+      // Get cell position for better tooltip positioning
+      const cellRect = cell.getBoundingClientRect();
+      
+      // Position the tooltip near the cell
+      state.tooltip.style.left = `${cellRect.right + 10}px`;
+      state.tooltip.style.top = `${cellRect.top}px`;
+      state.tooltip.style.maxWidth = `300px`; // Limit width for better readability
+      
+      // Set display to block to show tooltip
+      state.tooltip.style.display = 'block';
+
+      // Add tooltip to document if not already added
+      if (!state.tooltip.parentElement) {
+        document.body.appendChild(state.tooltip);
+      }
+    } else {
+      // If no properties, just hide the tooltip
+      hideCellTooltip();
+    }
+  }, 300); // Reduced delay for better responsiveness
 }
 
 function hideCellTooltip() {
-  clearTimeout(state.hoverTimeout!);
+  // Clear any existing timeout
+  if (state.hoverTimeout) {
+    clearTimeout(state.hoverTimeout);
+    state.hoverTimeout = null;
+  }
+
+  // Hide the tooltip
   state.tooltip.style.display = 'none';
 }
 
@@ -1577,14 +1670,14 @@ async function saveCellProperties() {
         }
     } else if (state.applyMode === 'row') {
       for (let c = 1; c <= state.gridCols; c++) {
-        const key = `${row},${c}`;
-        if (state.selectedCells.has(key)) {
+        const k = `${row},${c}`;
+        if (state.selectedCells.has(k)) {
             if (colWidth && row === 1) {
-              applyProps(key, { ...props }, colWidth);
+              applyProps(k, { ...props }, colWidth);
             } else {
-          applyProps(key, { ...props });
+          applyProps(k, { ...props });
             }
-            const cellState = getCellState(key);
+            const cellState = getCellState(k);
             if (cellState.isCheckbox !== undefined) {
               cellState.isCheckbox = cellState.isCheckbox;
           }
@@ -1592,14 +1685,14 @@ async function saveCellProperties() {
       }
     } else if (state.applyMode === 'column') {
       for (let r = 1; r <= state.gridRows; r++) {
-        const key = `${r},${col}`;
-        if (state.selectedCells.has(key)) {
+        const k = `${r},${col}`;
+        if (state.selectedCells.has(k)) {
             if (colWidth && r === 1) {
-              applyProps(key, { ...props }, colWidth);
+              applyProps(k, { ...props }, colWidth);
             } else {
-          applyProps(key, { ...props });
+          applyProps(k, { ...props });
             }
-            const cellState = getCellState(key);
+            const cellState = getCellState(k);
             if (cellState.isCheckbox !== undefined) {
               cellState.isCheckbox = cellState.isCheckbox;
             }
