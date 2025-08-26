@@ -1430,7 +1430,7 @@ function openPropertyEditorInternal(key: string) {
         }
       }
       if (width === undefined) {
-        width = state.headerCellComponent?.width || 100;
+        width = 120;
       }
       console.log('[DEBUG] Header col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width);
       if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'block';
@@ -1438,7 +1438,7 @@ function openPropertyEditorInternal(key: string) {
       console.log(`[DEBUG] Header cell ${key} - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
     } else if (key === 'footer') {
       // For footer, use a default width
-      width = state.footerComponent?.width || 100;
+      width = 120;
       console.log('[DEBUG] Footer col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width);
       // Hide column width for footer cells
       if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'none';
@@ -1456,7 +1456,7 @@ function openPropertyEditorInternal(key: string) {
         }
       }
       if (width === undefined) {
-        width = state.selectedComponent?.width || 100;
+        width = 120;
       }
       console.log('[DEBUG] Body col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width, 'for key', key);
       if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'block';

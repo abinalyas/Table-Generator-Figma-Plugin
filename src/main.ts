@@ -1649,21 +1649,21 @@ figma.ui.onmessage = async (msg: any) => {
         }
         isCreatingTable = true;
         try {
-        if (!lastScanResult) {
+            if (!lastScanResult) {
                 figma.notify('❌ No scan result available. Please scan a table first.');
-            return;
-        }
-        
+                return;
+            }
+
             const { headerCell, bodyCell, footer, numCols } = lastScanResult;
-        figma.ui.postMessage({ type: 'show-loader', message: 'Generating table...' });
-        
-        const includeHeader = msg.includeHeader !== false;
-        const includeFooter = msg.includeFooter === true;
-        const includeSelectable = msg.includeSelectable === true;
-        const includeExpandable = msg.includeExpandable === true;
-        const rows = msg.rows || 3;
-        const cols = msg.cols || numCols || 3;
-        const cellProps = msg.cellProps || {};
+            figma.ui.postMessage({ type: 'show-loader', message: 'Generating table...' });
+
+            const includeHeader = msg.includeHeader !== false;
+            const includeFooter = msg.includeFooter === true;
+            const includeSelectable = msg.includeSelectable === true;
+            const includeExpandable = msg.includeExpandable === true;
+            const rows = msg.rows || 3;
+            const cols = msg.cols || numCols || 3;
+            const cellProps = msg.cellProps || {};
 
             if (includeSelectable && !lastScanResult.selectCellComponent) {
                 figma.notify('⚠️ Selectable cells not available');
@@ -1672,9 +1672,9 @@ figma.ui.onmessage = async (msg: any) => {
                 figma.notify('⚠️ Expandable cells not available');
             }
 
-        const columnWidths: number[] = [];
-        let totalTableWidth = 0;
-            
+            const columnWidths: number[] = [];
+            let totalTableWidth = 0;
+
             if (includeExpandable && lastScanResult.expandCellComponent) {
                 try {
                     const expandCellInstance = lastScanResult.expandCellComponent.createInstance();
@@ -1693,25 +1693,25 @@ figma.ui.onmessage = async (msg: any) => {
                     totalTableWidth += 52;
                 }
             }
-            
-        for (let c = 0; c < cols; c++) {
-            let widthFound = false;
-            for (let r = 0; r < rows; r++) {
-                const key = `${r}-${c}`;
-                const cellData = cellProps[key];
-                if (cellData && cellData.colWidth) {
-                    columnWidths[c] = cellData.colWidth;
-                    widthFound = true;
-                        break;
-                }
-            }
-            if (!widthFound) {
-                    columnWidths[c] = 96;
-            }
-            totalTableWidth += columnWidths[c];
-        }
 
-        const tableFrame = figma.createFrame();
+            for (let c = 0; c < cols; c++) {
+                let widthFound = false;
+                for (let r = 0; r < rows; r++) {
+                    const key = `${r}-${c}`;
+                    const cellData = cellProps[key];
+                    if (cellData && cellData.colWidth) {
+                        columnWidths[c] = cellData.colWidth;
+                        widthFound = true;
+                        break;
+                    }
+                }
+                if (!widthFound) {
+                    columnWidths[c] = 120;
+                }
+                totalTableWidth += columnWidths[c];
+            }
+
+            const tableFrame = figma.createFrame();
         tableFrame.name = "Generated Table";
         tableFrame.layoutMode = "VERTICAL";
         tableFrame.counterAxisSizingMode = "AUTO";
