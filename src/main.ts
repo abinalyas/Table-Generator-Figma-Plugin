@@ -3679,6 +3679,71 @@ figma.ui.onmessage = async (msg: any) => {
     }
 };
 
+function createComponentInstanceWithProps(
+  component: ComponentNode,
+  cellData: { [key: string]: any },
+  componentProps: { [key: string]: ComponentProperty },
+  allProps: { [key: string]: any }
+): SceneNode {
+  console.log('🔧 Creating component instance with props:', { component: component.name, cellData, componentProps });
+  
+  // Create instance
+  const instance = component.createInstance();
+  
+  // Map properties from cellData to component properties
+  const mappedProps = mapPropertyNames(cellData, componentProps);
+  console.log('🔧 Mapped properties:', mappedProps);
+  
+  // Apply the mapped properties to the instance
+  for (const [propName, propValue] of Object.entries(mappedProps)) {
+    try {
+      console.log(`🔧 Setting property: ${propName} = ${propValue}`);
+      instance.setProperties({ [propName]: propValue });
+    } catch (error) {
+      console.error(`❌ Error setting property ${propName}:`, error);
+      // Try alternative method for setting properties
+      try {
+        (instance as any)[propName] = propValue;
+        console.log(`🔧 Set property via direct assignment: ${propName} = ${propValue}`);
+      } catch (directError) {
+        console.error(`❌ Error setting property via direct assignment ${propName}:`, directError);
+      }
+    }
+  }
+  
+  // Handle any additional properties that weren't mapped, especially slot properties
+  for (const [originalKey, originalValue] of Object.entries(cellData)) {
+    // Skip already mapped properties
+    if (Object.keys(mappedProps).some(mappedKey => mappedKey.split('#')[0] === originalKey.split('#')[0])) {
+      continue;
+    }
+    
+    // Handle unmapped properties, especially slot properties
+    // Ensure the value is of a valid type before setting
+    if (typeof originalValue === 'string' || typeof originalValue === 'boolean') {
+      try {
+        console.log(`🔧 Setting unmapped property: ${originalKey} = ${originalValue}`);
+        instance.setProperties({ [originalKey]: originalValue });
+      } catch (error) {
+        console.error(`❌ Error setting unmapped property ${originalKey}:`, error);
+      }
+    } else if (originalValue && typeof originalValue === 'object' && 'value' in originalValue) {
+      // Handle case where the value is an object with a value property
+      const valueToSet = originalValue.value;
+      if (typeof valueToSet === 'string' || typeof valueToSet === 'boolean') {
+        try {
+          console.log(`🔧 Setting unmapped property from object: ${originalKey} = ${valueToSet}`);
+          instance.setProperties({ [originalKey]: valueToSet });
+        } catch (error) {
+          console.error(`❌ Error setting unmapped property from object ${originalKey}:`, error);
+        }
+      }
+    }
+  }
+  
+  return instance;
+}
+
 function getFakerValue(type: string) {
   const t = type.toLowerCase();
   let result;
