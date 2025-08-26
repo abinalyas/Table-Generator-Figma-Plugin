@@ -70,7 +70,7 @@
 
     .grid {
       display: grid;
-      grid-template-columns: repeat(5, 30px);
+      grid-template-columns: repeat(5, 45px);
       grid-gap: 6px;
       position: relative;
       z-index: 2;
@@ -78,21 +78,24 @@
     }
 
     .cell {
-      background: white;
+      width: 50px;
+      height: 40px;
+      background: #fff;
       border: 1px solid var(--border-color);
-      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 40px;
-      font-size: 12px;
-      cursor: pointer;
-      transition: all 0.1s ease;
-      position: relative;
+      font-size: 10px;
       overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      white-space: normal;
+      text-overflow: clip;
       padding: 2px;
+      text-align: center;
+      word-wrap: break-word;
+      word-break: break-word;
     }
     
     .cell:hover {
@@ -103,7 +106,6 @@
     
     .cell.selected {
       background: #e3f0ff;
-      border-color: var(--primary-color);
     }
     
     .cell.selected::after {
@@ -113,7 +115,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      border: 2px solid var(--primary-color);
+      border: 1px dashed var(--primary-color);
       border-radius: 4px;
       pointer-events: none;
     }
@@ -133,9 +135,9 @@
     
     .header-grid {
       display: grid;
-      grid-template-columns: repeat(var(--header-cols, 5), 60px);
-      grid-gap: 4px;
-      margin-bottom: 4px;
+      grid-template-columns: repeat(var(--header-cols, 5), 45px);
+      grid-gap: 6px;
+      margin-bottom: 8px;
     }
     
     .header-cell {
@@ -148,18 +150,21 @@
       align-items: center;
       justify-content: center;
       height: 30px;
-      font-size: 11px;
+      font-size: 10px;
       overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      white-space: normal;
+      text-overflow: clip;
       padding: 2px;
+      text-align: center;
+      word-wrap: break-word;
+      word-break: break-word;
     }
     
     .footer-grid {
       display: grid;
-      grid-template-columns: repeat(var(--footer-cols, 5), 60px);
-      grid-gap: 4px;
-      margin-top: 4px;
+      grid-template-columns: repeat(var(--footer-cols, 5), 45px);
+      grid-gap: 6px;
+      margin-top: 8px;
     }
     
     .footer-cell {
@@ -172,11 +177,14 @@
       align-items: center;
       justify-content: center;
       height: 30px;
-      font-size: 11px;
+      font-size: 12px;
       overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      white-space: normal;
+      text-overflow: clip;
       padding: 2px;
+      text-align: center;
+      word-wrap: break-word;
+      word-break: break-word;
     }
     
     .cell-tooltip {
@@ -432,7 +440,7 @@
     }
 
     .edit-mode .cell.selected {
-      box-shadow: 0 0 0 2px var(--primary-color);
+      /* box-shadow: 0 0 0 2px var(--primary-color); */
     }
 
     .selection-mode .cell {
@@ -586,7 +594,7 @@
 
     .header-grid {
       display: grid;
-      grid-template-columns: repeat(var(--header-cols, 5), 30px);
+      grid-template-columns: repeat(var(--header-cols, 5), 45px);
       grid-gap: 6px;
       margin-bottom: 8px;
     }
@@ -600,11 +608,18 @@
       align-items: center;
       justify-content: center;
       height: 30px;
-      font-size: 11px;
+      font-size: 10px;
+      overflow: hidden;
+      white-space: normal;
+      text-overflow: clip;
+      padding: 2px;
+      text-align: center;
+      word-wrap: break-word;
+      word-break: break-word;
     }
     .footer-grid {
       display: grid;
-      grid-template-columns: repeat(var(--footer-cols, 5), 30px);
+      grid-template-columns: repeat(var(--footer-cols, 5), 45px);
       grid-gap: 6px;
       margin-top: 8px;
     }
@@ -618,7 +633,14 @@
       align-items: center;
       justify-content: center;
       height: 30px;
-      font-size: 11px;
+      font-size: 12px;
+      overflow: hidden;
+      white-space: normal;
+      text-overflow: clip;
+      padding: 2px;
+      text-align: center;
+      word-wrap: break-word;
+      word-break: break-word;
     }
     
     #singlePromptMain {

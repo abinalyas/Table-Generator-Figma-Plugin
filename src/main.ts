@@ -1,6 +1,6 @@
 const faker = require('faker');
 
-figma.showUI(__html__, { width: 360, height: 700 });
+figma.showUI(__html__, { width: 450, height: 750 });
 
 let selectedComponent: ComponentNode | null = null;
 const cellInstanceMap = new Map<string, InstanceNode>();

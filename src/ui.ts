@@ -275,9 +275,16 @@ window.addEventListener('DOMContentLoaded', () => {
     const prompt = (document.getElementById('singlePromptText') as HTMLTextAreaElement | null)?.value?.trim();
     if (!prompt) { showMessage('Enter a prompt', 'error'); return; }
     
+    // Show loader when starting AI generation
+    showLoader('Generating content with AI...');
+    
     // Only using watsonx.ai for single prompt generation
     const apiKey = ((document.getElementById('spApiKey') as HTMLInputElement | null)?.value || '').trim();
-    if (!apiKey) { showMessage('Provide IBM Cloud API key', 'error'); return; }
+    if (!apiKey) { 
+      hideLoader(); // Hide loader if there's an error
+      showMessage('Provide IBM Cloud API key', 'error'); 
+      return; 
+    }
     
     // Debug: Log what we're sending to the backend
     console.log('=== DEBUG: UI sending generate-table-with-ai message ===');
@@ -359,7 +366,7 @@ function renderHeaderFooterGrids() {
 function createGrid() {
   const grid = elements.grid;
   grid.innerHTML = '';
-  grid.style.gridTemplateColumns = `repeat(${state.gridCols}, 30px)`;
+  grid.style.gridTemplateColumns = `repeat(${state.gridCols}, 45px)`;
 
   for (let r = 1; r <= state.gridRows; r++) {
     for (let c = 1; c <= state.gridCols; c++) {
@@ -383,6 +390,8 @@ function createGrid() {
   renderHeaderFooterGrids();
   updateCreateButtonState();
 }
+
+      
 
 // Handle apply option clicks
 function handleApplyOptionClick(this: HTMLElement) {
@@ -1662,35 +1671,35 @@ async function saveCellProperties() {
       const [row, col] = key.split(',').map(Number);
       
       // Always save the properties first (including column width, slot, etc.)
-    if (state.applyMode === 'cell') {
+      if (state.applyMode === 'cell') {
         if (colWidth && row === 1) {
           applyProps(state.currentEditingCell, props, colWidth);
         } else {
-      applyProps(state.currentEditingCell, props);
+          applyProps(state.currentEditingCell, props);
         }
-    } else if (state.applyMode === 'row') {
-      for (let c = 1; c <= state.gridCols; c++) {
-        const k = `${row},${c}`;
-        if (state.selectedCells.has(k)) {
+      } else if (state.applyMode === 'row') {
+        for (let c = 1; c <= state.gridCols; c++) {
+          const k = `${row},${c}`;
+          if (state.selectedCells.has(k)) {
             if (colWidth && row === 1) {
               applyProps(k, { ...props }, colWidth);
             } else {
-          applyProps(k, { ...props });
+              applyProps(k, { ...props });
             }
             const cellState = getCellState(k);
             if (cellState.isCheckbox !== undefined) {
               cellState.isCheckbox = cellState.isCheckbox;
+            }
           }
         }
-      }
-    } else if (state.applyMode === 'column') {
-      for (let r = 1; r <= state.gridRows; r++) {
-        const k = `${r},${col}`;
-        if (state.selectedCells.has(k)) {
+      } else if (state.applyMode === 'column') {
+        for (let r = 1; r <= state.gridRows; r++) {
+          const k = `${r},${col}`;
+          if (state.selectedCells.has(k)) {
             if (colWidth && r === 1) {
               applyProps(k, { ...props }, colWidth);
             } else {
-          applyProps(k, { ...props });
+              applyProps(k, { ...props });
             }
             const cellState = getCellState(k);
             if (cellState.isCheckbox !== undefined) {
@@ -2207,6 +2216,7 @@ window.onmessage = (event) => {
       break;
 
     case "prompt-fallback-notice":
+      hideLoader();
       showMessage(`Could not find a specific category for "${msg.prompt}". Using general text.`, "error");
       break;
 
