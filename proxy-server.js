@@ -301,9 +301,15 @@ Prompt context: ${prompt}`;
           .filter(x => x && x.trim() && !x.includes('[') && !x.includes('{')) // filter out malformed entries
           .slice(0, cols);
         
-        bodyRows = obj.rows
+        // bodyRows = obj.rows
+        //   .map(r => Array.isArray(r) ? r.map(x => String(x)) : [])
+        //   .filter(row => row.length === cols) // only keep rows with correct column count
+        //   .slice(0, rows);
+
+          bodyRows = obj.rows
           .map(r => Array.isArray(r) ? r.map(x => String(x)) : [])
-          .filter(row => row.length === cols) // only keep rows with correct column count
+          .map(r => r.length > cols ? r.slice(0, cols) : r.concat(Array(cols - r.length).fill("")))
+          .filter(row => row.length > 0) // keep non-empty
           .slice(0, rows);
         
         console.log('=== DEBUG: Parsed and cleaned data ===');

@@ -2317,8 +2317,6 @@ window.onmessage = (event) => {
           <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
               <input type="checkbox" id="scanHeaderToggle" checked> <label for="scanHeaderToggle" style="margin-right: 16px;">Header</label>
               <input type="checkbox" id="scanFooterToggle" ${details.footer ? 'checked' : ''}> <label for="scanFooterToggle" style="margin-right: 16px;">Footer</label>
-          </div>
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
               <input type="checkbox" id="scanSelectableToggle"> <label for="scanSelectableToggle" style="margin-right: 16px;">Selectable</label>
               <input type="checkbox" id="scanExpandableToggle"> <label for="scanExpandableToggle">Expandable</label>
           </div>
