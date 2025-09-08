@@ -263,7 +263,89 @@ window.addEventListener('DOMContentLoaded', () => {
     if (singlePromptContainer) {
       singlePromptContainer.style.display = useSinglePrompt.checked ? 'block' : 'none';
     }
+    
+    // If single prompt is selected, deselect file upload
+    const useFileUpload = document.getElementById('useFileUpload') as HTMLInputElement | null;
+    const fileUploadContainer = document.getElementById('fileUploadContainer') as HTMLElement | null;
+    if (useSinglePrompt?.checked && useFileUpload) {
+      useFileUpload.checked = false;
+      if (fileUploadContainer) {
+        fileUploadContainer.style.display = 'none';
+      }
+    }
   });
+  
+  // Wire file upload controls
+  const useFileUpload = document.getElementById('useFileUpload') as HTMLInputElement | null;
+  const fileUploadContainer = document.getElementById('fileUploadContainer') as HTMLElement | null;
+  useFileUpload?.addEventListener('change', () => {
+    if (fileUploadContainer) {
+      fileUploadContainer.style.display = useFileUpload.checked ? 'block' : 'none';
+    }
+    
+    // If file upload is selected, deselect single prompt
+    const useSinglePrompt = document.getElementById('useSinglePrompt') as HTMLInputElement | null;
+    const singlePromptContainer = document.getElementById('singlePromptContainer') as HTMLElement | null;
+    if (useFileUpload?.checked && useSinglePrompt) {
+      useSinglePrompt.checked = false;
+      if (singlePromptContainer) {
+        singlePromptContainer.style.display = 'none';
+      }
+    }
+  });
+  
+  // Handle file selection
+  const dataFileInput = document.getElementById('dataFileInput') as HTMLInputElement | null;
+  dataFileInput?.addEventListener('change', handleFileUpload);
+  
+  // Show data in grid preview
+  function showDataInGrid(data: any[][]) {
+    console.log('File data received:', data);
+    // For now, just show in file preview
+    showFilePreview(data);
+  }
+  
+  // Handle file upload
+  async function handleFileUpload(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) {
+      return;
+    }
+    
+    const file = input.files[0];
+    
+    try {
+      showLoader('Parsing file...');
+      
+      let data: any[][] = [];
+      
+      if (file.name.endsWith('.csv')) {
+        data = await parseCSV(file);
+      } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        data = await parseExcel(file);
+      } else if (file.name.endsWith('.json')) {
+        data = await parseJSON(file);
+      } else {
+        throw new Error('Unsupported file format');
+      }
+      
+      hideLoader();
+      
+      if (data.length === 0) {
+        showMessage('File is empty or could not be parsed', 'error');
+        return;
+      }
+      
+      // Show data in grid preview
+      showDataInGrid(data);
+      
+    } catch (error: any) {
+      hideLoader();
+      console.error('Error parsing file:', error);
+      showMessage('Error parsing file: ' + error.message, 'error');
+    }
+  }
+  
   generateTableFromPromptBtn?.addEventListener('click', () => {
     const rows = parseInt((document.getElementById('scanRowsInput') as HTMLInputElement)?.value || String(state.gridRows), 10);
     const cols = parseInt((document.getElementById('scanColsInput') as HTMLInputElement)?.value || String(state.gridCols), 10);
@@ -374,7 +456,37 @@ function createGrid() {
       cell.className = 'cell';
       cell.dataset.row = String(r);
       cell.dataset.col = String(c);
-      cell.textContent = `${r},${c}`;
+      
+      // Get cell text from state if available
+      const key = `${r},${c}`;
+      const cellState = state.cellProperties.get(key);
+      if (cellState && cellState.properties) {
+        // Use the same approach as AI data - find the actual text property from the component
+        let displayText = '';
+        if (state.selectedComponent?.availableProperties && state.selectedComponent?.propertyTypes) {
+          const textProp = state.selectedComponent.availableProperties.find(p => 
+            state.selectedComponent!.propertyTypes[p] === 'TEXT');
+          if (textProp && cellState.properties[textProp]) {
+            displayText = cellState.properties[textProp];
+          }
+        }
+        
+        // Fallback to hardcoded property name if we can't find the component property
+        if (!displayText && cellState.properties['Cell text#12234:32']) {
+          displayText = cellState.properties['Cell text#12234:32'];
+        }
+        
+        if (displayText) {
+          cell.textContent = displayText;
+          cell.classList.add('edited');
+          cell.style.fontWeight = 'bold';
+        } else {
+          cell.textContent = `${r},${c}`;
+        }
+      } else {
+        cell.textContent = `${r},${c}`;
+      }
+      
       cell.addEventListener('click', () => {
         const key = `${r},${c}`;
         openPropertyEditor(key);
@@ -424,10 +536,6 @@ function handleApplyOptionClick(this: HTMLElement) {
     elements.colWidthContainer.style.display = 'none';
     console.log(`[DEBUG] Hiding column width option for ${state.applyMode} mode`);
   }
-  
-  // Note: We no longer need to re-render the property editor when apply mode changes
-  // since all properties are now available for all apply modes
-  console.log(`[DEBUG] Apply mode changed to: ${state.applyMode} - no re-rendering needed`);
 }
 
 function setupEventListeners() {
@@ -533,6 +641,26 @@ function resetTableProperties() {
   state.selectedCells.clear();
   state.currentEditingCell = null;
   state.sizeConfirmed = false;
+  
+  // If "Populate data from file" is selected, deselect it and clear file selection
+  const useFileUpload = document.getElementById('useFileUpload') as HTMLInputElement | null;
+  const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
+  const fileUploadContainer = document.getElementById('fileUploadContainer') as HTMLElement | null;
+  const filePreview = document.getElementById('filePreview') as HTMLElement | null;
+  
+  if (useFileUpload?.checked) {
+    useFileUpload.checked = false;
+    if (fileUploadContainer) {
+      fileUploadContainer.style.display = 'none';
+    }
+    if (fileInput) {
+      fileInput.value = ''; // Clear file selection
+    }
+    if (filePreview) {
+      filePreview.style.display = 'none'; // Hide file preview
+    }
+  }
+  
   updateCellVisuals();
   showMessage("All cell properties have been reset.", "success");
 }
@@ -1868,8 +1996,22 @@ function updateCellVisuals() {
             ) || '';
           }
           
+          // Try multiple fallbacks to find the text
           if (textKey && props.properties[textKey]) {
             displayText = props.properties[textKey];
+          } else if (props.properties['Cell text#12234:32']) {
+            // Directly check for the hardcoded property name
+            displayText = props.properties['Cell text#12234:32'];
+          } else {
+            // Check for any property that might contain text
+            const textProps = Object.keys(props.properties).filter(p => 
+              typeof props.properties[p] === 'string' && 
+              props.properties[p].toString().trim() !== ''
+            );
+            
+            if (textProps.length > 0) {
+              displayText = props.properties[textProps[0]].toString();
+            }
           }
         }
         
@@ -2278,6 +2420,9 @@ window.onmessage = (event) => {
           state.headerCellComponent = details.headerCellComponent || null;
           state.footerComponent = details.footerComponent || null;
           console.log('Component template set from scan:', state.selectedComponent);
+          
+          // Update the grid to reflect any changes in component properties
+          renderHeaderFooterGrids();
       } else {
           showMessage('Could not find a body cell template in the scanned table.', 'error');
           if(elements.scanTableSection) elements.scanTableSection.style.display = 'flex';
@@ -2648,5 +2793,381 @@ if (state.applyMode === 'column' && elements.colWidthInput) {
 const defaultWidth = state.selectedComponent?.width || 100; // Use component width or fallback to 100
 const defaultHeight = 64;
 const defaultText = "content";
+
+// Parse CSV file
+function parseCSV(file: File): Promise<any[][]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        // Split lines and filter out empty lines
+        const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+        const data = lines.map(line => {
+          // Simple CSV parsing (doesn't handle quoted fields with commas)
+          return line.split(',').map(field => field.trim());
+        });
+        resolve(data);
+      } catch (error) {
+        reject(new Error('Failed to parse CSV file'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
+  });
+}
+
+// Parse Excel file
+async function parseExcel(file: File): Promise<any[][]> {
+  return new Promise((resolve, reject) => {
+    // Check if XLSX is already loaded
+    // @ts-ignore
+    if (typeof window.XLSX !== 'undefined') {
+      // @ts-ignore
+      processExcelFile(window.XLSX, file, resolve, reject);
+      return;
+    }
+
+    // Dynamically load SheetJS library
+    const script = document.createElement('script');
+    script.src = 'https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js';
+    script.onload = () => {
+      // Small delay to ensure library is fully loaded
+      setTimeout(() => {
+        // @ts-ignore
+        if (typeof window.XLSX !== 'undefined') {
+          // @ts-ignore
+          processExcelFile(window.XLSX, file, resolve, reject);
+        } else {
+          reject(new Error('Failed to load Excel parsing library - library not available after loading'));
+        }
+      }, 100);
+    };
+    script.onerror = () => reject(new Error('Failed to load Excel parsing library from CDN'));
+    document.head.appendChild(script);
+  });
+}
+
+// Helper function to process Excel file with XLSX library
+function processExcelFile(XLSX: any, file: File, resolve: Function, reject: Function) {
+  try {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        // Check if workbook has sheets
+        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+          resolve([]); // Return empty array for empty workbook
+          return;
+        }
+        
+        // Get the first worksheet
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        
+        // Convert to JSON
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
+        // Handle case where sheet_to_json returns empty data
+        if (!jsonData || jsonData.length === 0) {
+          resolve([]);
+          return;
+        }
+        
+        // Filter out empty rows
+        const filteredData = jsonData.filter((row: any[]) => 
+          row && row.length > 0 && row.some(cell => cell !== null && cell !== undefined && cell !== '')
+        );
+        
+        resolve(filteredData);
+      } catch (error) {
+        reject(new Error('Failed to parse Excel file: ' + (error as Error).message));
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read Excel file'));
+    reader.readAsArrayBuffer(file);
+  } catch (error) {
+    reject(new Error('Failed to process Excel file: ' + (error as Error).message));
+  }
+}
+
+// Parse JSON file
+function parseJSON(file: File): Promise<any[][]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+        
+        // Handle different JSON structures
+        if (Array.isArray(data)) {
+          if (data.length === 0) {
+            resolve([]);
+            return;
+          }
+          
+          // If array of objects, convert to array of arrays
+          if (typeof data[0] === 'object' && data[0] !== null) {
+            // Get all unique keys
+            const keys = Array.from(new Set(data.flatMap(Object.keys)));
+            
+            // Create header row
+            const result = [keys];
+            
+            // Add data rows
+            data.forEach(obj => {
+              const row = keys.map(key => obj[key] ?? '');
+              result.push(row);
+            });
+            
+            resolve(result);
+          } else {
+            // Already an array of arrays
+            resolve(data);
+          }
+        } else if (typeof data === 'object' && data !== null) {
+          // Handle object with columns and rows structure
+          if (Array.isArray(data.columns) && Array.isArray(data.rows)) {
+            // Create header row from columns
+            const result = [data.columns];
+            
+            // Add data rows
+            data.rows.forEach((obj: any) => {
+              const row = data.columns.map((col: string) => obj[col] ?? '');
+              result.push(row);
+            });
+            
+            resolve(result);
+          } else {
+            // Handle generic object structure
+            const keys = Object.keys(data);
+            if (keys.length > 0) {
+              // Try to convert to array format
+              const firstKey = keys[0];
+              const firstValue = data[firstKey];
+              
+              if (Array.isArray(firstValue)) {
+                // Assume all values are arrays of the same length
+                const result = [keys];
+                for (let i = 0; i < firstValue.length; i++) {
+                  const row = keys.map(key => data[key][i] ?? '');
+                  result.push(row);
+                }
+                resolve(result);
+              } else {
+                reject(new Error('Unsupported JSON structure'));
+              }
+            } else {
+              reject(new Error('JSON object is empty'));
+            }
+          }
+        } else {
+          reject(new Error('JSON file must contain an array or object'));
+        }
+      } catch (error) {
+        console.error('JSON parsing error:', error);
+        reject(new Error('Failed to parse JSON file'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
+  });
+}
+
+// Show file preview
+function showFilePreview(data: any[][]) {
+  // Also update the main grid with file data
+  updateMainGridWithData(data);
+  
+  const previewContainer = document.getElementById('filePreview');
+  const previewElement = document.getElementById('fileDataPreview');
+  
+  if (!previewContainer || !previewElement) {
+    return;
+  }
+  
+  // Add file name and remove button
+  let headerHTML = '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">';
+  // headerHTML += '<h4 style="margin: 0;">File Preview</h4>';
+  headerHTML += '<button id="removeFileBtn" width: auto; style="background: none; color: #c00000; border: none; cursor: pointer; font-size: 13px;" title="Remove file">';
+  headerHTML += 'Remove file'; // Using × symbol as remove icon
+  headerHTML += '</button>';
+  headerHTML += '</div>';
+  
+  // Create a simple table preview
+  let tableHTML = '<table style="width:100%; border-collapse: collapse;">';
+  
+  // Show only first 10 rows to avoid performance issues
+  const previewData = data.slice(0, 10);
+  
+  previewData.forEach((row, rowIndex) => {
+    tableHTML += '<tr>';
+    row.forEach((cell) => {
+      const style = rowIndex === 0 
+        ? 'border: 1px solid #ccc; padding: 5px; background-color: #f5f5f5; font-weight: bold;' 
+        : 'border: 1px solid #ccc; padding: 5px;';
+      tableHTML += '<td style="' + style + '">' + cell + '</td>';
+    });
+    tableHTML += '</tr>';
+  });
+  tableHTML += '</table>';
+  
+  previewElement.innerHTML = headerHTML + tableHTML;
+  previewContainer.style.display = 'block';
+  
+  // Add event listener to remove button
+  const removeFileBtn = document.getElementById('removeFileBtn');
+  if (removeFileBtn) {
+    removeFileBtn.addEventListener('click', () => {
+      // Clear the file input
+      const fileInput = document.getElementById('dataFileInput') as HTMLInputElement | null;
+      if (fileInput) {
+        fileInput.value = '';
+      }
+      
+      // Hide the preview
+      previewContainer.style.display = 'none';
+      
+      // Reset grid to default state
+      resetGridToDefault();
+    });
+  }
+}
+
+// Reset grid to default state
+function resetGridToDefault() {
+  // Clear all cell properties
+  state.cellProperties.clear();
+  
+  // Recreate the grid with default values
+  createGrid();
+  
+  // Update cell visuals
+  updateCellVisuals();
+  
+  // Show success message
+  showMessage('File data removed and grid reset to default state', 'success');
+}
+
+// Update main grid with file data
+function updateMainGridWithData(data: any[][]) {
+  // Hide file preview container
+  const previewContainer = document.getElementById('filePreview');
+  if (previewContainer) {
+    previewContainer.style.display = 'none';
+  }
+  
+  // Get the number of rows and columns in the data
+  const dataRows = data.length;
+  const dataCols = data.length > 0 ? data[0].length : 0;
+  
+  if (dataRows === 0 || dataCols === 0) {
+    showMessage('No data found in file', 'error');
+    return;
+  }
+  
+  // Update grid dimensions if needed
+  const rowsInput = document.getElementById('scanRowsInput') as HTMLInputElement | null;
+  const colsInput = document.getElementById('scanColsInput') as HTMLInputElement | null;
+  
+  if (rowsInput && colsInput) {
+    // Set new dimensions (account for header row)
+    const newRows = Math.max(1, dataRows - 1); // Subtract 1 for header row
+    const newCols = Math.max(1, dataCols);
+    
+    rowsInput.value = String(newRows);
+    colsInput.value = String(newCols);
+    
+    // Update state and grid
+    state.gridRows = newRows;
+    state.gridCols = newCols;
+    createGrid();
+  }
+  
+  // Process header row if it exists
+  if (data.length > 0) {
+    const headerRow = data[0];
+    for (let c = 0; c < headerRow.length && c < state.gridCols; c++) {
+      const headerKey = `header-${c+1}`;
+      const text = String(headerRow[c] || '');
+      
+      // Update state with header text
+      if (!state.cellProperties.has(headerKey)) {
+        state.cellProperties.set(headerKey, { 
+          properties: {},
+          type: 'HEADER' 
+        });
+      }
+      
+      const headerProps = state.cellProperties.get(headerKey);
+      if (headerProps) {
+        // Use the same approach as AI data - find the actual text property from the component
+        if (state.headerCellComponent?.availableProperties && state.headerCellComponent?.propertyTypes) {
+          const textProp = state.headerCellComponent.availableProperties.find(p => 
+            state.headerCellComponent!.propertyTypes[p] === 'TEXT');
+          if (textProp) {
+            headerProps.properties[textProp] = text;
+          } else {
+            // Fallback to hardcoded property name if we can't find it
+            headerProps.properties['Cell text#12234:32'] = text;
+          }
+        } else {
+          // Fallback to hardcoded property name if we don't have component info
+          headerProps.properties['Cell text#12234:32'] = text;
+        }
+      }
+    }
+  }
+  
+  // Process data rows
+  for (let r = 1; r < data.length && r <= state.gridRows; r++) {
+    const row = data[r];
+    for (let c = 0; c < row.length && c < state.gridCols; c++) {
+      // Use the correct key format that matches what createTable expects
+      const cellKey = `${r},${c+1}`;  // UI format (1-based)
+      const backendKey = `${r-1}-${c}`;  // Backend format (0-based)
+      const text = String(row[c] || '');
+      
+      // Update state with cell text using the UI key format
+      if (!state.cellProperties.has(cellKey)) {
+        state.cellProperties.set(cellKey, { 
+          properties: {},
+          type: 'CELL' 
+        });
+      }
+      
+      const cellProps = state.cellProperties.get(cellKey);
+      if (cellProps) {
+        // Use the same approach as AI data - find the actual text property from the component
+        if (state.selectedComponent?.availableProperties && state.selectedComponent?.propertyTypes) {
+          const textProp = state.selectedComponent.availableProperties.find(p => 
+            state.selectedComponent!.propertyTypes[p] === 'TEXT');
+          if (textProp) {
+            cellProps.properties[textProp] = text;
+          } else {
+            // Fallback to hardcoded property name if we can't find it
+            cellProps.properties['Cell text#12234:32'] = text;
+          }
+        } else {
+          // Fallback to hardcoded property name if we don't have component info
+          cellProps.properties['Cell text#12234:32'] = text;
+        }
+      }
+    }
+  }
+  
+  // Recreate the grid to properly display all values
+  createGrid();
+  
+  // Ensure header cells are updated with the new data
+  setTimeout(() => {
+    renderHeaderFooterGrids();
+  }, 0);
+  
+  showMessage('File data loaded successfully', 'success');
+}
 
 export {}; // Treat this file as a module 

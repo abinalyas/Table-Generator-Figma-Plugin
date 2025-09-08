@@ -7,11 +7,13 @@
   "editorType": ["figma"],
   "networkAccess": {
     "allowedDomains": [
-      "https://api.datamuse.com"
+      "https://api.datamuse.com",
+      "https://cdn.sheetjs.com"
     ],
     "devAllowedDomains": [
-      "http://localhost:3000"
+      "http://localhost:3000",
+      "https://cdn.sheetjs.com"
     ],
-    "reasoning": "Localhost access is needed for the proxy server that handles watsonx.ai API calls to bypass CORS restrictions in the Figma plugin environment."
+    "reasoning": "Localhost access is needed for the proxy server that handles watsonx.ai API calls to bypass CORS restrictions in the Figma plugin environment. CDN access is needed for loading the SheetJS library for Excel file parsing."
   }
-} 
+}

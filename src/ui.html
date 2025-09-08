@@ -699,6 +699,12 @@
           <input type="checkbox" id="useSinglePrompt">
           <label for="useSinglePrompt">Create entire table from a single prompt</label>
         </div>
+        
+        <div class="property-field checkbox">
+          <input type="checkbox" id="useFileUpload">
+          <label for="useFileUpload">Populate data from File</label>
+        </div>
+        
         <div id="singlePromptContainer" class="ai-data-section" style="display: none;">
           <div class="property-field">
             <label for="singlePromptText">Prompt</label>
@@ -710,6 +716,18 @@
           </div>
           <!-- <p class="hint">Uses local proxy http://localhost:3000 and endpoint https://us-south.ml.cloud.ibm.com</p> -->
           <button id="generateTableFromPromptBtn" class="btn btn-primary">Generate content with AI</button>
+        </div>
+        
+        <div id="fileUploadContainer" class="ai-data-section" style="display: none;">
+          <div class="property-field">
+            <label for="dataFileInput">Upload Data File</label>
+            <input type="file" id="dataFileInput" class="styled-input" accept=".csv,.xlsx,.xls,.json">
+            <div class="hint">Supported formats: CSV, Excel (.xlsx, .xls), JSON</div>
+          </div>
+          <div id="filePreview" style="display: none; margin-top: 10px;">
+            <h4>File Preview</h4>
+            <div id="fileDataPreview" style="max-height: 200px; overflow: auto; border: 1px solid #ccc; padding: 10px;"></div>
+          </div>
         </div>
       </div>
     </div>
