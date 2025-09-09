@@ -411,7 +411,37 @@ function renderHeaderFooterGrids() {
       const cell = document.createElement('div');
       cell.className = 'header-cell';
       cell.dataset.col = String(c); // Add dataset for tooltip identification
-      cell.textContent = `H${c}`;
+      
+      // Check for header data from uploaded file or user input
+      const headerKey = `header-${c}`;
+      const headerState = state.cellProperties.get(headerKey);
+      if (headerState && headerState.properties) {
+        // Use the same approach as body cells - find the actual text property from the component
+        let displayText = '';
+        if (state.headerCellComponent?.availableProperties && state.headerCellComponent?.propertyTypes) {
+          const textProp = state.headerCellComponent.availableProperties.find(p => 
+            state.headerCellComponent!.propertyTypes[p] === 'TEXT');
+          if (textProp && headerState.properties[textProp]) {
+            displayText = headerState.properties[textProp];
+          }
+        }
+        
+        // Fallback to hardcoded property name if we can't find the component property
+        if (!displayText && headerState.properties['Cell text#12234:32']) {
+          displayText = headerState.properties['Cell text#12234:32'];
+        }
+        
+        if (displayText) {
+          cell.textContent = displayText;
+          cell.classList.add('edited');
+          cell.style.fontWeight = 'bold';
+        } else {
+          cell.textContent = `H${c}`;
+        }
+      } else {
+        cell.textContent = `H${c}`;
+      }
+      
       cell.addEventListener('click', () => {
         openPropertyEditor(`header-${c}`);
       });
@@ -430,8 +460,37 @@ function renderHeaderFooterGrids() {
     footerGrid.style.setProperty('--footer-cols', String(state.gridCols));
     const cell = document.createElement('div');
     cell.className = 'footer-cell';
-    cell.textContent = 'Footer';
     cell.style.gridColumn = `span ${state.gridCols}`;
+    
+    // Check for footer data from user input
+    const footerState = state.cellProperties.get('footer');
+    if (footerState && footerState.properties) {
+      // Use the same approach as other cells - find the actual text property from the component
+      let displayText = '';
+      if (state.footerComponent?.availableProperties && state.footerComponent?.propertyTypes) {
+        const textProp = state.footerComponent.availableProperties.find(p => 
+          state.footerComponent!.propertyTypes[p] === 'TEXT');
+        if (textProp && footerState.properties[textProp]) {
+          displayText = footerState.properties[textProp];
+        }
+      }
+      
+      // Fallback to hardcoded property names if we can't find the component property
+      if (!displayText && footerState.properties['Total items#12006:49']) {
+        displayText = footerState.properties['Total items#12006:49'];
+      }
+      
+      if (displayText) {
+        cell.textContent = displayText;
+        cell.classList.add('edited');
+        cell.style.fontWeight = 'bold';
+      } else {
+        cell.textContent = 'Footer';
+      }
+    } else {
+      cell.textContent = 'Footer';
+    }
+    
     cell.addEventListener('click', () => {
       openPropertyEditor('footer');
     });
@@ -2541,6 +2600,29 @@ window.onmessage = (event) => {
 
       setMode('edit');
       updateCreateButtonState();
+      break;
+
+    case "generated-table-selected-no-settings":
+      console.log(`[UI] Generated table selected but no settings available`);
+      state.tableFrameId = msg.tableId;
+      state.hasComponent = true;
+      
+      // Show UI without error message
+      elements.landingPage.style.display = 'none';
+      elements.gridContainer.style.display = 'flex';
+      elements.actionButtons.style.display = 'flex';
+      
+      // Reset to default state
+      state.gridRows = 5;
+      state.gridCols = 5;
+      state.cellProperties.clear();
+      createGrid();
+      
+      // Change button text to indicate this is an update
+      elements.createTableBtn.textContent = "Update Table";
+      elements.createTableBtn.disabled = false;
+      
+      showMessage("Generated table selected. You can modify and update it.", "success");
       break;
 
     case "edit-existing-table":

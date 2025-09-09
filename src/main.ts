@@ -45,7 +45,22 @@ figma.on("selectionchange", async () => {
                     return;
                 } catch (e) {
                     console.error("Error parsing table settings from plugin data", e);
+                    // Even if parsing fails, this is still a valid generated table
+                    // Send a message to show the table is selected but settings couldn't be loaded
+                    figma.ui.postMessage({
+                        type: 'generated-table-selected-no-settings',
+                        tableId: tableFrame.id
+                    });
+                    return;
                 }
+            } else {
+                // Generated table without settings - still valid, just no stored configuration
+                console.log("Generated table selected but no settings found");
+                figma.ui.postMessage({
+                    type: 'generated-table-selected-no-settings',
+                    tableId: tableFrame.id
+                });
+                return;
             }
         }
         // Case 1.5: "Data table" component is selected
