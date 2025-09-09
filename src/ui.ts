@@ -2780,11 +2780,23 @@ window.onmessage = (event) => {
               <label style="margin-right: 8px;">Rows: <input type="number" id="scanRowsInput" class="styled-input" value="${state.gridRows}" min="1" style="width: 70px;"></label>
               <label>Cols: <input type="number" id="scanColsInput" class="styled-input" value="${state.gridCols}" min="1" style="width: 70px;"></label>
           </div>
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; margin-bottom: 8px;">
-              <input type="checkbox" id="scanHeaderToggle" checked> <label for="scanHeaderToggle" style="margin-right: 16px;">Header</label>
-              <input type="checkbox" id="scanFooterToggle" ${details.footer ? 'checked' : ''}> <label for="scanFooterToggle" style="margin-right: 16px;">Footer</label>
-              <input type="checkbox" id="scanSelectableToggle"> <label for="scanSelectableToggle" style="margin-right: 16px;">Selectable</label>
-              <input type="checkbox" id="scanExpandableToggle"> <label for="scanExpandableToggle">Expandable</label>
+          <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; margin-bottom: 8px;">
+              <div class="property-field checkbox">
+                <input type="checkbox" id="scanHeaderToggle" checked>
+                <label for="scanHeaderToggle">Header</label>
+              </div>
+              <div class="property-field checkbox">
+                <input type="checkbox" id="scanFooterToggle" ${details.footer ? 'checked' : ''}>
+                <label for="scanFooterToggle">Footer</label>
+              </div>
+              <div class="property-field checkbox">
+                <input type="checkbox" id="scanSelectableToggle">
+                <label for="scanSelectableToggle">Selectable</label>
+              </div>
+              <div class="property-field checkbox">
+                <input type="checkbox" id="scanExpandableToggle">
+                <label for="scanExpandableToggle">Expandable</label>
+              </div>
           </div>
       `;
       // Insert scan options before the grid in the grid container
@@ -2962,9 +2974,15 @@ window.onmessage = (event) => {
                 <label style="margin-right: 8px;">Rows: <input type="number" id="scanRowsInput" class="styled-input" value="${state.gridRows}" min="1" style="width: 70px;"></label>
                 <label>Cols: <input type="number" id="scanColsInput" class="styled-input" value="${state.gridCols}" min="1" style="width: 70px;"></label>
             </div>
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
-                <input type="checkbox" id="scanHeaderToggle" ${settings.includeHeader ? 'checked' : ''}> <label for="scanHeaderToggle" style="margin-right: 16px;">Header</label>
-                <input type="checkbox" id="scanFooterToggle" ${settings.includeFooter ? 'checked' : ''}> <label for="scanFooterToggle" style="margin-right: 16px;">Footer</label>
+            <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px;">
+                <div class="property-field checkbox">
+                  <input type="checkbox" id="scanHeaderToggle" ${settings.includeHeader ? 'checked' : ''}>
+                  <label for="scanHeaderToggle">Header</label>
+                </div>
+                <div class="property-field checkbox">
+                  <input type="checkbox" id="scanFooterToggle" ${settings.includeFooter ? 'checked' : ''}>
+                  <label for="scanFooterToggle">Footer</label>
+                </div>
             </div>
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
                 <input type="checkbox" id="scanSelectableToggle" ${settings.includeSelectable ? 'checked' : ''}> <label for="scanSelectableToggle" style="margin-right: 16px;">Selectable</label>
