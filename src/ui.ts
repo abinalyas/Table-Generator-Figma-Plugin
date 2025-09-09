@@ -379,6 +379,8 @@ window.addEventListener('DOMContentLoaded', () => {
     parent.postMessage({ pluginMessage: { type: 'generate-table-with-ai', prompt, apiKey, rows, cols } }, '*');
   });
   setupEventListeners();
+  setupResizeCorner();
+  setupFileUploadControls();
   setMode('selection');
 
   // Show colWidthInput if default mode is column
@@ -597,6 +599,151 @@ function handleApplyOptionClick(this: HTMLElement) {
   }
 }
 
+function setupApiKeySync() {
+  const spApiKeyInput = document.getElementById('spApiKey') as HTMLInputElement | null;
+  const watsonxApiKeyInput = document.getElementById('watsonxApiKey') as HTMLInputElement | null;
+  
+  if (!spApiKeyInput || !watsonxApiKeyInput) {
+    console.warn('API key inputs not found');
+    return;
+  }
+
+  // Function to sync API key between both inputs
+  const syncApiKey = (sourceInput: HTMLInputElement, targetInput: HTMLInputElement, apiKey: string) => {
+    if (apiKey.trim() && targetInput.value.trim() === '') {
+      targetInput.value = apiKey;
+      // Save the API key
+      parent.postMessage({ 
+        pluginMessage: { 
+          type: 'save-watsonx-api-key', 
+          apiKey: apiKey 
+        } 
+      }, '*');
+    }
+  };
+
+  // Sync from single prompt to watsonx cell generation
+  spApiKeyInput.addEventListener('input', () => {
+    const apiKey = spApiKeyInput.value;
+    syncApiKey(spApiKeyInput, watsonxApiKeyInput, apiKey);
+  });
+
+  // Sync from watsonx cell generation to single prompt
+  watsonxApiKeyInput.addEventListener('input', () => {
+    const apiKey = watsonxApiKeyInput.value;
+    syncApiKey(watsonxApiKeyInput, spApiKeyInput, apiKey);
+  });
+
+  // Also sync on blur (when user finishes typing)
+  spApiKeyInput.addEventListener('blur', () => {
+    const apiKey = spApiKeyInput.value;
+    if (apiKey.trim()) {
+      watsonxApiKeyInput.value = apiKey;
+      parent.postMessage({ 
+        pluginMessage: { 
+          type: 'save-watsonx-api-key', 
+          apiKey: apiKey 
+        } 
+      }, '*');
+    }
+  });
+
+  watsonxApiKeyInput.addEventListener('blur', () => {
+    const apiKey = watsonxApiKeyInput.value;
+    if (apiKey.trim()) {
+      spApiKeyInput.value = apiKey;
+      parent.postMessage({ 
+        pluginMessage: { 
+          type: 'save-watsonx-api-key', 
+          apiKey: apiKey 
+        } 
+      }, '*');
+    }
+  });
+}
+
+function setupFileUploadControls() {
+  const removeFileBtn = document.getElementById('removeFileBtn');
+  
+  if (removeFileBtn) {
+    removeFileBtn.addEventListener('click', () => {
+      // Clear the file input
+      const fileInput = document.getElementById('dataFileInput') as HTMLInputElement | null;
+      if (fileInput) {
+        fileInput.value = '';
+      }
+      
+      // Hide the remove button
+      removeFileBtn.style.display = 'none';
+      
+      // Reset grid to default state
+      resetGridToDefault();
+    });
+  }
+}
+
+function setupResizeCorner() {
+  const resizeCorner = document.getElementById('resizeCorner') as HTMLElement;
+  
+  if (!resizeCorner) {
+    console.warn('Resize corner element not found');
+    return;
+  }
+
+  let isResizing = false;
+
+  const resizeWindow = (e: PointerEvent) => {
+    if (!isResizing) return;
+    
+    const size = {
+      w: Math.max(300, Math.floor(e.clientX + 5)),
+      h: Math.max(400, Math.floor(e.clientY + 5))
+    };
+    
+    // Send resize message to plugin
+    parent.postMessage({ 
+      pluginMessage: { 
+        type: 'resize', 
+        size: size 
+      } 
+    }, '*');
+  };
+
+  const handlePointerDown = (e: PointerEvent) => {
+    isResizing = true;
+    resizeCorner.setPointerCapture(e.pointerId);
+    
+    // Add event listeners for move and up
+    resizeCorner.addEventListener('pointermove', resizeWindow);
+    
+    // Prevent default to avoid text selection
+    e.preventDefault();
+  };
+
+  const handlePointerUp = (e: PointerEvent) => {
+    if (!isResizing) return;
+    
+    isResizing = false;
+    resizeCorner.releasePointerCapture(e.pointerId);
+    
+    // Remove event listeners
+    resizeCorner.removeEventListener('pointermove', resizeWindow);
+  };
+
+  // Attach event listeners
+  resizeCorner.addEventListener('pointerdown', handlePointerDown);
+  resizeCorner.addEventListener('pointerup', handlePointerUp);
+  
+  // Handle pointer leave to stop resizing if pointer goes outside
+  resizeCorner.addEventListener('pointerleave', (e: PointerEvent) => {
+    if (isResizing) {
+      handlePointerUp(e);
+    }
+  });
+
+  console.log('Resize corner functionality initialized');
+}
+
 function setupEventListeners() {
   elements.clearSelectionBtn.addEventListener('click', resetTableProperties);
   elements.createTableBtn.addEventListener('click', createTable);
@@ -643,6 +790,9 @@ function setupEventListeners() {
 
   // Load persisted watsonx settings
   parent.postMessage({ pluginMessage: { type: 'load-watsonx-settings' } }, '*');
+  
+  // Setup API key synchronization
+  setupApiKeySync();
   
   document.addEventListener('mouseover', function (e) {
     const target = e.target as HTMLElement;
@@ -2817,11 +2967,22 @@ window.onmessage = (event) => {
 
     case "watsonx-settings":
       {
-        const { apiKeyMasked, endpoint } = msg;
+        const { apiKeyMasked, endpoint, fullApiKey } = msg;
         const endpointInput = document.getElementById('watsonxEndpoint') as HTMLInputElement | null;
-        const apiKeyInput = document.getElementById('watsonxApiKey') as HTMLInputElement | null;
+        const watsonxApiKeyInput = document.getElementById('watsonxApiKey') as HTMLInputElement | null;
+        const spApiKeyInput = document.getElementById('spApiKey') as HTMLInputElement | null;
+        
         if (endpointInput && endpoint) endpointInput.value = endpoint;
-        if (apiKeyInput && apiKeyMasked) apiKeyInput.placeholder = apiKeyMasked;
+        
+        // If we have a full API key, populate both fields
+        if (fullApiKey) {
+          if (watsonxApiKeyInput) watsonxApiKeyInput.value = fullApiKey;
+          if (spApiKeyInput) spApiKeyInput.value = fullApiKey;
+        } else if (apiKeyMasked) {
+          // Otherwise show masked version as placeholder
+          if (watsonxApiKeyInput) watsonxApiKeyInput.placeholder = apiKeyMasked;
+          if (spApiKeyInput) spApiKeyInput.placeholder = apiKeyMasked;
+        }
       }
       break;
   }
@@ -3061,61 +3222,13 @@ function parseJSON(file: File): Promise<any[][]> {
 
 // Show file preview
 function showFilePreview(data: any[][]) {
-  // Also update the main grid with file data
+  // Update the main grid with file data
   updateMainGridWithData(data);
   
-  const previewContainer = document.getElementById('filePreview');
-  const previewElement = document.getElementById('fileDataPreview');
-  
-  if (!previewContainer || !previewElement) {
-    return;
-  }
-  
-  // Add file name and remove button
-  let headerHTML = '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">';
-  // headerHTML += '<h4 style="margin: 0;">File Preview</h4>';
-  headerHTML += '<button id="removeFileBtn" width: auto; style="background: none; color: #c00000; border: none; cursor: pointer; font-size: 13px;" title="Remove file">';
-  headerHTML += 'Remove file'; // Using × symbol as remove icon
-  headerHTML += '</button>';
-  headerHTML += '</div>';
-  
-  // Create a simple table preview
-  let tableHTML = '<table style="width:100%; border-collapse: collapse;">';
-  
-  // Show only first 10 rows to avoid performance issues
-  const previewData = data.slice(0, 10);
-  
-  previewData.forEach((row, rowIndex) => {
-    tableHTML += '<tr>';
-    row.forEach((cell) => {
-      const style = rowIndex === 0 
-        ? 'border: 1px solid #ccc; padding: 5px; background-color: #f5f5f5; font-weight: bold;' 
-        : 'border: 1px solid #ccc; padding: 5px;';
-      tableHTML += '<td style="' + style + '">' + cell + '</td>';
-    });
-    tableHTML += '</tr>';
-  });
-  tableHTML += '</table>';
-  
-  previewElement.innerHTML = headerHTML + tableHTML;
-  previewContainer.style.display = 'block';
-  
-  // Add event listener to remove button
+  // Show the inline remove button
   const removeFileBtn = document.getElementById('removeFileBtn');
   if (removeFileBtn) {
-    removeFileBtn.addEventListener('click', () => {
-      // Clear the file input
-      const fileInput = document.getElementById('dataFileInput') as HTMLInputElement | null;
-      if (fileInput) {
-        fileInput.value = '';
-      }
-      
-      // Hide the preview
-      previewContainer.style.display = 'none';
-      
-      // Reset grid to default state
-      resetGridToDefault();
-    });
+    removeFileBtn.style.display = 'flex';
   }
 }
 
