@@ -438,6 +438,10 @@ function renderHeaderFooterGrids() {
   if (headerGrid) {
     headerGrid.innerHTML = '';
     headerGrid.style.setProperty('--header-cols', String(state.gridCols));
+    
+    // Apply sorting to the grid data
+    const sortedCellProperties = sortColumnData(state.cellProperties, state.gridCols, state.gridRows);
+    
     for (let c = 1; c <= state.gridCols; c++) {
       const cell = document.createElement('div');
       cell.className = 'header-cell';
@@ -445,7 +449,7 @@ function renderHeaderFooterGrids() {
 
       // Check for header data from uploaded file or user input
       const headerKey = `header-${c}`;
-      const headerState = state.cellProperties.get(headerKey);
+      const headerState = sortedCellProperties.get(headerKey);
       if (headerState && headerState.properties) {
         // Use the same approach as body cells - find the actual text property from the component
         let displayText = '';
@@ -550,6 +554,9 @@ function createGrid() {
     gridContainer.style.minWidth = `${Math.max(totalWidth, 400)}px`; // Ensure minimum width
   }
 
+  // Apply sorting to the grid data
+  const sortedCellProperties = sortColumnData(state.cellProperties, state.gridCols, state.gridRows);
+
   for (let r = 1; r <= state.gridRows; r++) {
     for (let c = 1; c <= state.gridCols; c++) {
       const cell = document.createElement('div');
@@ -559,7 +566,7 @@ function createGrid() {
 
       // Get cell text from state if available
       const key = `${r},${c}`;
-      const cellState = state.cellProperties.get(key);
+      const cellState = sortedCellProperties.get(key);
       if (cellState && cellState.properties) {
         // Check for slot property first
         let hasSlotEnabled = false;
@@ -636,7 +643,6 @@ function handleApplyOptionClick(this: HTMLElement) {
   this.classList.add('active');
   console.log(`[DEBUG] Added active to:`, this.textContent);
   console.log(`[DEBUG] Element classes after:`, this.className);
-
   // Update state
   const newApplyMode = this.dataset.apply as 'cell' | 'row' | 'column';
   state.applyMode = newApplyMode;
@@ -3496,4 +3502,86 @@ function updateMainGridWithData(data: any[][]) {
   showMessage('File data loaded successfully', 'success');
 }
 
+// Helper function to sort column data based on header properties
+function sortColumnData(cellProperties: Map<string, any>, cols: number, rows: number): Map<string, any> {
+  // Create a copy of the cellProperties to avoid modifying the original
+  const sortedCellProperties = new Map(cellProperties);
+  
+  // Check each column for sorting properties
+  for (let c = 1; c <= cols; c++) {
+    const headerKey = `header-${c}`;
+    const headerData = sortedCellProperties.get(headerKey);
+    
+    // Check if sorting is enabled for this header
+    if (headerData && headerData.properties) {
+      const sortable = headerData.properties['Sortable'];
+      const sorted = headerData.properties['Sorted'];
+      
+      // If sorting is enabled, sort the column data
+      if (sortable === 'True' && (sorted === 'Ascending' || sorted === 'Descending')) {
+        // Extract column data
+        const columnData: { rowIndex: number; cellData: any; value: string }[] = [];
+        
+        for (let r = 1; r <= rows; r++) {
+          const cellKey = `${r},${c}`; // 1-based indexing for UI
+          const cellData = sortedCellProperties.get(cellKey);
+          
+          // Get the cell text value for sorting
+          let cellValue = '';
+          if (cellData && cellData.properties) {
+            // Try to find text property
+            const textProp = Object.keys(cellData.properties).find(
+              prop => prop.toLowerCase().includes('text') && 
+                     !prop.toLowerCase().includes('second') &&
+                     typeof cellData.properties[prop] === 'string'
+            );
+            
+            if (textProp) {
+              cellValue = String(cellData.properties[textProp]);
+            } else if (cellData.properties['Cell text#12234:32']) {
+              cellValue = String(cellData.properties['Cell text#12234:32']);
+            }
+          }
+          
+          columnData.push({
+            rowIndex: r,
+            cellData: cellData,
+            value: cellValue
+          });
+        }
+        
+        // Sort the column data
+        columnData.sort((a, b) => {
+          // Try to parse as numbers first
+          const numA = parseFloat(a.value);
+          const numB = parseFloat(b.value);
+          
+          if (!isNaN(numA) && !isNaN(numB)) {
+            // Numeric sort
+            return sorted === 'Ascending' ? numA - numB : numB - numA;
+          } else {
+            // Alphabetic sort
+            return sorted === 'Ascending' 
+              ? a.value.localeCompare(b.value) 
+              : b.value.localeCompare(a.value);
+          }
+        });
+        
+        // Reassign sorted data back to cellProperties
+        for (let r = 1; r <= rows; r++) {
+          const originalRowIndex = columnData[r - 1].rowIndex;
+          const newCellKey = `${r},${c}`; // New position
+          const originalCellKey = `${originalRowIndex},${c}`; // Original position
+          
+          // Move the data from original position to new position
+          sortedCellProperties.set(newCellKey, columnData[r - 1].cellData);
+        }
+      }
+    }
+  }
+  
+  return sortedCellProperties;
+}
+
+export { }; // Treat this file as a module
 export { }; // Treat this file as a module 
