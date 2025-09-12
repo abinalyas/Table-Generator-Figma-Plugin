@@ -8,6 +8,87 @@ const pluginMaxHeight = 1000;
 const pluginMinWidth = 300;
 const pluginMinHeight = 400;
 
+// Helper function to sort column data based on header properties
+function sortColumnData(cellProps: any, cols: number, rows: number): any {
+    // Create a copy of the cellProps to avoid modifying the original
+    const sortedCellProps = {...cellProps};
+    
+    // Check each column for sorting properties
+    for (let c = 1; c <= cols; c++) {
+        const headerKey = `header-${c}`;
+        const headerData = cellProps[headerKey];
+        
+        // Check if sorting is enabled for this header
+        if (headerData && headerData.properties) {
+            const sortable = headerData.properties['Sortable'];
+            const sorted = headerData.properties['Sorted'];
+            
+            // If sorting is enabled, sort the column data
+            if (sortable === 'True' && (sorted === 'Ascending' || sorted === 'Descending')) {
+                // Extract column data
+                const columnData: { rowIndex: number; cellData: any; value: string }[] = [];
+                
+                for (let r = 0; r < rows; r++) {
+                    const cellKey = `${r}-${c - 1}`; // 0-based indexing for cellProps
+                    const cellData = cellProps[cellKey];
+                    
+                    // Get the cell text value for sorting
+                    let cellValue = '';
+                    if (cellData && cellData.properties) {
+                        // Try to find text property
+                        const textProp = Object.keys(cellData.properties).find(
+                            prop => prop.toLowerCase().includes('text') && 
+                                   !prop.toLowerCase().includes('second') &&
+                                   typeof cellData.properties[prop] === 'string'
+                        );
+                        
+                        if (textProp) {
+                            cellValue = String(cellData.properties[textProp]);
+                        } else if (cellData.properties['Cell text#12234:32']) {
+                            cellValue = String(cellData.properties['Cell text#12234:32']);
+                        }
+                    }
+                    
+                    columnData.push({
+                        rowIndex: r,
+                        cellData: cellData,
+                        value: cellValue
+                    });
+                }
+                
+                // Sort the column data
+                columnData.sort((a, b) => {
+                    // Try to parse as numbers first
+                    const numA = parseFloat(a.value);
+                    const numB = parseFloat(b.value);
+                    
+                    if (!isNaN(numA) && !isNaN(numB)) {
+                        // Numeric sort
+                        return sorted === 'Ascending' ? numA - numB : numB - numA;
+                    } else {
+                        // Alphabetic sort
+                        return sorted === 'Ascending' 
+                            ? a.value.localeCompare(b.value) 
+                            : b.value.localeCompare(a.value);
+                    }
+                });
+                
+                // Reassign sorted data back to cellProps
+                for (let r = 0; r < rows; r++) {
+                    const originalRowIndex = columnData[r].rowIndex;
+                    const newCellKey = `${r}-${c - 1}`; // New position
+                    const originalCellKey = `${originalRowIndex}-${c - 1}`; // Original position
+                    
+                    // Move the data from original position to new position
+                    sortedCellProps[newCellKey] = columnData[r].cellData;
+                }
+            }
+        }
+    }
+    
+    return sortedCellProps;
+}
+
 figma.showUI(__html__, { 
     width: pluginDefaultWidth, 
     height: pluginDefaultHeight,
@@ -1845,7 +1926,10 @@ figma.ui.onmessage = async (msg: any) => {
             const includeExpandable = msg.includeExpandable === true;
             const rows = msg.rows || 3;
             const cols = msg.cols || numCols || 3;
-            const cellProps = msg.cellProps || {};
+            let cellProps = msg.cellProps || {};
+
+            // Apply sorting if enabled
+            cellProps = sortColumnData(cellProps, cols, rows);
 
             if (includeSelectable && !lastScanResult.selectCellComponent) {
                 figma.notify('⚠️ Selectable cells not available');
@@ -3116,13 +3200,17 @@ figma.ui.onmessage = async (msg: any) => {
 
             // Re-use the creation logic, but target the existing frame
             const { headerCell, bodyCell, footer, numCols } = lastScanResult!;
-            const { rows, cols, cellProps, includeHeader, includeFooter, includeSelectable, includeExpandable } = msg;
+            const { rows, cols, includeHeader, includeFooter, includeSelectable, includeExpandable } = msg;
+            let { cellProps } = msg;
             
             // Get the original table settings to preserve header/footer state
             let originalIncludeHeader = includeHeader;
             let originalIncludeFooter = includeFooter;
             let originalIncludeSelectable = includeSelectable;
             let originalIncludeExpandable = includeExpandable;
+            
+            // Apply sorting if enabled
+            cellProps = sortColumnData(cellProps, cols, rows);
             
             try {
                 const tableSettings = tableFrame.getPluginData('tableSettings');
@@ -3731,7 +3819,7 @@ figma.ui.onmessage = async (msg: any) => {
                 includeFooter: originalIncludeFooter,
                 includeSelectable: originalIncludeSelectable,
                 includeExpandable: originalIncludeExpandable,
-                cellProperties: msg.cellProps,
+                cellProperties: cellProps, // Use the sorted cellProps instead of msg.cellProps
             };
             tableFrame.setPluginData('tableSettings', JSON.stringify(tableSettings));
 
