@@ -177,7 +177,7 @@ const HEADER_CELL_MODEL = [
   { name: "Cell text#12234:32", label: "Header Text", type: "TEXT" },
   { name: "State", label: "State", type: "VARIANT", options: ["Enable", "Hover", "Focus"] },
   { name: "Sortable", label: "Sortable", type: "VARIANT", options: ["True", "False"], defaultValue: "False" },
-  { name: "Sorted", label: "Sorted", type: "VARIANT", options: ["Ascending", "Descending"], defaultValue: "Ascending", dependsOn: "Sortable", showWhen: "True" }
+  { name: "Sorted", label: "Sorted", type: "VARIANT", options: ["Ascending", "Descending", "None"], defaultValue: "Ascending", dependsOn: "Sortable", showWhen: "True" }
 ];
 const FOOTER_MODEL = [
   { name: "Total items#12006:49", label: "Total items", type: "TEXT" },
@@ -494,6 +494,8 @@ function createGrid() {
   }
 
   const sortedCellProperties = sortColumnData(state.cellProperties, state.gridCols, state.gridRows);
+  // Update state with sorted data to ensure consistency
+  state.cellProperties = sortedCellProperties;
 
   for (let r = 1; r <= state.gridRows; r++) {
     for (let c = 1; c <= state.gridCols; c++) {
@@ -1109,7 +1111,7 @@ function renderDynamicPropertyFields(availableProps: string[], propertyTypes: { 
   const optionsMap: { [key: string]: string[] } = {
     'Size': ['Extra large', 'Large', 'Small'],
     'State': ['Enabled', 'Disabled', 'Focus'],
-    'Sorted': ['None', 'Ascending', 'Descending'],
+    'Sorted': ['Ascending', 'Descending', 'None'],
     'Sortable': ['True', 'False'],
     'Type': ['Advanced', 'Simple'],
   };
@@ -1310,6 +1312,18 @@ function renderDynamicPropertyFieldsFromModel(model: any[], props: any) {
         props[name] = select.value;
         console.log(`[DEBUG] Field ${name} changed to: ${select.value}`);
 
+        // Special logic: When Sortable is True and Sorted is None, set State to Hover
+        if (name === 'Sorted' && select.value === 'None') {
+          const sortableInput = document.getElementById('dynamic-Sortable') as HTMLSelectElement;
+          if (sortableInput && sortableInput.value === 'True') {
+            const stateInput = document.getElementById('dynamic-State') as HTMLSelectElement;
+            if (stateInput) {
+              stateInput.value = 'Hover';
+              props['State'] = 'Hover';
+            }
+          }
+        }
+
         // Check if this field is a dependency for other fields
         const hasDependentFields = model.some(field => field.dependsOn === name);
         if (hasDependentFields) {
@@ -1435,7 +1449,7 @@ function renderBodyCellProperties(availableProps: string[], propertyTypes: { [ke
     elements.aiPromptContainer.style.display = elements.generateSampleCheckbox?.checked ? 'block' : 'none';
   }
   if (elements.colWidthContainer) {
-    elements.colWidthContainer.style.display = 'block';
+    elements.colWidthContainer.style.display = 'none';
   }
 }
 
@@ -1493,26 +1507,36 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
   if (elements.customCellTextToggle) {
     elements.customCellTextToggle.checked = true; // Always default to true for custom cell text
   }
-  // Set custom cell text value - show component default if no custom text is set
+  // Set custom cell text value - show existing cell text if available
   if (elements.customCellText) {
+    let existingText = '';
+    
+    // Try to find existing text from various property keys
     if (cellTextPropKey && props[cellTextPropKey]) {
-      // Use the custom text if it exists
-      elements.customCellText.value = props[cellTextPropKey];
-    } else if (state.selectedComponent && state.selectedComponent.properties && cellTextPropKey) {
-      // Show the component's default text as a placeholder/example
-      const defaultText = state.selectedComponent.properties[cellTextPropKey] || 'Content';
-      elements.customCellText.value = defaultText;
-      elements.customCellText.placeholder = `Default: ${defaultText}`;
-      console.log('[DEBUG] Setting custom cell text to component default:', defaultText);
+      existingText = props[cellTextPropKey];
     } else {
-      elements.customCellText.value = '';
-      elements.customCellText.placeholder = 'Enter custom cell text';
+      // Look for any text property in the cell properties
+      const textProps = Object.keys(props).filter(prop => 
+        prop.toLowerCase().includes('text') && 
+        !prop.toLowerCase().includes('second') &&
+        typeof props[prop] === 'string' &&
+        props[prop].trim() !== ''
+      );
+      if (textProps.length > 0) {
+        existingText = props[textProps[0]];
+      }
     }
+    
+    elements.customCellText.value = existingText;
+    elements.customCellText.placeholder = 'Enter custom cell text';
   }
   const secondTextValue = secondTextPropKey ? (props[secondTextPropKey] || '') : '';
   if (elements.secondCellText) elements.secondCellText.value = secondTextValue;
   if (elements.secondTextLine) elements.secondTextLine.checked = !!secondTextValue;
-  if (elements.slotCheckbox) elements.slotCheckbox.checked = slotPropKey ? (props[slotPropKey] || false) : false;
+  if (elements.slotCheckbox) {
+    const slotValue = slotPropKey ? (props[slotPropKey] === true || props[slotPropKey] === 'true') : false;
+    elements.slotCheckbox.checked = slotValue;
+  }
   if (elements.state) elements.state.value = props['State'] || 'Enabled';
 
   // Always reset AI-related fields
@@ -1541,7 +1565,8 @@ function openPropertyEditor(key: string) {
     console.log(`[openPropertyEditor] No component info available, requesting...`);
     parent.postMessage({
       pluginMessage: {
-        type: 'request-component-info'
+        type: 'request-component-info',
+        tableId: state.tableFrameId
       }
     }, '*');
 
@@ -1773,7 +1798,7 @@ function openPropertyEditorInternal(key: string) {
         width = 120;
       }
       console.log('[DEBUG] Body col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width, 'for key', key);
-      if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'block';
+      if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'none';
       if (elements.colWidthInput) elements.colWidthInput.value = String(width);
       console.log(`[DEBUG] Body cell ${key} - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
     }
@@ -1929,6 +1954,13 @@ async function saveCellProperties() {
         props['State'] = elements.state.value;
       }
 
+      // Save static slot property if not handled by dynamic properties
+      if (!hasSlotProp && elements.slotCheckbox) {
+        const slotPropName = availableProps.find(p => p.toLowerCase().includes('slot')) || 'Slot';
+        props[slotPropName] = elements.slotCheckbox.checked;
+        console.log(`🔍 UI: Saving static Slot property: ${slotPropName} = ${props[slotPropName]}`);
+      }
+
       // Save dynamic properties
       for (const propName of availableProps) {
         const type = propertyTypes[propName];
@@ -2071,6 +2103,16 @@ async function saveCellProperties() {
 
   // Refresh the grid to show visual changes (like slot styling)
   createGrid();
+  
+  // Refresh component info to ensure preview grid shows updated values
+  if (state.tableFrameId) {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'request-component-info',
+        tableId: state.tableFrameId
+      }
+    }, '*');
+  }
 }
 
 function updateCellVisuals() {
@@ -2094,7 +2136,7 @@ function updateCellVisuals() {
         // Check for slot property first
         const slotProp = availableProps.find(p =>
           state.selectedComponent!.propertyTypes[p] === 'BOOLEAN' && p.toLowerCase().includes('slot'));
-        if (slotProp && props.properties[slotProp]) {
+        if (slotProp && (props.properties[slotProp] === true || props.properties[slotProp] === 'true')) {
           hasSlotEnabled = true;
         }
 
@@ -2128,7 +2170,7 @@ function updateCellVisuals() {
         const slotProps = Object.keys(props.properties).filter(prop =>
           prop.toLowerCase().includes('slot')
         );
-        if (slotProps.length > 0 && props.properties[slotProps[0]]) {
+        if (slotProps.length > 0 && (props.properties[slotProps[0]] === true || props.properties[slotProps[0]] === 'true')) {
           hasSlotEnabled = true;
           if (!displayText) {
             displayText = '';
@@ -2819,7 +2861,8 @@ window.onmessage = (event) => {
       console.log(`[UI] Requesting component info from backend...`);
       parent.postMessage({
         pluginMessage: {
-          type: 'request-component-info'
+          type: 'request-component-info',
+          tableId: state.tableFrameId
         }
       }, '*');
 

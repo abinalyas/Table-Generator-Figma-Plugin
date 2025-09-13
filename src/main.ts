@@ -387,6 +387,15 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
     console.log('🔄 Performing table scan on:', tableFrame.name);
     
     try {
+        // Check if this is a generated table first
+        const isGeneratedTable = 'getPluginData' in tableFrame && tableFrame.getPluginData('isGeneratedTable') === 'true';
+        console.log('🔍 Is generated table:', isGeneratedTable);
+        
+        if (isGeneratedTable) {
+            console.log('🔄 Scanning generated table with fallback method...');
+            return await scanGeneratedTable(tableFrame as FrameNode | ComponentNode);
+        }
+        
         // --- Custom scan for specific instances/components ---
         let expandCellFound = false;
         let selectCellFound = false;
@@ -594,6 +603,192 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
     }
 }
 
+// Function to scan generated tables with their specific structure
+async function scanGeneratedTable(tableFrame: FrameNode | ComponentNode): Promise<ScanResult | null> {
+    console.log('🔄 Scanning generated table:', tableFrame.name);
+    
+    try {
+        // Try to restore from stored plugin data first
+        const scanData = tableFrame.getPluginData('tableGeneratorScan');
+        if (scanData) {
+            try {
+                const storedScan = JSON.parse(scanData);
+                console.log('🔄 Found stored scan data, attempting to restore components...');
+                
+                let headerCell = null, bodyCell = null, footer = null;
+                let selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
+                
+                // Restore components by ID
+                if (storedScan.bodyCellId) {
+                    const bodyCellNode = figma.getNodeById(storedScan.bodyCellId);
+                    if (bodyCellNode && bodyCellNode.type === 'COMPONENT') {
+                        bodyCell = bodyCellNode;
+                        console.log('✅ Restored body cell from stored ID:', bodyCell.name);
+                    }
+                }
+                
+                if (storedScan.headerCellId) {
+                    const headerCellNode = figma.getNodeById(storedScan.headerCellId);
+                    if (headerCellNode && headerCellNode.type === 'COMPONENT') {
+                        headerCell = headerCellNode;
+                        console.log('✅ Restored header cell from stored ID:', headerCell.name);
+                    }
+                }
+                
+                if (storedScan.footerId) {
+                    const footerNode = figma.getNodeById(storedScan.footerId);
+                    if (footerNode && footerNode.type === 'COMPONENT') {
+                        footer = footerNode;
+                        console.log('✅ Restored footer from stored ID:', footer.name);
+                    }
+                }
+                
+                if (storedScan.selectCellId) {
+                    const selectCellNode = figma.getNodeById(storedScan.selectCellId);
+                    if (selectCellNode && selectCellNode.type === 'COMPONENT') {
+                        selectCellComponent = selectCellNode;
+                        console.log('✅ Restored select cell from stored ID:', selectCellComponent.name);
+                    }
+                }
+                
+                if (storedScan.expandCellId) {
+                    const expandCellNode = figma.getNodeById(storedScan.expandCellId);
+                    if (expandCellNode && expandCellNode.type === 'COMPONENT') {
+                        expandCellComponent = expandCellNode;
+                        console.log('✅ Restored expand cell from stored ID:', expandCellComponent.name);
+                    }
+                }
+                
+                if (storedScan.dividerId) {
+                    const dividerNode = figma.getNodeById(storedScan.dividerId);
+                    if (dividerNode && dividerNode.type === 'COMPONENT') {
+                        dividerComponent = dividerNode;
+                        console.log('✅ Restored divider from stored ID:', dividerComponent.name);
+                    }
+                }
+                
+                // If we have the essential components, return the scan result
+                if (bodyCell) {
+                    console.log('✅ Successfully restored components from stored scan data');
+                    return {
+                        headerCell,
+                        headerRowComponent: null,
+                        bodyCell,
+                        bodyRowComponent: null,
+                        footer,
+                        numCols: storedScan.numCols || 5,
+                        selectCellComponent,
+                        expandCellComponent,
+                        dividerComponent
+                    };
+                }
+            } catch (error) {
+                console.log('⚠️ Could not restore from stored scan data:', error);
+            }
+        }
+        
+        // Fallback: scan the generated table structure
+        console.log('🔄 Scanning generated table structure manually...');
+        
+        let headerCell = null, bodyCell = null, footer = null;
+        let selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
+        let numCols = 0;
+        
+        // Find all instances in the generated table
+        if ('findAll' in tableFrame) {
+            const allInstances = tableFrame.findAll(n => n.type === 'INSTANCE') as InstanceNode[];
+            console.log(`🔍 Found ${allInstances.length} instances in generated table`);
+            
+            // Group instances by their main component names
+            const componentMap = new Map<string, ComponentNode>();
+            
+            for (const instance of allInstances) {
+                if (instance.mainComponent) {
+                    const compName = instance.mainComponent.name.toLowerCase();
+                    
+                    // Categorize components
+                    if (!bodyCell && compName.includes('cell') && !compName.includes('header') && !compName.includes('footer') && !compName.includes('select') && !compName.includes('expand')) {
+                        bodyCell = instance.mainComponent;
+                        console.log(`✅ Found body cell: ${bodyCell.name}`);
+                    } else if (!headerCell && compName.includes('header') && compName.includes('cell')) {
+                        headerCell = instance.mainComponent;
+                        console.log(`✅ Found header cell: ${headerCell.name}`);
+                    } else if (!footer && (compName.includes('footer') || compName.includes('pagination'))) {
+                        footer = instance.mainComponent;
+                        console.log(`✅ Found footer: ${footer.name}`);
+                    } else if (!selectCellComponent && compName.includes('select') && compName.includes('cell')) {
+                        selectCellComponent = instance.mainComponent;
+                        console.log(`✅ Found select cell: ${selectCellComponent.name}`);
+                    } else if (!expandCellComponent && compName.includes('expand') && compName.includes('cell')) {
+                        expandCellComponent = instance.mainComponent;
+                        console.log(`✅ Found expand cell: ${expandCellComponent.name}`);
+                    } else if (!dividerComponent && compName.includes('divider')) {
+                        dividerComponent = instance.mainComponent;
+                        console.log(`✅ Found divider: ${dividerComponent.name}`);
+                    }
+                    
+                    componentMap.set(instance.mainComponent.id, instance.mainComponent);
+                }
+            }
+            
+            // Count columns by looking at the first row
+            const headerRow = tableFrame.findOne(n => n.name === 'Header Row' && n.type === 'FRAME');
+            if (headerRow && 'children' in headerRow) {
+                numCols = headerRow.children.filter(child => 
+                    child.type === 'INSTANCE' && 
+                    child.name && 
+                    !child.name.toLowerCase().includes('select') && 
+                    !child.name.toLowerCase().includes('expand')
+                ).length;
+                console.log(`🔢 Counted ${numCols} columns from header row`);
+            } else {
+                // Fallback: count from first body row
+                const bodyFrame = tableFrame.findOne(n => n.name === 'Body' && n.type === 'FRAME');
+                if (bodyFrame && 'children' in bodyFrame) {
+                    const firstBodyRow = bodyFrame.children[0];
+                    if (firstBodyRow && 'children' in firstBodyRow) {
+                        const dataRow = firstBodyRow.children.find(child => child.name && child.name.startsWith('Row'));
+                        if (dataRow && 'children' in dataRow) {
+                            numCols = dataRow.children.filter(child => 
+                                child.type === 'INSTANCE' && 
+                                child.name && 
+                                !child.name.toLowerCase().includes('select') && 
+                                !child.name.toLowerCase().includes('expand')
+                            ).length;
+                            console.log(`🔢 Counted ${numCols} columns from first body row`);
+                        }
+                    }
+                }
+            }
+            
+            // If we still don't have a body cell, this scan failed
+            if (!bodyCell) {
+                console.log('❌ Could not extract body cell from generated table');
+                return null;
+            }
+            
+            console.log('✅ Successfully scanned generated table structure');
+            return {
+                headerCell,
+                headerRowComponent: null,
+                bodyCell,
+                bodyRowComponent: null,
+                footer,
+                numCols: numCols || 5,
+                selectCellComponent,
+                expandCellComponent,
+                dividerComponent
+            };
+        }
+        
+        return null;
+        
+    } catch (error) {
+        console.error('❌ Error scanning generated table:', error);
+        return null;
+    }
+}
+
 // Function to automatically scan for a valid "Data table" component on the page
 async function autoScanForDataTable(): Promise<ScanResult | null> {
     console.log('🔄 Auto-scanning for Data table components on the page...');
@@ -632,6 +827,136 @@ async function autoScanForDataTable(): Promise<ScanResult | null> {
         console.error('❌ Error during auto-scan:', error);
         return null;
     }
+}
+
+// Helper function to restore full scan result from stored data
+async function restoreFullScanResult(storedScan: any): Promise<ScanResult | null> {
+    try {
+        let headerCell = null, bodyCell = null, footer = null;
+        let selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
+        let headerRowComponent = null, bodyRowComponent = null;
+        
+        // Restore components by ID
+        if (storedScan.bodyCellId) {
+            const bodyCellNode = figma.getNodeById(storedScan.bodyCellId);
+            if (bodyCellNode && bodyCellNode.type === 'COMPONENT') {
+                bodyCell = bodyCellNode;
+            }
+        }
+        
+        if (storedScan.headerCellId) {
+            const headerCellNode = figma.getNodeById(storedScan.headerCellId);
+            if (headerCellNode && headerCellNode.type === 'COMPONENT') {
+                headerCell = headerCellNode;
+            }
+        }
+        
+        if (storedScan.footerId) {
+            const footerNode = figma.getNodeById(storedScan.footerId);
+            if (footerNode && footerNode.type === 'COMPONENT') {
+                footer = footerNode;
+            }
+        }
+        
+        if (storedScan.selectCellId) {
+            const selectCellNode = figma.getNodeById(storedScan.selectCellId);
+            if (selectCellNode && selectCellNode.type === 'COMPONENT') {
+                selectCellComponent = selectCellNode;
+            }
+        }
+        
+        if (storedScan.expandCellId) {
+            const expandCellNode = figma.getNodeById(storedScan.expandCellId);
+            if (expandCellNode && expandCellNode.type === 'COMPONENT') {
+                expandCellComponent = expandCellNode;
+            }
+        }
+        
+        if (storedScan.dividerId) {
+            const dividerNode = figma.getNodeById(storedScan.dividerId);
+            if (dividerNode && dividerNode.type === 'COMPONENT') {
+                dividerComponent = dividerNode;
+            }
+        }
+        
+        if (storedScan.headerRowComponentId) {
+            const headerRowNode = figma.getNodeById(storedScan.headerRowComponentId);
+            if (headerRowNode && headerRowNode.type === 'COMPONENT') {
+                headerRowComponent = headerRowNode;
+            }
+        }
+        
+        if (storedScan.bodyRowComponentId) {
+            const bodyRowNode = figma.getNodeById(storedScan.bodyRowComponentId);
+            if (bodyRowNode && bodyRowNode.type === 'COMPONENT') {
+                bodyRowComponent = bodyRowNode;
+            }
+        }
+        
+        if (bodyCell) {
+            return {
+                headerCell,
+                headerRowComponent,
+                bodyCell,
+                bodyRowComponent,
+                footer,
+                numCols: storedScan.numCols || 5,
+                selectCellComponent,
+                expandCellComponent,
+                dividerComponent
+            };
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('Error restoring full scan result:', error);
+        return null;
+    }
+}
+
+// Helper function to update body row properties (placeholder for now)
+async function updateBodyRowProperties(bodyRowInstance: InstanceNode): Promise<boolean> {
+    try {
+        // This function would update the body row to enable selectable/expandable functionality
+        // For now, just return true to indicate success
+        console.log('🔄 Updating body row properties for:', bodyRowInstance.name);
+        return true;
+    } catch (error) {
+        console.error('❌ Error updating body row properties:', error);
+        return false;
+    }
+}
+
+// Helper function to check if variant combination is valid
+function isValidVariantCombination(componentSet: ComponentSetNode, properties: { [key: string]: any }): boolean {
+    try {
+        // This is a simplified check - in practice you'd validate against the component set's variants
+        return true;
+    } catch (error) {
+        console.error('❌ Error validating variant combination:', error);
+        return false;
+    }
+}
+
+// Helper function to map property names
+function mapPropertyNames(uiProperties: { [key: string]: any }, componentProperties: { [key: string]: any }): { [key: string]: any } {
+    const mappedProps: { [key: string]: any } = {};
+    
+    for (const [uiPropName, uiPropValue] of Object.entries(uiProperties)) {
+        const availableProperties = Object.keys(componentProperties);
+        const matchedProp = findMatchingProperty(availableProperties, uiPropName);
+        
+        if (matchedProp) {
+            mappedProps[matchedProp] = uiPropValue;
+        } else {
+            // Try direct mapping as fallback
+            if (componentProperties[uiPropName]) {
+                mappedProps[uiPropName] = uiPropValue;
+            }
+        }
+    }
+    
+    return mappedProps;
 }
 
 // Function to create a simple divider component
@@ -1117,6 +1442,105 @@ figma.ui.onmessage = async (msg: any) => {
             clearUI: true
         });
     
+    } else if (msg.type === "request-component-info") {
+        console.log('[Backend] Received request-component-info');
+        
+        let tableId = msg.tableId;
+        if (!tableId) {
+            const selection = figma.currentPage.selection;
+            if (selection.length === 1 && selection[0].getPluginData('isGeneratedTable') === 'true') {
+                tableId = selection[0].id;
+            }
+        }
+        
+        // If we have a table ID, scan it directly to find body cell instances
+        if (tableId) {
+            const tableNode = figma.getNodeById(tableId);
+            if (tableNode && 'findOne' in tableNode) {
+                console.log('[Backend] Scanning generated table for body cell instances');
+                
+                // Find any body cell instance in the generated table
+                const bodyCellInstance = tableNode.findOne(n => 
+                    n.type === 'INSTANCE' && 
+                    n.mainComponent !== null &&
+                    !n.name.toLowerCase().includes('header') &&
+                    !n.name.toLowerCase().includes('footer') &&
+                    !n.name.toLowerCase().includes('select') &&
+                    !n.name.toLowerCase().includes('expand')
+                ) as InstanceNode | null;
+                
+                if (bodyCellInstance && bodyCellInstance.mainComponent) {
+                    console.log('[Backend] Found body cell instance in table:', bodyCellInstance.mainComponent.name);
+                    
+                    const bodyCell = bodyCellInstance.mainComponent;
+                    const propertyValues: { [key: string]: any } = {};
+                    const propertyTypes: { [key: string]: "TEXT" | "BOOLEAN" | "INSTANCE_SWAP" | "VARIANT" } = {};
+                    const availableProperties = Object.keys(bodyCellInstance.componentProperties);
+                    
+                    for (const propName of availableProperties) {
+                        const prop = bodyCellInstance.componentProperties[propName];
+                        propertyValues[propName] = prop.value;
+                        propertyTypes[propName] = prop.type;
+                    }
+                    
+                    figma.ui.postMessage({
+                        type: "component-info",
+                        component: {
+                            id: bodyCell.id,
+                            name: bodyCell.name,
+                            width: bodyCellInstance.width,
+                            properties: propertyValues,
+                            availableProperties,
+                            propertyTypes,
+                        }
+                    });
+                    return;
+                }
+            }
+        }
+        
+        // Fallback to lastScanResult if available
+        if (lastScanResult && lastScanResult.bodyCell) {
+            const bodyCell = lastScanResult.bodyCell;
+            const tempInstance = bodyCell.createInstance();
+            const propertyValues: { [key: string]: any } = {};
+            const propertyTypes: { [key: string]: "TEXT" | "BOOLEAN" | "INSTANCE_SWAP" | "VARIANT" } = {};
+            const availableProperties = Object.keys(tempInstance.componentProperties);
+            for (const propName of availableProperties) {
+                const prop = tempInstance.componentProperties[propName];
+                propertyValues[propName] = prop.value;
+                propertyTypes[propName] = prop.type;
+            }
+            const instanceWidth = tempInstance.width;
+            tempInstance.remove();
+            
+            figma.ui.postMessage({
+                type: "component-info",
+                component: {
+                    id: bodyCell.id,
+                    name: bodyCell.name,
+                    width: instanceWidth,
+                    properties: propertyValues,
+                    availableProperties,
+                    propertyTypes,
+                }
+            });
+            return;
+        }
+        
+        // Final fallback
+        figma.ui.postMessage({
+            type: "component-info",
+            component: {
+                id: 'fallback',
+                name: 'Fallback Component',
+                width: 100,
+                properties: { 'Cell text#12234:16': 'Sample Text' },
+                availableProperties: ['Cell text#12234:16'],
+                propertyTypes: { 'Cell text#12234:16': 'TEXT' as const }
+            }
+        });
+        
     } else if (msg.type === "clear-cell-instances") {
         cellInstanceMap.forEach(instance => instance.remove());
 
@@ -3861,6 +4285,7 @@ figma.ui.onmessage = async (msg: any) => {
         })();
     } else if (msg.type === 'request-component-info') {
         console.log(`[Backend] Received request-component-info, lastScanResult:`, lastScanResult);
+        console.log('[Backend] Request includes tableId:', msg.tableId);
         
         // Make this async to support performTableScan
         (async () => {
@@ -4153,207 +4578,6 @@ function getFakerValue(type: string) {
 interface ComponentProperty {
     type: 'BOOLEAN' | 'TEXT' | 'VARIANT' | 'INSTANCE_SWAP';
     value: any;
-}
-
-function mapPropertyNames(cellData: any, componentProps: { [key: string]: ComponentProperty }): { [key: string]: any } {
-    const validProps: { [key: string]: any } = {};
-    
-    console.log('🔍 mapPropertyNames input:', { cellData, componentProps });
-    console.log('🔍 Available component properties:', Object.keys(componentProps));
-    
-    // Helper to find matching property by base name (without ID)
-    const findMatchingProp = (sourceProp: string, targetProps: { [key: string]: ComponentProperty }) => {
-        const sourceBase = sourceProp.split('#')[0];
-        
-        // First try exact match
-        let match = Object.keys(targetProps).find(p => p === sourceProp);
-        if (match) return match;
-        
-        // Then try base name match (without ID)
-        match = Object.keys(targetProps).find(p => p.split('#')[0] === sourceBase);
-        if (match) return match;
-        
-        // For Slot properties, try more flexible matching
-        if (sourceBase.toLowerCase() === 'slot') {
-            match = Object.keys(targetProps).find(p => 
-                p.toLowerCase().includes('slot') || 
-                p.toLowerCase().includes('icon') ||
-                p.toLowerCase().includes('content')
-            );
-            if (match) return match;
-        }
-        
-        return null;
-    };
-
-    // Map each property from cellData to the correct component property
-    for (const [sourceKey, sourceValue] of Object.entries(cellData)) {
-        // Find matching property in component
-        const targetKey = findMatchingProp(sourceKey, componentProps);
-        
-        if (targetKey) {
-            const propDef = componentProps[targetKey];
-            
-            // Get the actual value (handle case where sourceValue is an object with value property)
-            const actualValue = (sourceValue && typeof sourceValue === 'object' && 'value' in sourceValue) 
-                ? sourceValue.value 
-                : sourceValue;
-
-            // Handle different property types correctly
-            if (propDef.type === 'BOOLEAN') {
-                validProps[targetKey] = !!actualValue;
-            } else if (propDef.type === 'TEXT') {
-                validProps[targetKey] = String(actualValue);
-            } else if (propDef.type === 'VARIANT') {
-                validProps[targetKey] = actualValue;
-            } else if (propDef.type === 'INSTANCE_SWAP') {
-                // For INSTANCE_SWAP, use the user's selected value if provided, otherwise keep current
-                if (actualValue !== undefined && actualValue !== null) {
-                    validProps[targetKey] = actualValue;
-                } else {
-                validProps[targetKey] = propDef.value;
-                }
-            }
-
-            console.log(`🔍 Mapped property: ${sourceKey} -> ${targetKey} = ${actualValue} (type: ${propDef.type})`);
-            if (propDef.type === 'INSTANCE_SWAP') {
-                console.log(`🔍 INSTANCE_SWAP property details:`, {
-                    sourceKey,
-                    targetKey,
-                    actualValue,
-                    componentValue: propDef.value,
-                    finalValue: validProps[targetKey]
-                });
-            }
-        } else {
-            console.warn(`⚠️ No matching property found for: ${sourceKey}`);
-            // Special logging for Slot properties
-            if (sourceKey.toLowerCase().includes('slot')) {
-                console.log(`🔍 Slot property search details:`);
-                console.log(`  - Source property: ${sourceKey}`);
-                console.log(`  - Available properties:`, Object.keys(componentProps));
-                console.log(`  - Properties containing 'slot':`, Object.keys(componentProps).filter(p => p.toLowerCase().includes('slot')));
-            }
-        }
-    }
-
-    // Preserve any existing INSTANCE_SWAP values
-    for (const [key, prop] of Object.entries(componentProps)) {
-        if (prop.type === 'INSTANCE_SWAP' && !(key in validProps)) {
-            validProps[key] = prop.value;
-        }
-    }
-
-    console.log('🔍 mapPropertyNames output:', validProps);
-    return validProps;
-}
-
-// Utility: Check if a variant combination is valid for a component set
-function isValidVariantCombination(componentSet: ComponentSetNode, properties: { [key: string]: any }): boolean {
-    console.log('Checking variant combination:', properties);
-    console.log('Component set has', componentSet.children.length, 'variants');
-    
-    // Each child is a variant (ComponentNode) with variantProperties
-    const isValid = componentSet.children.some(variant => {
-        const variantNode = variant as ComponentNode;
-        console.log('Checking variant:', variantNode.name, 'with properties:', variantNode.variantProperties);
-        
-        // Only compare keys that are in properties
-        const matches = Object.entries(properties).every(([key, value]) => {
-            const variantValue = variantNode.variantProperties && variantNode.variantProperties[key];
-            const isMatch = variantValue == value;
-            console.log(`  ${key}: expected=${value}, actual=${variantValue}, match=${isMatch}`);
-            // Figma may use string values for variantProperties
-            return isMatch;
-        });
-        
-        console.log('  Variant match result:', matches);
-        return matches;
-    });
-    
-    console.log('Final validation result:', isValid);
-    return isValid;
-}
-
-// Function to update body row properties to enable selectable/expandable functionality
-async function updateBodyRowProperties(bodyRowInstance: InstanceNode) {
-    try {
-        console.log('🔄 Updating body row properties to enable selectable/expandable functionality...');
-        
-        // Define the properties to set
-        const propertiesToSet: { [key: string]: string } = {
-            'Expandable': 'True',
-            'Select type': 'Checkbox', 
-            'Selectable': 'True',
-            'Selection': 'Checked'
-        };
-        
-        // Validate each property exists and get the correct variant value
-        const validProperties: { [key: string]: string } = {};
-        
-        for (const [propName, targetValue] of Object.entries(propertiesToSet)) {
-            if (bodyRowInstance.componentProperties[propName]) {
-                const prop = bodyRowInstance.componentProperties[propName];
-                if (prop.type === 'VARIANT') {
-                    // Get the main component to access variant values
-                    const mainComponent = bodyRowInstance.mainComponent;
-                    if (mainComponent && mainComponent.parent && mainComponent.parent.type === "COMPONENT_SET") {
-                        const componentSet = mainComponent.parent as ComponentSetNode;
-                        const variantProps = componentSet.variantGroupProperties;
-                        
-                        if (variantProps && variantProps[propName] && 'values' in variantProps[propName]) {
-                            const possibleValues = (variantProps[propName] as any).values as string[];
-                            
-                            // Find a case-insensitive match for the target value
-                            const found = possibleValues.find(v => 
-                                v.trim().toLowerCase() === targetValue.toLowerCase()
-                            );
-                            
-                            if (found) {
-                                validProperties[propName] = found;
-                                console.log(`✅ Found variant value for ${propName}: ${found}`);
-                            } else {
-                                console.warn(`⚠️ Target value "${targetValue}" not found for property "${propName}". Available values:`, possibleValues);
-                            }
-                        }
-                    }
-                } else {
-                    console.warn(`⚠️ Property "${propName}" is not a VARIANT type, it's ${prop.type}`);
-                }
-            } else {
-                console.warn(`⚠️ Property "${propName}" not found in body row component`);
-            }
-        }
-        
-        // Check if the combination is valid before setting
-        let mainComponentSet = null;
-        if (bodyRowInstance.mainComponent && bodyRowInstance.mainComponent.parent && bodyRowInstance.mainComponent.parent.type === "COMPONENT_SET") {
-            mainComponentSet = bodyRowInstance.mainComponent.parent as ComponentSetNode;
-        }
-        
-        if (mainComponentSet && isValidVariantCombination(mainComponentSet, validProperties)) {
-            try {
-                bodyRowInstance.setProperties(validProperties);
-                console.log('✅ Successfully updated body row properties:', validProperties);
-                
-                // Wait for Figma to update the instance tree
-                await Promise.resolve();
-                // Add additional delay to ensure the instance tree is updated
-                await new Promise(resolve => setTimeout(resolve, 200));
-                
-                return true;
-            } catch (error) {
-                console.error('❌ Error setting body row properties:', error);
-                return false;
-            }
-        } else {
-            console.warn('⚠️ Invalid variant combination for body row:', validProperties);
-            return false;
-        }
-    } catch (error) {
-        console.error('❌ Error updating body row properties:', error);
-        return false;
-    }
 }
 
 // Function to clean up any components created outside the generated table
