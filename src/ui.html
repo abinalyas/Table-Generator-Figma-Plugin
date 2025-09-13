@@ -1079,6 +1079,48 @@
       margin-top: 10px;
     }
 
+    .grid-header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .grid-header-content h3 {
+      margin: 0;
+    }
+
+    /* Reorder Text Button */
+    .reorder-text-btn {
+      display: flex;
+      align-items: center;
+      gap: var(--cds-spacing-02);
+      background: none;
+      border: none;
+      color: var(--cds-link-primary);
+      font-size: var(--cds-helper-text-01-font-size);
+      font-weight: var(--cds-helper-text-01-font-weight);
+      cursor: pointer;
+      padding: var(--cds-spacing-02);
+      border-radius: var(--border-radius-sm);
+      transition: all var(--animation-fast);
+    }
+
+    .reorder-text-btn:hover {
+      color: var(--cds-link-primary-hover);
+      background: var(--cds-background-hover);
+    }
+
+    .reorder-text-btn:focus {
+      outline: 2px solid var(--cds-focus);
+      outline-offset: 2px;
+    }
+
+    .reorder-text-btn svg {
+      width: 14px;
+      height: 14px;
+      opacity: 0.8;
+    }
+
     .grid-scroll-area {
       flex-grow: 1;
       position: relative;
@@ -2297,7 +2339,16 @@
 
     <div id="gridContainer" class="grid-container" style="display:none">
       <div class="grid-header">
-        <h3 class="cds-heading-02">Edit Cell Properties</h3>
+        <div class="grid-header-content">
+          <h3 class="cds-heading-02">Edit Cell Properties</h3>
+          <button id="reorderColumnsTextBtn" class="reorder-text-btn" title="Reorder columns">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h12v2H2v-2z" fill="currentColor"/>
+              <path d="M13 4l2 2-2 2V4zM13 8l2 2-2 2V8zM13 12l2 2-2 2v-4z" fill="currentColor"/>
+            </svg>
+            Reorder columns
+          </button>
+        </div>
       </div>
       <div class="grid-scroll-area">
         <div class="grid-content-wrapper">
@@ -2351,7 +2402,6 @@
 
     <div class="button-group" style="display:none" id="actionButtons">
       <button id="clearSelectionBtn" class="btn btn-danger">Reset Table</button>
-      <button id="reorderColumnsBtn" class="btn btn-secondary">Reorder Columns</button>
       <button id="createTableBtn" class="btn btn-primary" disabled>Create Table</button>
     </div>
 
@@ -2489,5 +2539,20 @@
       <path d="M11.8602 16H8.63441L16 8.63441V11.8602L11.8602 16Z" fill="#6f6f6f" />
     </svg>
   </div>
+  <script>
+    // Connect reorder text button to existing modal functionality
+    document.addEventListener('DOMContentLoaded', function() {
+      const reorderTextBtn = document.getElementById('reorderColumnsTextBtn');
+      
+      if (reorderTextBtn) {
+        reorderTextBtn.addEventListener('click', function() {
+          // Call the existing openColumnReorderModal function from ui.ts
+          if (typeof window.openColumnReorderModal === 'function') {
+            window.openColumnReorderModal();
+          }
+        });
+      }
+    });
+  </script>
 </body>
 </html>

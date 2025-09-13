@@ -212,7 +212,7 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.actionButtons = document.getElementById('actionButtons')!;
   elements.createTableBtn = document.getElementById('createTableBtn') as HTMLButtonElement;
   elements.clearSelectionBtn = document.getElementById('clearSelectionBtn') as HTMLButtonElement;
-  elements.reorderColumnsBtn = document.getElementById('reorderColumnsBtn') as HTMLButtonElement;
+  // elements.reorderColumnsBtn = document.getElementById('reorderColumnsBtn') as HTMLButtonElement; // Removed - now using text button
   elements.selectedCount = document.getElementById('selectedCount')!;
   elements.propertyEditor = document.getElementById('propertyEditor')!;
   elements.propertyEditorTitle = document.getElementById('propertyEditorTitle')!;
@@ -806,7 +806,7 @@ function setupResizeCorner() {
 
 function setupEventListeners() {
   elements.clearSelectionBtn.addEventListener('click', resetTableProperties);
-  elements.reorderColumnsBtn.addEventListener('click', openColumnReorderModal);
+  // elements.reorderColumnsBtn.addEventListener('click', openColumnReorderModal); // Removed - now handled in HTML
   elements.createTableBtn.addEventListener('click', createTable);
   elements.cancelPropsBtn.addEventListener('click', closePropertyEditor);
   elements.propertyEditorOverlay.addEventListener('click', closePropertyEditor);
@@ -3809,5 +3809,8 @@ function reorderTableColumns(newOrder: number[]) {
   // Mark changes for reset
   markChangesForReset();
 }
+
+// Make openColumnReorderModal available globally
+(window as any).openColumnReorderModal = openColumnReorderModal;
 
 export { }; // Treat this file as a module 
