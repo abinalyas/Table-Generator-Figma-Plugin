@@ -243,28 +243,26 @@ figma.on("selectionchange", async () => {
     }, 50);
     });
 
+
+
 // Helper function to find matching property
 function findMatchingProperty(availableProperties: string[], uiPropName: string): string | null {
-   
     // First try exact match
     const exactMatch = availableProperties.find((prop: string) => prop === uiPropName);
     if (exactMatch) {
-        
         return exactMatch;
     }
     // Try match at start of property name
     const startsWithMatch = availableProperties.find((prop: string) => prop.toLowerCase().startsWith(uiPropName.toLowerCase()));
     if (startsWithMatch) {
-       
         return startsWithMatch;
     }
     // Try contains match
     const containsMatch = availableProperties.find((prop: string) => prop.toLowerCase().includes(uiPropName.toLowerCase()));
     if (containsMatch) {
-        
         return containsMatch;
     }
-   
+    
     return null;
 }
 
@@ -2118,8 +2116,22 @@ figma.ui.onmessage = async (msg: any) => {
                 if (cellData && cellData.properties) {
                     try {
                         const validProps = mapPropertyNames(cellData.properties, hCell.componentProperties);
-                        hCell.setProperties(validProps);
-                            } catch (e) { console.warn('Could not set properties for header cell', key, e); }
+                        
+                        // Try to set all properties at once first
+                        try {
+                            hCell.setProperties(validProps);
+                        } catch (variantError) {
+                            console.warn('Variant combination failed for header cell', key, 'trying individual properties');
+                            // Fallback: set properties one by one
+                            for (const [propName, propValue] of Object.entries(validProps)) {
+                                try {
+                                    hCell.setProperties({ [propName]: propValue });
+                                } catch (individualError) {
+                                    console.warn(`Could not set individual property ${propName} for header cell ${key}:`, individualError);
+                                }
+                            }
+                        }
+                    } catch (e) { console.warn('Could not set properties for header cell', key, e); }
                 }
             }
             tableFrame.appendChild(headerRowFrame);
@@ -3411,7 +3423,21 @@ figma.ui.onmessage = async (msg: any) => {
                         if (cellData && cellData.properties) {
                             try {
                                 const validProps = mapPropertyNames(cellData.properties, hCell.componentProperties);
-                                hCell.setProperties(validProps);
+                                
+                                // Try to set all properties at once first
+                                try {
+                                    hCell.setProperties(validProps);
+                                } catch (variantError) {
+                                    console.warn('Variant combination failed for header cell', key, 'trying individual properties');
+                                    // Fallback: set properties one by one
+                                    for (const [propName, propValue] of Object.entries(validProps)) {
+                                        try {
+                                            hCell.setProperties({ [propName]: propValue });
+                                        } catch (individualError) {
+                                            console.warn(`Could not set individual property ${propName} for header cell ${key}:`, individualError);
+                                        }
+                                    }
+                                }
                             } catch (e) { console.warn('Could not set properties for header cell', key, e); }
                         }
                     }

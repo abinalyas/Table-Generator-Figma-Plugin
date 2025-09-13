@@ -1508,83 +1508,7 @@
       margin: var(--cds-spacing-05) 0;
     }
 
-    .resize-controls {
-      display: flex;
-      gap: var(--cds-spacing-03);
-      align-items: center;
-      margin-bottom: var(--cds-spacing-05);
-      padding: var(--cds-spacing-04);
-      background: var(--cds-layer);
-      border: 1px solid var(--cds-border-subtle);
-    }
 
-    .resize-controls label {
-      font-size: var(--cds-label-01-font-size);
-      font-weight: var(--cds-label-01-font-weight);
-      line-height: var(--cds-label-01-line-height);
-      letter-spacing: var(--cds-label-01-letter-spacing);
-      color: var(--cds-text-secondary);
-    }
-
-    .resize-controls input {
-      width: 4rem;
-      padding: var(--cds-spacing-02) var(--cds-spacing-03);
-      border: none;
-      border-bottom: 1px solid var(--cds-border-strong);
-      background: var(--cds-field);
-      font-size: var(--cds-body-01-font-size);
-      color: var(--cds-text-primary);
-    }
-
-    .resize-controls input:focus {
-      border-bottom: 2px solid var(--cds-border-interactive);
-      outline: 2px solid var(--cds-focus);
-      outline-offset: -2px;
-    }
-
-    .resize-controls button {
-      padding: var(--cds-spacing-02) var(--cds-spacing-03);
-      font-size: var(--cds-body-01-font-size);
-      border: 1px solid var(--cds-border-subtle);
-      background: var(--cds-background);
-      color: var(--cds-text-primary);
-      cursor: pointer;
-      transition: all 70ms cubic-bezier(0.2, 0, 0.38, 0.9);
-    }
-
-    .resize-controls button:hover {
-      background: var(--cds-background-hover);
-    }
-
-    .resize-controls button:focus {
-      outline: 2px solid var(--cds-focus);
-      outline-offset: -2px;
-    }
-
-    .resize-presets {
-      display: flex;
-      gap: var(--cds-spacing-02);
-    }
-
-    .resize-preset {
-      padding: var(--cds-spacing-01) var(--cds-spacing-03);
-      font-size: var(--cds-helper-text-01-font-size);
-      border: 1px solid var(--cds-border-subtle);
-      background: var(--cds-background);
-      cursor: pointer;
-      color: var(--cds-text-secondary);
-      transition: all 70ms cubic-bezier(0.2, 0, 0.38, 0.9);
-    }
-
-    .resize-preset:hover {
-      background: var(--cds-background-hover);
-      color: var(--cds-text-primary);
-    }
-
-    .resize-preset:focus {
-      outline: 2px solid var(--cds-focus);
-      outline-offset: -2px;
-    }
 
     /* Carbon Resize corner styles */
     .resize-corner {
@@ -1609,10 +1533,7 @@
       height: 100%;
     }
 
-    /* Hide the programmatic resize controls since we're using drag corner */
-    .resize-controls {
-      display: none;
-    }
+
 
     /* Carbon Remove file button styles */
     .remove-file-btn {
@@ -2300,18 +2221,7 @@
   <div id="propertyEditorOverlay"></div>
   <div class="cell-tooltip"></div>
   <div class="container">
-    <div class="resize-controls">
-      <label>Size:</label>
-      <input type="number" id="widthInput" placeholder="500" min="300" max="1200">
-      <span>×</span>
-      <input type="number" id="heightInput" placeholder="750" min="400" max="1000">
-      <button id="applyResizeBtn">Apply</button>
-      <div class="resize-presets">
-        <button class="resize-preset" data-size="500,750">Default</button>
-        <button class="resize-preset" data-size="600,800">Large</button>
-        <button class="resize-preset" data-size="400,600">Compact</button>
-      </div>
-    </div>
+
     <h2 class="cds-heading-03" style="padding-bottom: var(--cds-spacing-04); font-weight: 700;"><strong>IBM Carbon Table Generator</strong></h2>
     <div id="landingPage">
       <div class="empty-state">

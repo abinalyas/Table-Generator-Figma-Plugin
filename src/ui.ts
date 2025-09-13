@@ -36,14 +36,11 @@ interface State {
 interface Elements {
   grid: HTMLElement;
   gridHighlight: HTMLElement;
-  dimensionsDisplay: HTMLElement;
   statusMessage: HTMLElement;
   gridContainer: HTMLElement;
   actionButtons: HTMLElement;
   createTableBtn: HTMLButtonElement;
   clearSelectionBtn: HTMLButtonElement;
-  reorderColumnsBtn: HTMLButtonElement;
-  selectedCount: HTMLElement;
   propertyEditor: HTMLElement;
   propertyEditorTitle: HTMLElement;
   editingCellCoords: HTMLElement;
@@ -51,17 +48,10 @@ interface Elements {
   secondTextLine: HTMLInputElement;
   secondCellText: HTMLInputElement;
   state: HTMLSelectElement;
-  selectionModeBtn: HTMLButtonElement;
-  editModeBtn: HTMLButtonElement;
-  confirmSizeBtn: HTMLButtonElement;
-  cancelSelectionBtn: HTMLButtonElement;
-  generateDataBtn: HTMLButtonElement;
   cancelPropsBtn: HTMLButtonElement;
   savePropsBtn: HTMLButtonElement;
   secondLineContainer: HTMLElement;
   secondCellTextContainer: HTMLElement;
-  selectionActions: HTMLElement;
-  dimensionPresets: HTMLElement;
   loader: HTMLElement;
   loaderText: HTMLElement;
   aiConfirmationDialog: HTMLElement;
@@ -69,7 +59,6 @@ interface Elements {
   confirmAiBtn: HTMLButtonElement;
   generateSampleCheckbox: HTMLInputElement;
   aiPromptContainer: HTMLElement;
-  rowWidthInput: HTMLInputElement;
   colWidthInput: HTMLInputElement;
   colWidthContainer: HTMLElement;
   slotCheckbox: HTMLInputElement;
@@ -79,16 +68,13 @@ interface Elements {
   landingPage: HTMLElement;
   componentModeBtn: HTMLButtonElement;
   propertyEditorOverlay: HTMLElement;
-  scanTableSection: HTMLElement | null;
-  scanTableBtn: HTMLButtonElement | null;
-  scanTableInstructions: HTMLElement | null;
   componentDisplay: HTMLElement;
   scanOptionsContainer: HTMLElement | null;
+  scanTableBtn?: HTMLButtonElement;
+  scanTableSection?: HTMLElement;
 }
 
-// Add mouse position tracking
-let mouseX = 0;
-let mouseY = 0;
+
 
 // State Management
 const state: State = {
@@ -189,7 +175,7 @@ function ensurePropertyEditorScaffold() {
 // Static property models for header and footer
 const HEADER_CELL_MODEL = [
   { name: "Cell text#12234:32", label: "Header Text", type: "TEXT" },
-  { name: "State", label: "State", type: "VARIANT", options: ["Enabled", "Disabled", "Focus"] },
+  { name: "State", label: "State", type: "VARIANT", options: ["Enable", "Hover", "Focus"] },
   { name: "Sortable", label: "Sortable", type: "VARIANT", options: ["True", "False"], defaultValue: "False" },
   { name: "Sorted", label: "Sorted", type: "VARIANT", options: ["Ascending", "Descending"], defaultValue: "Ascending", dependsOn: "Sortable", showWhen: "True" }
 ];
@@ -206,14 +192,11 @@ window.addEventListener('DOMContentLoaded', () => {
   // Assign only existing DOM elements
   elements.grid = document.getElementById('grid')!;
   elements.gridHighlight = document.getElementById('gridHighlight')!;
-  elements.dimensionsDisplay = document.getElementById('dimensionsDisplay')!;
   elements.statusMessage = document.getElementById('statusMessage')!;
   elements.gridContainer = document.getElementById('gridContainer')!;
   elements.actionButtons = document.getElementById('actionButtons')!;
   elements.createTableBtn = document.getElementById('createTableBtn') as HTMLButtonElement;
   elements.clearSelectionBtn = document.getElementById('clearSelectionBtn') as HTMLButtonElement;
-  // elements.reorderColumnsBtn = document.getElementById('reorderColumnsBtn') as HTMLButtonElement; // Removed - now using text button
-  elements.selectedCount = document.getElementById('selectedCount')!;
   elements.propertyEditor = document.getElementById('propertyEditor')!;
   elements.propertyEditorTitle = document.getElementById('propertyEditorTitle')!;
   elements.editingCellCoords = document.getElementById('editingCellCoords')!;
@@ -221,7 +204,6 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.secondTextLine = document.getElementById('secondTextLine') as HTMLInputElement;
   elements.secondCellText = document.getElementById('secondCellText') as HTMLInputElement;
   elements.state = document.getElementById('state') as HTMLSelectElement;
-  elements.generateDataBtn = document.getElementById('generateDataBtn') as HTMLButtonElement;
   elements.cancelPropsBtn = document.getElementById('cancelPropsBtn') as HTMLButtonElement;
   elements.savePropsBtn = document.getElementById('savePropsBtn') as HTMLButtonElement;
   elements.secondLineContainer = document.getElementById('secondLineContainer')!;
@@ -233,7 +215,6 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.confirmAiBtn = document.getElementById('confirmAiBtn') as HTMLButtonElement;
   elements.generateSampleCheckbox = document.getElementById('generateSampleCheckbox') as HTMLInputElement;
   elements.aiPromptContainer = document.getElementById('aiPromptContainer')!;
-  elements.rowWidthInput = document.getElementById('rowWidthInput') as HTMLInputElement;
   elements.colWidthInput = document.getElementById('colWidthInput') as HTMLInputElement;
   elements.colWidthContainer = document.getElementById('colWidthContainer')!;
   elements.slotCheckbox = document.getElementById('slotCheckbox') as HTMLInputElement;
@@ -243,9 +224,6 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.landingPage = document.getElementById('landingPage')!;
   elements.componentModeBtn = document.getElementById('componentModeBtn') as HTMLButtonElement;
   elements.propertyEditorOverlay = document.getElementById('propertyEditorOverlay')!;
-  elements.scanTableSection = document.getElementById('scanTableSection');
-  elements.scanTableBtn = document.getElementById('scanTableBtn') as HTMLButtonElement | null;
-  elements.scanTableInstructions = document.getElementById('scanTableInstructions') as HTMLElement | null;
   elements.componentDisplay = document.getElementById('componentDisplay')!;
   elements.scanOptionsContainer = null;
 
@@ -435,107 +413,69 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 function renderHeaderFooterGrids() {
-  // Header grid
   const headerGrid = document.getElementById('headerGrid');
   if (headerGrid) {
     headerGrid.innerHTML = '';
     headerGrid.style.setProperty('--header-cols', String(state.gridCols));
     
-    // Apply sorting to the grid data
+    // Apply sorting to maintain consistency with body cells
     const sortedCellProperties = sortColumnData(state.cellProperties, state.gridCols, state.gridRows);
     
     for (let c = 1; c <= state.gridCols; c++) {
       const cell = document.createElement('div');
       cell.className = 'header-cell';
-      cell.dataset.col = String(c); // Add dataset for tooltip identification
+      cell.dataset.col = String(c);
 
-      // Check for header data from uploaded file or user input
       const headerKey = `header-${c}`;
       const headerState = sortedCellProperties.get(headerKey);
-      if (headerState && headerState.properties) {
-        // Use the same approach as body cells - find the actual text property from the component
-        let displayText = '';
-        if (state.headerCellComponent?.availableProperties && state.headerCellComponent?.propertyTypes) {
-          const textProp = state.headerCellComponent.availableProperties.find(p =>
-            state.headerCellComponent!.propertyTypes[p] === 'TEXT');
-          if (textProp && headerState.properties[textProp]) {
-            displayText = headerState.properties[textProp];
-          }
-        }
-
-        // Fallback to hardcoded property name if we can't find the component property
-        if (!displayText && headerState.properties['Cell text#12234:32']) {
-          displayText = headerState.properties['Cell text#12234:32'];
-        }
-
-        if (displayText) {
-          cell.textContent = displayText;
-          cell.classList.add('edited');
-          cell.style.fontWeight = 'bold';
-        } else {
-          cell.textContent = `H${c}`;
-        }
-      } else {
-        cell.textContent = `H${c}`;
+      let displayText = '';
+      
+      if (headerState?.properties) {
+        const textProp = state.headerCellComponent?.availableProperties?.find(p =>
+          state.headerCellComponent!.propertyTypes[p] === 'TEXT');
+        displayText = (textProp && headerState.properties[textProp]) || 
+                     headerState.properties['Cell text#12234:32'] || '';
       }
 
-      cell.addEventListener('click', () => {
-        openPropertyEditor(`header-${c}`);
-      });
+      cell.textContent = displayText || `H${c}`;
+      if (displayText) {
+        cell.classList.add('edited');
+        cell.style.fontWeight = 'bold';
+      }
 
-      // Add hover events for tooltip
+      cell.addEventListener('click', () => openPropertyEditor(`header-${c}`));
       cell.addEventListener('mouseenter', (e) => showCellTooltip(e.target as HTMLDivElement));
       cell.addEventListener('mouseleave', hideCellTooltip);
-
       headerGrid.appendChild(cell);
     }
   }
-  // Footer grid
+  
   const footerGrid = document.getElementById('footerGrid');
   if (footerGrid) {
     footerGrid.innerHTML = '';
-    footerGrid.style.setProperty('--footer-cols', String(state.gridCols));
     const cell = document.createElement('div');
     cell.className = 'footer-cell';
     cell.style.gridColumn = `span ${state.gridCols}`;
 
-    // Check for footer data from user input
     const footerState = state.cellProperties.get('footer');
-    if (footerState && footerState.properties) {
-      // Use the same approach as other cells - find the actual text property from the component
-      let displayText = '';
-      if (state.footerComponent?.availableProperties && state.footerComponent?.propertyTypes) {
-        const textProp = state.footerComponent.availableProperties.find(p =>
-          state.footerComponent!.propertyTypes[p] === 'TEXT');
-        if (textProp && footerState.properties[textProp]) {
-          displayText = footerState.properties[textProp];
-        }
-      }
-
-      // Fallback to hardcoded property names if we can't find the component property
-      if (!displayText && footerState.properties['Total items#12006:49']) {
-        displayText = footerState.properties['Total items#12006:49'];
-      }
-
-      if (displayText) {
-        cell.textContent = displayText;
-        cell.classList.add('edited');
-        cell.style.fontWeight = 'bold';
-      } else {
-        cell.textContent = 'Footer';
-      }
-    } else {
-      cell.textContent = 'Footer';
+    let displayText = '';
+    
+    if (footerState?.properties) {
+      const textProp = state.footerComponent?.availableProperties?.find(p =>
+        state.footerComponent!.propertyTypes[p] === 'TEXT');
+      displayText = (textProp && footerState.properties[textProp]) || 
+                   footerState.properties['Total items#12006:49'] || '';
     }
 
-    cell.addEventListener('click', () => {
-      openPropertyEditor('footer');
-    });
+    cell.textContent = displayText || 'Footer';
+    if (displayText) {
+      cell.classList.add('edited');
+      cell.style.fontWeight = 'bold';
+    }
 
-    // Add hover events for tooltip
+    cell.addEventListener('click', () => openPropertyEditor('footer'));
     cell.addEventListener('mouseenter', (e) => showCellTooltip(e.target as HTMLDivElement));
     cell.addEventListener('mouseleave', hideCellTooltip);
-
     footerGrid.appendChild(cell);
   }
 }
@@ -546,17 +486,13 @@ function createGrid() {
   grid.innerHTML = '';
   grid.style.gridTemplateColumns = `repeat(${state.gridCols}, 50px)`;
 
-  // Update grid container width to accommodate all columns
   const gridContainer = document.getElementById('gridContainer');
   if (gridContainer) {
-    const cellWidth = 50; // matches var(--grid-cell-width)
-    const gap = 8; // matches var(--grid-gap) which is 0.5rem = 8px
-    const padding = 24; // matches var(--grid-padding) which is 0.75rem = 12px, but we need more for container
-    const totalWidth = (state.gridCols * cellWidth) + ((state.gridCols - 1) * gap) + (padding * 2);
-    gridContainer.style.minWidth = `${Math.max(totalWidth, 400)}px`; // Ensure minimum width
+    // Calculate total width: cellWidth(50px) * cols + gap(8px) * (cols-1) + padding(48px)
+    const totalWidth = (state.gridCols * 50) + ((state.gridCols - 1) * 8) + 48;
+    gridContainer.style.minWidth = `${Math.max(totalWidth, 400)}px`;
   }
 
-  // Apply sorting to the grid data
   const sortedCellProperties = sortColumnData(state.cellProperties, state.gridCols, state.gridRows);
 
   for (let r = 1; r <= state.gridRows; r++) {
@@ -566,58 +502,36 @@ function createGrid() {
       cell.dataset.row = String(r);
       cell.dataset.col = String(c);
 
-      // Get cell text from state if available
       const key = `${r},${c}`;
       const cellState = sortedCellProperties.get(key);
-      if (cellState && cellState.properties) {
-        // Check for slot property first
-        let hasSlotEnabled = false;
-        if (state.selectedComponent?.availableProperties && state.selectedComponent?.propertyTypes) {
-          const slotProp = state.selectedComponent.availableProperties.find(p =>
-            state.selectedComponent!.propertyTypes[p] === 'BOOLEAN' && p.toLowerCase().includes('slot'));
-          if (slotProp && cellState.properties[slotProp]) {
-            hasSlotEnabled = true;
-            cell.classList.add('slot-enabled');
-          }
+      let displayText = '';
+      let hasSlotEnabled = false;
+      
+      if (cellState?.properties && state.selectedComponent) {
+        const slotProp = state.selectedComponent.availableProperties?.find(p =>
+          state.selectedComponent!.propertyTypes[p] === 'BOOLEAN' && p.toLowerCase().includes('slot'));
+        if (slotProp && cellState.properties[slotProp]) {
+          hasSlotEnabled = true;
+          cell.classList.add('slot-enabled');
         }
 
-        // Use the same approach as AI data - find the actual text property from the component
-        let displayText = '';
-        if (state.selectedComponent?.availableProperties && state.selectedComponent?.propertyTypes) {
-          const textProp = state.selectedComponent.availableProperties.find(p =>
-            state.selectedComponent!.propertyTypes[p] === 'TEXT');
-          if (textProp && cellState.properties[textProp]) {
-            displayText = cellState.properties[textProp];
-          }
-        }
-
-        // Fallback to hardcoded property name if we can't find the component property
-        if (!displayText && cellState.properties['Cell text#12234:32']) {
-          displayText = cellState.properties['Cell text#12234:32'];
-        }
-
-        if (displayText) {
-          cell.textContent = displayText;
-          cell.classList.add('edited');
-          cell.style.fontWeight = 'bold';
-        } else if (hasSlotEnabled) {
-          cell.textContent = ''; // Show empty for slot-enabled cells
-        } else {
-          cell.textContent = `${r},${c}`;
-        }
-      } else {
-        cell.textContent = `${r},${c}`;
+        const textProp = state.selectedComponent.availableProperties?.find(p =>
+          state.selectedComponent!.propertyTypes[p] === 'TEXT');
+        displayText = (textProp && cellState.properties[textProp]) || 
+                     cellState.properties['Cell text#12234:32'] || '';
       }
 
-      cell.addEventListener('click', () => {
-        const key = `${r},${c}`;
-        openPropertyEditor(key);
-      });
+      if (displayText) {
+        cell.textContent = displayText;
+        cell.classList.add('edited');
+        cell.style.fontWeight = 'bold';
+      } else {
+        cell.textContent = hasSlotEnabled ? '' : `${r},${c}`;
+      }
 
-      // Add hover events for tooltip
+      cell.addEventListener('click', () => openPropertyEditor(key));
       cell.addEventListener('mouseenter', (e) => showCellTooltip(e.target as HTMLDivElement));
       cell.addEventListener('mouseleave', hideCellTooltip);
-
       grid.appendChild(cell);
     }
   }
@@ -868,17 +782,7 @@ function setupEventListeners() {
     }
   });
 
-  // Track mouse movement for better tooltip positioning
-  document.addEventListener('mousemove', function (e) {
-    mouseX = e.pageX;
-    mouseY = e.pageY;
 
-    // Update tooltip position if it's visible
-    if (state.tooltip.style.display === 'block') {
-      state.tooltip.style.left = `${mouseX + 10}px`;
-      state.tooltip.style.top = `${mouseY - 10}px`;
-    }
-  });
 }
 
 function setMode(newMode: State['mode']) {
@@ -959,26 +863,9 @@ function resetTableProperties() {
   showMessage("All cell properties have been reset.", "success");
 }
 
-function commitTableSize() {
-  if (state.selectedCells.size === 0) {
-    showMessage("Please select cells to define table size.", "error");
-    return;
-  }
-  state.sizeConfirmed = true;
-  elements.createTableBtn.disabled = false;
-  showMessage("Table size confirmed. You can now create the table or switch to edit mode.", "success");
-}
 
-function selectDimensionPreset(rows: number, cols: number) {
-  const startCell = document.querySelector(`.cell[data-row='1'][data-col='1']`) as HTMLDivElement;
-  const endCell = document.querySelector(`.cell[data-row='${rows}'][data-col='${cols}']`) as HTMLDivElement;
 
-  if (startCell && endCell) {
-    // Removed drag/selection logic
-  }
-  updateModeDependentVisibility();
-  commitTableSize();
-}
+
 
 function closePropertyEditor() {
   elements.propertyEditor.style.opacity = '0';
@@ -1927,7 +1814,10 @@ async function saveCellProperties() {
     let propertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
     if (key.startsWith('header-')) {
       // Use HEADER_CELL_MODEL
-      const newProps: any = {};
+      const cellState = getCellState(key);
+      const existingProps = cellState.properties || {};
+      const newProps: any = { ...existingProps };
+      
       for (const fieldDef of HEADER_CELL_MODEL) {
         const { name, type, defaultValue } = fieldDef;
         const input = document.getElementById(`dynamic-${name}`) as HTMLInputElement | HTMLSelectElement;
@@ -1935,7 +1825,10 @@ async function saveCellProperties() {
         if (type === 'BOOLEAN') {
           newProps[name] = (input as HTMLInputElement).checked;
         } else {
-          newProps[name] = input.value || defaultValue || '';
+          const inputValue = input.value;
+          if (inputValue || !existingProps[name]) {
+            newProps[name] = inputValue || defaultValue || '';
+          }
         }
       }
 
@@ -1947,7 +1840,6 @@ async function saveCellProperties() {
         console.log('[DEBUG] colWidthInput missing or empty when saving cell (footer)');
       }
 
-      const cellState = getCellState(key);
       cellState.properties = newProps;
 
       // If column width is set, apply it to the entire column
@@ -1985,27 +1877,7 @@ async function saveCellProperties() {
 
       console.log('[DEBUG] saveCellProperties footer', key, newProps);
       state.cellProperties.set(key, cellState);
-    } else if (key === 'footer') {
-      // Use FOOTER_MODEL
-      const newProps: any = {};
-      for (const fieldDef of FOOTER_MODEL) {
-        const { name, type } = fieldDef;
-        const input = document.getElementById(`dynamic-${name}`) as HTMLInputElement | HTMLSelectElement;
-        if (!input) continue;
-        if (type === 'BOOLEAN') {
-          newProps[name] = (input as HTMLInputElement).checked;
-        } else {
-          newProps[name] = input.value;
-        }
-      }
 
-      // For footer cells, we don't process column width since the input is hidden
-      // Just save the properties without any column width changes
-      const cellStateFooter = getCellState(key);
-      cellStateFooter.properties = newProps;
-
-      console.log('[DEBUG] saveCellProperties footer', key, newProps);
-      state.cellProperties.set(key, cellStateFooter);
     } else {
       // Body cell: save properties without duplication
       const props: any = {};
@@ -2339,7 +2211,9 @@ function updateCellVisuals() {
 
         // Set the display text or fallback to default
         if (displayText && typeof displayText === 'string' && displayText.trim().length > 0) {
-          cell.textContent = displayText;
+          // Decode HTML entities to prevent &amp;quot; issues
+          const decodedText = displayText.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+          cell.textContent = decodedText;
           cell.classList.add('edited');
           cell.style.fontWeight = 'bold';
         } else {
@@ -2376,22 +2250,7 @@ function updateCreateButtonState() {
   elements.createTableBtn.disabled = !state.sizeConfirmed;
 }
 
-// Advanced mapping from user prompt to faker type
-function mapPromptToFakerType(prompt: string): string {
-  const lower = prompt.toLowerCase();
-  if (lower.includes('name') && lower.includes('first')) return 'first name';
-  if (lower.includes('name') && lower.includes('last')) return 'last name';
-  if (lower.includes('name') || lower.includes('person')) return 'people name';
-  if (lower.includes('brand') || lower.includes('company')) return 'brand name';
-  if (lower.includes('email')) return 'email';
-  if (lower.includes('product')) return 'product';
-  if (lower.includes('price')) return 'price';
-  if (lower.includes('mobile') || lower.includes('phone')) return 'mobile number';
-  if (lower.includes('date')) return 'date';
-  if (lower.includes('color')) return 'color';
-  if (lower.includes('number') || lower.includes('random')) return 'random number';
-  return 'word'; // fallback
-}
+
 
 // Message handling
 window.onmessage = (event) => {
@@ -3171,10 +3030,7 @@ if (state.applyMode === 'column' && elements.colWidthInput) {
   elements.colWidthInput.style.display = 'inline-block';
 }
 
-// Set default values
-const defaultWidth = state.selectedComponent?.width || 100; // Use component width or fallback to 100
-const defaultHeight = 64;
-const defaultText = "content";
+
 
 // Parse CSV file
 function parseCSV(file: File): Promise<any[][]> {
@@ -3505,80 +3361,59 @@ function updateMainGridWithData(data: any[][]) {
   showMessage('File data loaded successfully', 'success');
 }
 
-// Helper function to sort column data based on header properties
 function sortColumnData(cellProperties: Map<string, any>, cols: number, rows: number): Map<string, any> {
-  // Create a copy of the cellProperties to avoid modifying the original
+  let hasSortableColumns = false;
+  
+  // Quick check if any columns need sorting
+  for (let c = 1; c <= cols; c++) {
+    const headerData = cellProperties.get(`header-${c}`);
+    if (headerData?.properties?.['Sortable'] === 'True' && 
+        (headerData.properties['Sorted'] === 'Ascending' || headerData.properties['Sorted'] === 'Descending')) {
+      hasSortableColumns = true;
+      break;
+    }
+  }
+  
+  // Return original if no sorting needed
+  if (!hasSortableColumns) return cellProperties;
+  
   const sortedCellProperties = new Map(cellProperties);
   
-  // Check each column for sorting properties
   for (let c = 1; c <= cols; c++) {
-    const headerKey = `header-${c}`;
-    const headerData = sortedCellProperties.get(headerKey);
+    const headerData = sortedCellProperties.get(`header-${c}`);
+    const sortable = headerData?.properties?.['Sortable'];
+    const sorted = headerData?.properties?.['Sorted'];
     
-    // Check if sorting is enabled for this header
-    if (headerData && headerData.properties) {
-      const sortable = headerData.properties['Sortable'];
-      const sorted = headerData.properties['Sorted'];
+    if (sortable === 'True' && (sorted === 'Ascending' || sorted === 'Descending')) {
+      const columnData: { rowIndex: number; cellData: any; value: string }[] = [];
       
-      // If sorting is enabled, sort the column data
-      if (sortable === 'True' && (sorted === 'Ascending' || sorted === 'Descending')) {
-        // Extract column data
-        const columnData: { rowIndex: number; cellData: any; value: string }[] = [];
+      for (let r = 1; r <= rows; r++) {
+        const cellData = sortedCellProperties.get(`${r},${c}`);
+        let cellValue = '';
         
-        for (let r = 1; r <= rows; r++) {
-          const cellKey = `${r},${c}`; // 1-based indexing for UI
-          const cellData = sortedCellProperties.get(cellKey);
-          
-          // Get the cell text value for sorting
-          let cellValue = '';
-          if (cellData && cellData.properties) {
-            // Try to find text property
-            const textProp = Object.keys(cellData.properties).find(
-              prop => prop.toLowerCase().includes('text') && 
-                     !prop.toLowerCase().includes('second') &&
-                     typeof cellData.properties[prop] === 'string'
-            );
-            
-            if (textProp) {
-              cellValue = String(cellData.properties[textProp]);
-            } else if (cellData.properties['Cell text#12234:32']) {
-              cellValue = String(cellData.properties['Cell text#12234:32']);
-            }
-          }
-          
-          columnData.push({
-            rowIndex: r,
-            cellData: cellData,
-            value: cellValue
-          });
+        if (cellData?.properties) {
+          const textProp = Object.keys(cellData.properties).find(prop => 
+            prop.toLowerCase().includes('text') && !prop.toLowerCase().includes('second') &&
+            typeof cellData.properties[prop] === 'string');
+          cellValue = (textProp && cellData.properties[textProp]) || 
+                     cellData.properties['Cell text#12234:32'] || '';
         }
         
-        // Sort the column data
-        columnData.sort((a, b) => {
-          // Try to parse as numbers first
-          const numA = parseFloat(a.value);
-          const numB = parseFloat(b.value);
-          
-          if (!isNaN(numA) && !isNaN(numB)) {
-            // Numeric sort
-            return sorted === 'Ascending' ? numA - numB : numB - numA;
-          } else {
-            // Alphabetic sort
-            return sorted === 'Ascending' 
-              ? a.value.localeCompare(b.value) 
-              : b.value.localeCompare(a.value);
-          }
-        });
+        columnData.push({ rowIndex: r, cellData, value: String(cellValue) });
+      }
+      
+      columnData.sort((a, b) => {
+        const numA = parseFloat(a.value);
+        const numB = parseFloat(b.value);
         
-        // Reassign sorted data back to cellProperties
-        for (let r = 1; r <= rows; r++) {
-          const originalRowIndex = columnData[r - 1].rowIndex;
-          const newCellKey = `${r},${c}`; // New position
-          const originalCellKey = `${originalRowIndex},${c}`; // Original position
-          
-          // Move the data from original position to new position
-          sortedCellProperties.set(newCellKey, columnData[r - 1].cellData);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return sorted === 'Ascending' ? numA - numB : numB - numA;
         }
+        return sorted === 'Ascending' ? a.value.localeCompare(b.value) : b.value.localeCompare(a.value);
+      });
+      
+      for (let r = 1; r <= rows; r++) {
+        sortedCellProperties.set(`${r},${c}`, columnData[r - 1].cellData);
       }
     }
   }
