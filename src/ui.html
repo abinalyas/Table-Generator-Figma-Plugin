@@ -2266,6 +2266,34 @@
       min-width: 24px;
       text-align: center;
     }
+
+    .column-delete-btn {
+      background: var(--cds-button-danger-primary);
+      border: none;
+      color: var(--cds-text-on-color);
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: all var(--animation-fast);
+      flex-shrink: 0;
+    }
+
+    .column-delete-btn:hover {
+      background: var(--cds-button-danger-hover);
+      transform: scale(1.1);
+    }
+
+    .column-item.deleted {
+      opacity: 0.5;
+      background: var(--cds-layer);
+      border-color: var(--cds-support-error);
+      text-decoration: line-through;
+    }
   </style>
 </head>
 <body>
@@ -2516,7 +2544,7 @@
           <button id="closeReorderModal" class="close-btn">&times;</button>
         </div>
         <div class="modal-body">
-          <p class="hint">Drag and drop column names to reorder them:</p>
+          <p class="hint">Drag and drop to reorder columns, or click × to delete unwanted columns:</p>
           <div id="columnList" class="column-list">
             <!-- Column items will be populated dynamically -->
           </div>

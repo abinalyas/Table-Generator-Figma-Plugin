@@ -3637,7 +3637,16 @@ function createColumnItem(columnIndex: number): HTMLElement {
     <span class="drag-handle">⋮⋮</span>
     <span class="column-name">${columnName}</span>
     <span class="column-index">${columnIndex}</span>
+    <button class="column-delete-btn" title="Delete column">×</button>
   `;
+  
+  // Add delete functionality
+  const deleteBtn = item.querySelector('.column-delete-btn') as HTMLButtonElement;
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    item.classList.toggle('deleted');
+    item.draggable = !item.classList.contains('deleted');
+  });
   
   // Add drag event listeners
   item.addEventListener('dragstart', handleDragStart);
@@ -3739,59 +3748,59 @@ function applyColumnReorder() {
   const columnList = document.getElementById('columnList');
   if (!columnList) return;
   
-  // Get new column order
+  // Get remaining columns (not deleted) and their new order
   const columnItems = Array.from(columnList.children) as HTMLElement[];
-  const newOrder = columnItems.map(item => parseInt(item.dataset.columnIndex || '0'));
+  const remainingColumns = columnItems
+    .filter(item => !item.classList.contains('deleted'))
+    .map(item => parseInt(item.dataset.columnIndex || '0'));
   
-  console.log('New column order:', newOrder);
+  console.log('Remaining columns:', remainingColumns);
   
-  // Apply the reordering to the table data
-  reorderTableColumns(newOrder);
+  // Apply the reordering and deletion to the table data
+  reorderAndDeleteColumns(remainingColumns);
   
   // Close modal
   const overlay = document.getElementById('columnReorderOverlay');
   if (overlay) overlay.style.display = 'none';
   
   // Show success message
-  showMessage('Columns reordered successfully!', 'success');
+  const deletedCount = columnItems.length - remainingColumns.length;
+  const message = deletedCount > 0 
+    ? `Columns reordered and ${deletedCount} column(s) deleted successfully!`
+    : 'Columns reordered successfully!';
+  showMessage(message, 'success');
 }
 
-function reorderTableColumns(newOrder: number[]) {
-  // Create a mapping from old column index to new column index
-  const columnMapping = new Map<number, number>();
-  newOrder.forEach((oldIndex, newIndex) => {
-    columnMapping.set(oldIndex, newIndex + 1); // Convert to 1-based indexing
-  });
+function reorderAndDeleteColumns(remainingColumns: number[]) {
+  // Update grid column count
+  const newColCount = remainingColumns.length;
+  state.gridCols = newColCount;
   
-  // Create new cell properties map with reordered columns
+  // Create new cell properties map with reordered and filtered columns
   const newCellProperties = new Map<string, any>();
   
-  // Reorder header cells
-  for (let oldCol = 1; oldCol <= state.gridCols; oldCol++) {
-    const newCol = columnMapping.get(oldCol);
-    if (newCol) {
-      const oldKey = `header-${oldCol}`;
-      const newKey = `header-${newCol}`;
-      const headerData = state.cellProperties.get(oldKey);
-      if (headerData) {
-        newCellProperties.set(newKey, headerData);
-      }
+  // Reorder and filter header cells
+  remainingColumns.forEach((oldCol, newIndex) => {
+    const newCol = newIndex + 1; // 1-based indexing
+    const oldKey = `header-${oldCol}`;
+    const newKey = `header-${newCol}`;
+    const headerData = state.cellProperties.get(oldKey);
+    if (headerData) {
+      newCellProperties.set(newKey, headerData);
     }
-  }
+  });
   
-  // Reorder body cells
+  // Reorder and filter body cells
   for (let row = 1; row <= state.gridRows; row++) {
-    for (let oldCol = 1; oldCol <= state.gridCols; oldCol++) {
-      const newCol = columnMapping.get(oldCol);
-      if (newCol) {
-        const oldKey = `${row},${oldCol}`;
-        const newKey = `${row},${newCol}`;
-        const cellData = state.cellProperties.get(oldKey);
-        if (cellData) {
-          newCellProperties.set(newKey, cellData);
-        }
+    remainingColumns.forEach((oldCol, newIndex) => {
+      const newCol = newIndex + 1; // 1-based indexing
+      const oldKey = `${row},${oldCol}`;
+      const newKey = `${row},${newCol}`;
+      const cellData = state.cellProperties.get(oldKey);
+      if (cellData) {
+        newCellProperties.set(newKey, cellData);
       }
-    }
+    });
   }
   
   // Keep footer data as is
@@ -3800,10 +3809,16 @@ function reorderTableColumns(newOrder: number[]) {
     newCellProperties.set('footer', footerData);
   }
   
-  // Update state with reordered data
+  // Update state with reordered and filtered data
   state.cellProperties = newCellProperties;
   
-  // Recreate the grid to reflect the new order
+  // Update scan options if they exist
+  const colsInput = document.getElementById('scanColsInput') as HTMLInputElement | null;
+  if (colsInput) {
+    colsInput.value = String(newColCount);
+  }
+  
+  // Recreate the grid to reflect the new structure
   createGrid();
   
   // Mark changes for reset
