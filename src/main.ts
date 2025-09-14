@@ -107,6 +107,8 @@ figma.clientStorage.getAsync('pluginSize').then(size => {
 
 let selectedComponent: ComponentNode | null = null;
 const cellInstanceMap = new Map<string, InstanceNode>();
+let lastScanTime = 0;
+const SCAN_DEBOUNCE_MS = 500;
 
 interface ScanResult {
     headerCell: ComponentNode | null;
@@ -124,6 +126,12 @@ let lastScanResult: ScanResult | undefined;
 let isCreatingTable = false;
 
 figma.on("selectionchange", async () => {
+    const now = Date.now();
+    if (now - lastScanTime < SCAN_DEBOUNCE_MS) {
+        console.log(`[selectionchange] Debouncing - ${now - lastScanTime}ms since last scan`);
+        return;
+    }
+    
     const selection = figma.currentPage.selection;
     console.log(`[selectionchange] Selection changed - count: ${selection.length}, types: ${selection.map(s => s.type).join(', ')}, names: ${selection.map(s => s.name).join(', ')}`);
 
@@ -325,53 +333,46 @@ function extractFooterDividerColorVariable(footer: ComponentNode): VariableAlias
 // Helper function to find border color variable
 function findBorderColorVariable(): VariableAlias | null {
     try {
-        // Try to get local variables
-        const localVariables = figma.variables.getLocalVariables();
-        console.log('🔍 Available local variables:', localVariables.map(v => v.name));
+        // Get all variables from all libraries (including local and external)
+        const allVariableCollections = figma.variables.getLocalVariableCollections();
+        const allVariables: Variable[] = [];
         
-        // If no local variables, try to get all variables
-        if (localVariables.length === 0) {
-            console.log('🔍 No local variables found, trying to get all variables...');
-            try {
-                // Try to get variables from the current page or document
-                console.log('🔍 Trying alternative methods to find variables...');
-                // Note: getLocalVariablesByMode() doesn't exist, so we'll try other approaches
-                
-                // Also try to get variables from the current selection
-                const selection = figma.currentPage.selection;
-                if (selection.length > 0) {
-                    console.log('🔍 Checking variables from current selection...');
-                    // Try to get variables from the selected node's parent or document
-                    const parent = selection[0].parent;
-                    if (parent) {
-                        console.log('🔍 Parent node:', parent.name, parent.type);
-                    }
-                }
-            } catch (error) {
-                console.log('🔍 Error getting all variables:', error);
-            }
+        // Collect all variables from all collections
+        for (const collection of allVariableCollections) {
+            const collectionVariables = collection.variableIds.map(id => figma.variables.getVariableById(id)).filter(v => v !== null) as Variable[];
+            allVariables.push(...collectionVariables);
         }
+        
+        console.log('🔍 Available variables from all libraries:', allVariables.map(v => `${v.name} (ID: ${v.id})`));
+        
+        // Debug: Print all variable names that contain 'border'
+        const borderVariables = allVariables.filter(v => v.name.toLowerCase().includes('border'));
+        console.log('🔍 Border-related variables found:', borderVariables.map(v => `${v.name} (ID: ${v.id})`));
+        
+        // Debug: Print all variable names that contain 'subtle'
+        const subtleVariables = allVariables.filter(v => v.name.toLowerCase().includes('subtle'));
+        console.log('🔍 Subtle-related variables found:', subtleVariables.map(v => `${v.name} (ID: ${v.id})`));
         
         // Look for common border variable names, prioritizing border-subtle-01
         const borderVariableNames = ['border-subtle-01', 'border-subtle-02', 'border-subtle', 'border-01', 'border-subtle-1'];
         let borderVariable = null;
         
         for (const variableName of borderVariableNames) {
-            borderVariable = localVariables.find(v => v.name === variableName);
+            borderVariable = allVariables.find(v => v.name === variableName);
             if (borderVariable) {
-                console.log(`🎨 Found border variable: ${variableName}`);
+                console.log(`🎨 Found border variable from libraries: ${variableName}`);
                 break;
             }
         }
         
         if (borderVariable) {
-            console.log('✅ Using border color variable for empty fills');
+            console.log('✅ Using border color variable from libraries');
             return {
                 id: borderVariable.id,
                 type: 'VARIABLE_ALIAS'
             };
         } else {
-            console.log('⚠️ No border color variable found');
+            console.log('⚠️ No border color variable found in any library');
             return null;
         }
     } catch (error) {
@@ -470,8 +471,82 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
                 footer = footerBar;
             }
             
+            // --- Enhanced divider scanning - look in the specific path first ---
+            console.log('🔍 Scanning for divider rectangles in specific path: Data table > Body > Data table body row item > Divider...');
+            let foundDividerRect: RectangleNode | null = null;
+            
+            if (bodyGroup && 'children' in bodyGroup) {
+                const bodyRowInstance = bodyGroup.children.find((n: SceneNode) => n.type === 'INSTANCE' && n.name === 'Data table body row item') as InstanceNode | undefined;
+                if (bodyRowInstance && 'children' in bodyRowInstance) {
+                    console.log('🔍 Found Data table body row item, searching for Divider rectangle inside...');
+                    
+                    // Look for the Divider rectangle directly in the body row item
+                    const dividerInBodyRow = bodyRowInstance.children.find((child: SceneNode) => 
+                        child.type === 'RECTANGLE' && child.name === 'Divider'
+                    ) as RectangleNode | undefined;
+                    
+                    if (dividerInBodyRow) {
+                        foundDividerRect = dividerInBodyRow;
+                        console.log('✅ Found Divider rectangle in Data table body row item:', dividerInBodyRow.name);
+                        console.log('🎨 Divider rectangle properties:', {
+                            width: dividerInBodyRow.width,
+                            height: dividerInBodyRow.height,
+                            fills: dividerInBodyRow.fills,
+                            locked: dividerInBodyRow.locked
+                        });
+                    } else {
+                        console.log('⚠️ No Divider rectangle found directly in Data table body row item, checking nested children...');
+                        
+                        // Check nested children in case the divider is deeper in the hierarchy
+                        for (const child of bodyRowInstance.children) {
+                            if ('children' in child) {
+                                const nestedDivider = child.children.find((grandChild: SceneNode) => 
+                                    grandChild.type === 'RECTANGLE' && grandChild.name === 'Divider'
+                                ) as RectangleNode | undefined;
+                                
+                                if (nestedDivider) {
+                                    foundDividerRect = nestedDivider;
+                                    console.log('✅ Found Divider rectangle in nested structure:', nestedDivider.name);
+                                    console.log('🎨 Nested divider rectangle properties:', {
+                                        width: nestedDivider.width,
+                                        height: nestedDivider.height,
+                                        fills: nestedDivider.fills,
+                                        locked: nestedDivider.locked
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Store the found divider rectangle
+            if (foundDividerRect) {
+                (lastScanResult as any).originalDividerRect = foundDividerRect;
+                console.log('✅ Stored original divider rectangle for direct use');
+            }
+            
             // --- Scan for select/expand cell components and divider ---
             if ('findAll' in tableFrame && typeof tableFrame.findAll === 'function') {
+                // Fallback: scan all rectangles if specific path didn't work
+                if (!foundDividerRect) {
+                    console.log('🔍 Specific path search failed, falling back to general rectangle scan...');
+                    const allRectangles = tableFrame.findAll(n => n.type === 'RECTANGLE') as RectangleNode[];
+                    console.log(`🔍 Found ${allRectangles.length} total rectangles`);
+                    console.log('🔍 All rectangle names:', allRectangles.map(r => `"${r.name}" (${r.width}x${r.height})`));
+                    
+                    const dividerRects = tableFrame.findAll(n => n.name === 'Divider' && n.type === 'RECTANGLE') as RectangleNode[];
+                    console.log(`🔍 Found ${dividerRects.length} rectangle elements named exactly 'Divider'`);
+                    
+                    if (dividerRects.length > 0) {
+                        foundDividerRect = dividerRects[0];
+                        console.log('✅ Found divider rectangle via fallback search:', foundDividerRect.name);
+                        (lastScanResult as any).originalDividerRect = foundDividerRect;
+                        console.log('✅ Stored fallback divider rectangle for direct use');
+                    }
+                }
+                
                 allInstances = tableFrame.findAll(n => n.type === 'INSTANCE' || n.type === 'COMPONENT') as (InstanceNode | ComponentNode)[];
                 for (const node of allInstances) {
                     if (node.name === 'Data table expand cell item') {
@@ -501,16 +576,16 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
                       }
                     }
                     
-                    // Check for divider components
+                    // Check for divider components - prioritize exact name match and skip AI labels
+                    if (node.name.includes('AI label') || node.name.includes('Select menu')) {
+                        continue; // Skip AI labels and select menus to improve performance
+                    }
+                    
                     const isDivider = node.name === 'Divider' || 
-                                    node.name.includes('divider') || 
-                                    node.name.toLowerCase().includes('divider') ||
+                                    (node.name.toLowerCase().includes('divider') && !node.name.includes('AI')) ||
                                     node.name.includes('line') ||
                                     node.name.includes('border') ||
-                                    node.name.includes('separator') ||
-                                    node.name.includes('hr') ||
-                                    node.name.includes('horizontal') ||
-                                    node.name.includes('rule');
+                                    node.name.includes('separator');
                     
                     if (isDivider) {
                       console.log('🔍 Found potential divider component:', node.name, node.type);
@@ -567,18 +642,9 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
                 console.warn('⚠️ Select cell component not found in scanned table. Selectable functionality will be disabled.');
             }
             
-            // If divider component is not found, try to create a simple one
+            // Log divider component status
             if (!dividerComponent) {
-                console.log('🔄 Divider component not found, attempting to create simple divider...');
-                try {
-                    dividerComponent = createSimpleDivider();
-                    console.log('✅ Created simple divider component');
-                    // Move the divider component to a hidden location to avoid cluttering the document
-                    dividerComponent.x = -10000;
-                    dividerComponent.y = -10000;
-                } catch (error) {
-                    console.error('❌ Error creating divider component:', error);
-                }
+                console.log('⚠️ No divider component found, will use original divider rectangle if available');
             }
             
             // Return the scan result
@@ -959,98 +1025,7 @@ function mapPropertyNames(uiProperties: { [key: string]: any }, componentPropert
     return mappedProps;
 }
 
-// Function to create a simple divider component
-function createSimpleDivider(colorVariable?: VariableAlias): ComponentNode {
-    // Create a simple horizontal line divider
-    const dividerComponent = figma.createComponent();
-    dividerComponent.name = "Simple Divider";
-    dividerComponent.resize(800, 1); // Default width, 1px height to match scanned table
-    
-    // Create a rectangle for the divider line
-    const dividerLine = figma.createRectangle();
-    dividerLine.name = "Divider Line";
-    dividerLine.resize(800, 1); // Match the height
-    dividerLine.x = 0;
-    dividerLine.y = 0;
-    
-    // Use the passed color variable if available, otherwise use hardcoded border-subtle-01
-    let borderVariable: VariableAlias | null = colorVariable || null;
-    
-    if (!borderVariable) {
-        // Try to find border-subtle-01 specifically
-        try {
-            const localVariables = figma.variables.getLocalVariables();
-            const borderSubtle01 = localVariables.find(v => v.name === 'border-subtle-01');
-            if (borderSubtle01) {
-                borderVariable = {
-                    id: borderSubtle01.id,
-                    type: 'VARIABLE_ALIAS'
-                };
-                console.log('✅ Found border-subtle-01 variable for simple divider');
-            } else {
-                console.log('⚠️ border-subtle-01 not found, trying fallback method');
-                borderVariable = findBorderColorVariable();
-            }
-        } catch (error) {
-            console.error('❌ Error finding border-subtle-01 variable:', error);
-            borderVariable = findBorderColorVariable();
-        }
-    }
-    
-    if (borderVariable) {
-        try {
-            const colorVariableFill: Paint = {
-                type: 'SOLID',
-                color: { r: 0, g: 0, b: 0 }, // Default color (will be overridden by variable)
-                boundVariables: {
-                    color: borderVariable
-                }
-            };
-            dividerLine.fills = [colorVariableFill];
-            console.log('✅ Applied border color variable to simple divider line');
-        } catch (error) {
-            console.error('❌ Error applying border color variable to simple divider:', error);
-            // Fallback to a subtle gray color
-            dividerLine.fills = [{
-                type: 'SOLID',
-                color: { r: 0.9, g: 0.9, b: 0.9 } // Light gray
-            }];
-            console.log('✅ Applied fallback gray color to simple divider line');
-        }
-    } else {
-        console.log('⚠️ No border color variable found, using fallback gray color for simple divider');
-        // Apply a subtle gray color as fallback
-        dividerLine.fills = [{
-            type: 'SOLID',
-            color: { r: 0.9, g: 0.9, b: 0.9 } // Light gray
-        }];
-        console.log('✅ Applied fallback gray color to simple divider line');
-    }
-    dividerLine.strokes = []; // No stroke
-    
-    // Add the line to the component
-    dividerComponent.appendChild(dividerLine);
-    
-    // Set auto-layout properties for responsive behavior
-    dividerComponent.layoutMode = "HORIZONTAL";
-    dividerComponent.primaryAxisSizingMode = "AUTO"; // Auto sizing
-    dividerComponent.counterAxisSizingMode = "FIXED"; // Keep height fixed
-    dividerComponent.itemSpacing = 0;
-    dividerComponent.paddingLeft = 0;
-    dividerComponent.paddingRight = 0;
-    dividerComponent.paddingTop = 0;
-    dividerComponent.paddingBottom = 0;
-    
-    // Set the divider line to fill the container width
-    dividerLine.layoutGrow = 1; // Make the line grow to fill available space
-    
-    // Clear default fill to make it theme-compatible
-    dividerComponent.fills = [];
-    
-    console.log('✅ Created simple divider with border color variable and responsive layout');
-    
-    return dividerComponent;
-}
+
 
 
 figma.ui.onmessage = async (msg: any) => {
@@ -1545,6 +1520,13 @@ figma.ui.onmessage = async (msg: any) => {
         cellInstanceMap.forEach(instance => instance.remove());
 
     } else if (msg.type === 'scan-table') {
+        const now = Date.now();
+        if (now - lastScanTime < SCAN_DEBOUNCE_MS) {
+            console.log(`[scan-table] Debouncing scan - ${now - lastScanTime}ms since last scan`);
+            return;
+        }
+        lastScanTime = now;
+        
         const selection = figma.currentPage.selection;
         console.log(`[scan-table] Selection check - count: ${selection.length}, types: ${selection.map(s => s.type).join(', ')}, names: ${selection.map(s => s.name).join(', ')}`);
         
@@ -1715,16 +1697,9 @@ figma.ui.onmessage = async (msg: any) => {
             if (headerRow && 'children' in headerRow) {
                 headerRowComponent = await headerRow.getMainComponentAsync();
                 
-                // Update header row properties to enable selectable/expandable functionality
-                console.log('🔄 Updating header row properties to add select/expand cells...');
-                const headerUpdateSuccess = await updateBodyRowProperties(headerRow);
-                if (headerUpdateSuccess) {
-                    console.log('✅ Header row properties updated successfully');
-                    // Wait a bit more for Figma to fully update the table structure
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                } else {
-                    console.warn('⚠️ Failed to update header row properties');
-                }
+                console.log('🔄 Updating header row properties for:', headerRow.name);
+                await updateBodyRowProperties(headerRow);
+                console.log('✅ Header row properties updated successfully');
                 
                 const headerCellInstance = headerRow.children.find((n: SceneNode) =>
                     n.type === 'INSTANCE' && n.name?.toLowerCase().includes('col 1')
@@ -1747,16 +1722,9 @@ figma.ui.onmessage = async (msg: any) => {
                 if (bodyRowInstance) {
                     bodyRowComponent = await bodyRowInstance.getMainComponentAsync();
                     
-                    // Update body row properties to enable selectable/expandable functionality
-                    console.log('🔄 Updating body row properties to add select/expand cells...');
-                    const updateSuccess = await updateBodyRowProperties(bodyRowInstance);
-                    if (updateSuccess) {
-                        console.log('✅ Body row properties updated successfully');
-                        // Wait a bit more for Figma to fully update the table structure
-                        await new Promise(resolve => setTimeout(resolve, 300));
-                    } else {
-                        console.warn('⚠️ Failed to update body row properties');
-                    }
+                    console.log('🔄 Updating body row properties for:', bodyRowInstance.name);
+                    await updateBodyRowProperties(bodyRowInstance);
+                    console.log('✅ Body row properties updated successfully');
                     
                     if ('children' in bodyRowInstance) {
                         const dataTableRow = bodyRowInstance.children.find(child => child.type === 'FRAME' && child.name === 'Data table row') as FrameNode | undefined;
@@ -1777,6 +1745,56 @@ figma.ui.onmessage = async (msg: any) => {
             // Extract footer template
             if (footerBar && footerBar.type === 'INSTANCE') {
                 footer = footerBar;
+            }
+            
+            // --- Enhanced divider scanning - look in the specific path first ---
+            console.log('🔍 Scanning for divider rectangles in specific path: Data table > Body > Data table body row item > Divider...');
+            let foundDividerRect: RectangleNode | null = null;
+            
+            if (bodyGroup && 'children' in bodyGroup) {
+                const bodyRowInstance = bodyGroup.children.find((n: SceneNode) => n.type === 'INSTANCE' && n.name === 'Data table body row item') as InstanceNode | undefined;
+                if (bodyRowInstance && 'children' in bodyRowInstance) {
+                    console.log('🔍 Found Data table body row item, searching for Divider rectangle inside...');
+                    
+                    // Look for the Divider rectangle directly in the body row item
+                    const dividerInBodyRow = bodyRowInstance.children.find((child: SceneNode) => 
+                        child.type === 'RECTANGLE' && child.name === 'Divider'
+                    ) as RectangleNode | undefined;
+                    
+                    if (dividerInBodyRow) {
+                        foundDividerRect = dividerInBodyRow;
+                        console.log('✅ Found Divider rectangle in Data table body row item:', dividerInBodyRow.name);
+                        console.log('🎨 Divider rectangle properties:', {
+                            width: dividerInBodyRow.width,
+                            height: dividerInBodyRow.height,
+                            fills: dividerInBodyRow.fills,
+                            locked: dividerInBodyRow.locked
+                        });
+                    } else {
+                        console.log('⚠️ No Divider rectangle found directly in Data table body row item, checking nested children...');
+                        
+                        // Check nested children in case the divider is deeper in the hierarchy
+                        for (const child of bodyRowInstance.children) {
+                            if ('children' in child) {
+                                const nestedDivider = child.children.find((grandChild: SceneNode) => 
+                                    grandChild.type === 'RECTANGLE' && grandChild.name === 'Divider'
+                                ) as RectangleNode | undefined;
+                                
+                                if (nestedDivider) {
+                                    foundDividerRect = nestedDivider;
+                                    console.log('✅ Found Divider rectangle in nested structure:', nestedDivider.name);
+                                    console.log('🎨 Nested divider rectangle properties:', {
+                                        width: nestedDivider.width,
+                                        height: nestedDivider.height,
+                                        fills: nestedDivider.fills,
+                                        locked: nestedDivider.locked
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             
             // --- Scan for select/expand cell components and divider AFTER updating body row properties ---
@@ -1810,16 +1828,16 @@ figma.ui.onmessage = async (msg: any) => {
                         console.log('✅ Using select cell component directly:', selectCellComponent.name);
                       }
                     }
-                    // Check for divider components with various common names
+                    // Check for divider components - prioritize exact name match and skip AI labels
+                    if (node.name.includes('AI label') || node.name.includes('Select menu')) {
+                        continue; // Skip AI labels and select menus to improve performance
+                    }
+                    
                     const isDivider = node.name === 'Divider' || 
-                                    node.name.includes('divider') || 
-                                    node.name.toLowerCase().includes('divider') ||
+                                    (node.name.toLowerCase().includes('divider') && !node.name.includes('AI')) ||
                                     node.name.includes('line') ||
                                     node.name.includes('border') ||
-                                    node.name.includes('separator') ||
-                                    node.name.includes('hr') ||
-                                    node.name.includes('horizontal') ||
-                                    node.name.includes('rule');
+                                    node.name.includes('separator');
                     
                     if (isDivider) {
                       console.log('🔍 Found potential divider component:', node.name, node.type);
@@ -1878,18 +1896,9 @@ figma.ui.onmessage = async (msg: any) => {
                 console.warn('⚠️ Select cell component not found in scanned table. Selectable functionality will be disabled.');
             }
             
-            // If divider component is not found, try to create a simple one
+            // Log divider component status
             if (!dividerComponent) {
-                console.log('🔄 Divider component not found, attempting to create simple divider...');
-                try {
-                    dividerComponent = createSimpleDivider();
-                    console.log('✅ Created simple divider component');
-                    // Move the divider component to a hidden location to avoid cluttering the document
-                    dividerComponent.x = -10000;
-                    dividerComponent.y = -10000;
-                } catch (error) {
-                    console.error('❌ Error creating divider component:', error);
-                }
+                console.log('⚠️ No divider component found, will use original divider rectangle if available');
             }
             
             // Get properties for the bodyCell template to send to UI
@@ -2079,64 +2088,37 @@ figma.ui.onmessage = async (msg: any) => {
                 // Try to create a temporary instance to get the actual visual properties
                 try {
                     const tempDividerInstance = dividerComponent.createInstance();
-                    console.log('🔍 Temporary divider instance properties:', {
-                        fills: tempDividerInstance.fills,
-                        strokes: tempDividerInstance.strokes,
-                        strokeWeight: tempDividerInstance.strokeWeight
-                    });
-                    
-                    // Store instance properties
+                    // Store instance properties efficiently
                     dividerProperties.instanceFills = tempDividerInstance.fills;
                     dividerProperties.instanceStrokes = tempDividerInstance.strokes;
                     dividerProperties.instanceStrokeWeight = tempDividerInstance.strokeWeight;
-                    dividerProperties.instanceHeight = tempDividerInstance.height; // Capture instance height
+                    dividerProperties.instanceHeight = tempDividerInstance.height;
                     
                     // Check for color variables in instance fills
-                    if (tempDividerInstance.fills && Array.isArray(tempDividerInstance.fills) && tempDividerInstance.fills.length > 0) {
+                    if (tempDividerInstance.fills && Array.isArray(tempDividerInstance.fills)) {
                         for (const fill of tempDividerInstance.fills) {
-                            if (fill.type === 'SOLID' && fill.boundVariables && fill.boundVariables.color) {
-                                console.log('🎨 Found color variable in instance:', fill.boundVariables.color);
+                            if (fill.type === 'SOLID' && fill.boundVariables?.color) {
                                 dividerProperties.instanceColorVariable = fill.boundVariables.color;
+                                break;
                             }
                         }
                     }
                     
-                    // Check instance children
-                    if ('children' in tempDividerInstance) {
-                        console.log('🔍 Temporary divider instance children:', tempDividerInstance.children.length);
-                        for (const child of tempDividerInstance.children) {
-                            console.log('🔍 Temporary instance child:', child.name, child.type, {
-                                fills: 'fills' in child ? child.fills : 'N/A',
-                                strokes: 'strokes' in child ? child.strokes : 'N/A',
-                                strokeWeight: 'strokeWeight' in child ? child.strokeWeight : 'N/A'
-                            });
-                            
-                            if ('fills' in child && child.fills && Array.isArray(child.fills) && child.fills.length > 0) {
-                                dividerProperties.instanceChildFills = child.fills;
-                                console.log('✅ Found instance child fills:', child.fills);
-                                
-                                // Check for color variables in fills
-                                for (const fill of child.fills) {
-                                    if (fill.type === 'SOLID' && fill.boundVariables && fill.boundVariables.color) {
-                                        console.log('🎨 Found color variable in instance child:', fill.boundVariables.color);
-                                        dividerProperties.instanceChildColorVariable = fill.boundVariables.color;
-                                    }
+                    // Check first child for properties
+                    if ('children' in tempDividerInstance && tempDividerInstance.children.length > 0) {
+                        const child = tempDividerInstance.children[0];
+                        if ('fills' in child && child.fills && Array.isArray(child.fills) && child.fills.length > 0) {
+                            dividerProperties.instanceChildFills = child.fills;
+                            for (const fill of child.fills) {
+                                if (fill.type === 'SOLID' && fill.boundVariables?.color) {
+                                    dividerProperties.instanceChildColorVariable = fill.boundVariables.color;
+                                    break;
                                 }
                             }
-                            if ('strokes' in child && child.strokes && Array.isArray(child.strokes) && child.strokes.length > 0) {
-                                dividerProperties.instanceChildStrokes = child.strokes;
-                                console.log('✅ Found instance child strokes:', child.strokes);
-                            }
-                            if ('strokeWeight' in child && child.strokeWeight !== undefined) {
-                                dividerProperties.instanceChildStrokeWeight = child.strokeWeight;
-                                console.log('✅ Found instance child stroke weight:', child.strokeWeight);
-                            }
-                            if ('height' in child && child.height !== undefined) {
-                                dividerProperties.instanceChildHeight = child.height;
-                                console.log('✅ Found instance child height:', child.height);
-                            }
-                            break;
                         }
+                        if ('strokes' in child && child.strokes) dividerProperties.instanceChildStrokes = child.strokes;
+                        if ('strokeWeight' in child) dividerProperties.instanceChildStrokeWeight = child.strokeWeight;
+                        if ('height' in child) dividerProperties.instanceChildHeight = child.height;
                     }
                     
                     tempDividerInstance.remove();
@@ -2167,6 +2149,15 @@ figma.ui.onmessage = async (msg: any) => {
                                 for (const fill of child.fills) {
                                     if (fill.type === 'SOLID' && fill.boundVariables && fill.boundVariables.color) {
                                         console.log('🎨 Found color variable in child:', fill.boundVariables.color);
+                                        // Debug: Get variable name
+                                        try {
+                                            const variable = figma.variables.getVariableById(fill.boundVariables.color.id);
+                                            if (variable) {
+                                                console.log('🎨 Child color variable name:', variable.name);
+                                            }
+                                        } catch (e) {
+                                            console.log('⚠️ Could not get variable name for child color variable');
+                                        }
                                         dividerProperties.childColorVariable = fill.boundVariables.color;
                                     }
                                 }
@@ -2230,6 +2221,14 @@ figma.ui.onmessage = async (msg: any) => {
                 expandCellComponent,
                 dividerComponent
             };
+            
+            // Store the found divider rectangle in lastScanResult for direct use
+            if (foundDividerRect) {
+                (lastScanResult as any).originalDividerRect = foundDividerRect;
+                console.log('✅ Stored original divider rectangle in lastScanResult for direct use');
+            } else {
+                console.log('⚠️ No divider rectangle found in specific path, will use component fallback');
+            }
             
             // Store header row properties in lastScanResult for later use
             (lastScanResult as any).headerRowProperties = headerRowProperties;
@@ -2643,9 +2642,19 @@ figma.ui.onmessage = async (msg: any) => {
                         // Add the data row to the body row item frame
                         bodyRowItemFrame.appendChild(rowFrame);
                         
-                        // Add divider after the data row (except for the last row)
-                        if (r < rows - 1) {
-                            if (lastScanResult.dividerComponent) {
+                        // Add divider after the data row (including the last row)
+                        {
+                            // Use original divider rectangle if available, otherwise fallback to component
+                            if ((lastScanResult as any).originalDividerRect) {
+                                try {
+                                    const divider = ((lastScanResult as any).originalDividerRect as RectangleNode).clone();
+                                    divider.resize(totalTableWidth, divider.height);
+                                    bodyRowItemFrame.appendChild(divider);
+                                    console.log('✅ Added cloned divider rectangle with theme-aware colors');
+                                } catch (error) {
+                                    console.error('❌ Error cloning divider rectangle:', error);
+                                }
+                            } else if (lastScanResult.dividerComponent) {
                                 try {
                                     const divider = lastScanResult.dividerComponent.createInstance();
                                     
@@ -2708,6 +2717,14 @@ figma.ui.onmessage = async (msg: any) => {
                                         }
                                     }
                                     
+                                    // Second priority: Apply fills from scanned divider child
+                                    if (!appliedColor && dividerProps.childFills && Array.isArray(dividerProps.childFills) && dividerProps.childFills.length > 0) {
+                                        console.log('🎨 Applying scanned divider child fills:', dividerProps.childFills);
+                                        divider.fills = dividerProps.childFills;
+                                        appliedColor = true;
+                                        console.log('✅ Applied scanned divider child fills');
+                                    }
+                                    
                                     // Third priority: Apply fills from scanned divider
                                     if (!appliedColor && dividerProps.fills && Array.isArray(dividerProps.fills) && dividerProps.fills.length > 0) {
                                         console.log('🎨 Applying scanned divider fills:', dividerProps.fills);
@@ -2715,14 +2732,20 @@ figma.ui.onmessage = async (msg: any) => {
                                         appliedColor = true;
                                     }
                                     
-                                    // Last resort: Apply fallback gray color
+                                    // Last resort: Use scanned divider color or fallback gray
                                     if (!appliedColor) {
-                                        console.log('⚠️ No color variable found, applying fallback gray color');
-                                        divider.fills = [{
-                                            type: 'SOLID',
-                                            color: { r: 0.9, g: 0.9, b: 0.9 } // Light gray
-                                        }];
-                                        console.log('✅ Applied fallback gray color to divider');
+                                        if (dividerProps.childFills && Array.isArray(dividerProps.childFills) && dividerProps.childFills.length > 0) {
+                                            console.log('🎨 Using scanned divider child color:', dividerProps.childFills[0]);
+                                            divider.fills = dividerProps.childFills;
+                                            appliedColor = true;
+                                        } else {
+                                            console.log('⚠️ No color variable found, applying fallback gray color');
+                                            divider.fills = [{
+                                                type: 'SOLID',
+                                                color: { r: 0.9, g: 0.9, b: 0.9 } // Light gray
+                                            }];
+                                        }
+                                        console.log('✅ Applied divider color');
                                     }
                                             
                                             // Apply strokes if present in the original divider
@@ -2993,10 +3016,8 @@ figma.ui.onmessage = async (msg: any) => {
                                     console.error('Error creating divider instance:', error);
                                 }
                             } else {
-                                console.log('⚠️ No divider component available for row', r + 1);
+                                console.log('⚠️ No divider component available for row', r + 1, '(update)');
                             }
-                        } else {
-                            console.log('ℹ️ Skipping divider for last row', r + 1);
                         }
                         
                         bodyWrapperFrame.appendChild(bodyRowItemFrame);
@@ -3062,6 +3083,10 @@ figma.ui.onmessage = async (msg: any) => {
                         bodyRowComponentId: lastScanResult.bodyRowComponent?.id || null,
                         // Store header row properties for fill variables
                         headerRowProperties: (lastScanResult as any).headerRowProperties || null,
+                        // Store divider properties for fill variables
+                        dividerProperties: (lastScanResult as any).dividerProperties || null,
+                        // Store original divider rectangle ID for direct cloning
+                        originalDividerRectId: (lastScanResult as any).originalDividerRect?.id || null,
                         // Store component names for debugging
                         componentNames: {
                             headerCell: lastScanResult.headerCell?.name || null,
@@ -3299,6 +3324,25 @@ figma.ui.onmessage = async (msg: any) => {
                                 console.log('✅ Restored header row properties:', storedScan.headerRowProperties);
                             }
                             
+                            // Restore divider properties if available
+                            if (storedScan.dividerProperties) {
+                                (lastScanResult as any).dividerProperties = storedScan.dividerProperties;
+                                console.log('✅ Restored divider properties:', storedScan.dividerProperties);
+                            }
+                            
+                            // Restore original divider rectangle if available
+                            if (storedScan.originalDividerRectId) {
+                                try {
+                                    const dividerRectNode = figma.getNodeById(storedScan.originalDividerRectId);
+                                    if (dividerRectNode && dividerRectNode.type === 'RECTANGLE') {
+                                        (lastScanResult as any).originalDividerRect = dividerRectNode;
+                                        console.log('✅ Restored original divider rectangle:', dividerRectNode.name);
+                                    }
+                                } catch (error) {
+                                    console.log('⚠️ Could not restore original divider rectangle:', error);
+                                }
+                            }
+                            
                             console.log('✅ Successfully restored lastScanResult from stored data');
                             console.log('Restored components:', {
                                 headerCell: headerCell?.name,
@@ -3423,6 +3467,25 @@ figma.ui.onmessage = async (msg: any) => {
                                     if (storedScan.headerRowProperties) {
                                         (lastScanResult as any).headerRowProperties = storedScan.headerRowProperties;
                                         console.log('✅ Restored header row properties (name-based):', storedScan.headerRowProperties);
+                                    }
+                                    
+                                    // Restore divider properties if available
+                                    if (storedScan.dividerProperties) {
+                                        (lastScanResult as any).dividerProperties = storedScan.dividerProperties;
+                                        console.log('✅ Restored divider properties (name-based):', storedScan.dividerProperties);
+                                    }
+                                    
+                                    // Restore original divider rectangle if available
+                                    if (storedScan.originalDividerRectId) {
+                                        try {
+                                            const dividerRectNode = figma.getNodeById(storedScan.originalDividerRectId);
+                                            if (dividerRectNode && dividerRectNode.type === 'RECTANGLE') {
+                                                (lastScanResult as any).originalDividerRect = dividerRectNode;
+                                                console.log('✅ Restored original divider rectangle (name-based):', dividerRectNode.name);
+                                            }
+                                        } catch (error) {
+                                            console.log('⚠️ Could not restore original divider rectangle (name-based):', error);
+                                        }
                                     }
                                     
                                     console.log('✅ Successfully restored lastScanResult using name-based fallback');
@@ -3605,6 +3668,72 @@ figma.ui.onmessage = async (msg: any) => {
                     expandCellComponent: expandCellComponent as ComponentNode | null,
                     dividerComponent: dividerComponent as ComponentNode | null
                 };
+                
+                // Try to extract divider properties from the found divider component
+                if (dividerComponent) {
+                    console.log('🔍 Extracting divider properties from found component:', dividerComponent.name);
+                    const dividerProperties: { [key: string]: any } = {};
+                    
+                    try {
+                        // Store the actual visual properties from the divider component
+                        dividerProperties.fills = dividerComponent.fills;
+                        dividerProperties.strokes = dividerComponent.strokes;
+                        dividerProperties.strokeWeight = dividerComponent.strokeWeight;
+                        dividerProperties.cornerRadius = dividerComponent.cornerRadius;
+                        dividerProperties.effects = dividerComponent.effects;
+                        dividerProperties.height = dividerComponent.height;
+                        
+                        // Check for color variables in main component fills
+                        if (dividerComponent.fills && Array.isArray(dividerComponent.fills) && dividerComponent.fills.length > 0) {
+                            for (const fill of dividerComponent.fills) {
+                                if (fill.type === 'SOLID' && fill.boundVariables && fill.boundVariables.color) {
+                                    console.log('🎨 Found color variable in divider component:', fill.boundVariables.color);
+                                    dividerProperties.colorVariable = fill.boundVariables.color;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Check child elements for properties
+                        if ('children' in dividerComponent && dividerComponent.children.length > 0) {
+                            const child = dividerComponent.children[0];
+                            if ('fills' in child && child.fills && Array.isArray(child.fills) && child.fills.length > 0) {
+                                dividerProperties.childFills = child.fills;
+                                for (const fill of child.fills) {
+                                    if (fill.type === 'SOLID' && fill.boundVariables?.color) {
+                                        dividerProperties.childColorVariable = fill.boundVariables.color;
+                                        break;
+                                    }
+                                }
+                            }
+                            if ('strokes' in child && child.strokes) dividerProperties.childStrokes = child.strokes;
+                            if ('strokeWeight' in child) dividerProperties.childStrokeWeight = child.strokeWeight;
+                            if ('height' in child) dividerProperties.childHeight = child.height;
+                        }
+                        
+                        // Store divider properties in lastScanResult
+                        (lastScanResult as any).dividerProperties = dividerProperties;
+                        console.log('✅ Extracted and stored divider properties for update');
+                    } catch (error) {
+                        console.error('❌ Error extracting divider properties:', error);
+                    }
+                }
+                
+                // Try to find original divider rectangle in the table frame
+                if (tableFrame && 'findOne' in tableFrame) {
+                    try {
+                        const dividerRect = tableFrame.findOne(n => 
+                            n.type === 'RECTANGLE' && n.name === 'Divider'
+                        ) as RectangleNode | null;
+                        
+                        if (dividerRect) {
+                            (lastScanResult as any).originalDividerRect = dividerRect;
+                            console.log('✅ Found original divider rectangle in table frame:', dividerRect.name);
+                        }
+                    } catch (error) {
+                        console.log('⚠️ Could not find original divider rectangle in table frame:', error);
+                    }
+                }
             }
 
             console.log('✅ Found table frame to update:', tableFrame.name);
@@ -3950,8 +4079,15 @@ figma.ui.onmessage = async (msg: any) => {
                 // Add the data row to the body row item frame
                 bodyRowItemFrame.appendChild(rowFrame);
                 
-                // Add divider after the data row (except for the last row)
-                if (r < rows - 1) {
+                // Add divider after the data row (including the last row)
+                {
+                    console.log('🔍 Checking divider component for row', r + 1, '(update):', {
+                        hasDividerComponent: !!lastScanResult.dividerComponent,
+                        dividerComponentName: lastScanResult.dividerComponent?.name,
+                        hasDividerProperties: !!(lastScanResult as any).dividerProperties,
+                        hasOriginalDividerRect: !!(lastScanResult as any).originalDividerRect
+                    });
+                    
                     if (lastScanResult.dividerComponent) {
                         try {
                             const divider = lastScanResult.dividerComponent.createInstance();
@@ -4222,11 +4358,20 @@ figma.ui.onmessage = async (msg: any) => {
                         } catch (error) { 
                             console.error('Error creating divider instance (update):', error);
                         }
+                    } else if ((lastScanResult as any).originalDividerRect) {
+                        try {
+                            console.log('🔄 Using original divider rectangle for row', r + 1, '(update)');
+                            const divider = ((lastScanResult as any).originalDividerRect as RectangleNode).clone();
+                            divider.resize(totalTableWidth, divider.height);
+                            bodyRowItemFrame.appendChild(divider);
+                            console.log('✅ Added cloned divider rectangle for row', r + 1, '(update)');
+                        } catch (error) {
+                            console.error('❌ Error cloning divider rectangle for update:', error);
+                            console.log('⚠️ No divider available for row', r + 1, '(update)');
+                        }
                     } else {
-                        console.log('⚠️ No divider component available for row', r + 1, '(update)');
+                        console.log('⚠️ No divider component or rectangle available for row', r + 1, '(update)');
                     }
-                } else {
-                    console.log('ℹ️ Skipping divider for last row', r + 1, '(update)');
                 }
                 
                 bodyWrapperFrame.appendChild(bodyRowItemFrame);

@@ -66,7 +66,7 @@ interface Elements {
   customCellText: HTMLInputElement;
   customCellTextContainer: HTMLElement;
   landingPage: HTMLElement;
-  componentModeBtn: HTMLButtonElement;
+  componentModeBtn: HTMLButtonElement | null;
   propertyEditorOverlay: HTMLElement;
   componentDisplay: HTMLElement;
   scanOptionsContainer: HTMLElement | null;
@@ -222,7 +222,7 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.customCellText = document.getElementById('customCellText') as HTMLInputElement;
   elements.customCellTextContainer = document.getElementById('customCellTextContainer')!;
   elements.landingPage = document.getElementById('landingPage')!;
-  elements.componentModeBtn = document.getElementById('componentModeBtn') as HTMLButtonElement;
+  elements.componentModeBtn = document.getElementById('componentModeBtn') as HTMLButtonElement | null;
   elements.propertyEditorOverlay = document.getElementById('propertyEditorOverlay')!;
   elements.componentDisplay = document.getElementById('componentDisplay')!;
   elements.scanOptionsContainer = null;
@@ -402,10 +402,12 @@ window.addEventListener('DOMContentLoaded', () => {
   const defaultHeight = 64;
   const defaultText = "content";
 
-  // Setup landing page button logic
-  elements.componentModeBtn.onclick = () => {
-    elements.landingPage.style.display = 'none';
-  };
+  // Setup landing page button logic (only if element exists)
+  if (elements.componentModeBtn) {
+    elements.componentModeBtn.onclick = () => {
+      elements.landingPage.style.display = 'none';
+    };
+  }
 
   // Initialize tooltip
   state.tooltip.className = 'cell-tooltip';
@@ -2449,7 +2451,9 @@ window.onmessage = (event) => {
       // Show landing page and componentModeBtn again for new table generation
       elements.landingPage.style.display = 'flex';
       hideMessage(); // Hide status messages on landing page
-      elements.componentModeBtn.style.display = 'inline-block';
+      if (elements.componentModeBtn) {
+        elements.componentModeBtn.style.display = 'inline-block';
+      }
       elements.gridContainer.style.display = 'none';
       elements.actionButtons.style.display = 'none';
       elements.propertyEditor.style.display = 'none';
