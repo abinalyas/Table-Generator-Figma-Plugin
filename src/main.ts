@@ -553,26 +553,22 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
                       expandCellFound = true;
                       if (node.type === 'INSTANCE' && node.mainComponent) {
                         expandCellComponent = node.mainComponent;
+                        console.log('✅ Found Data table expand cell item from instance:', expandCellComponent.name);
+                      } else if (node.type === 'COMPONENT') {
+                        expandCellComponent = node;
+                        console.log('✅ Found Data table expand cell item component directly:', expandCellComponent.name);
                       }
                     }
-                    // Check for select/checkbox components with various common names
-                    const isSelectCell = node.name === 'Data table select cell item' ||
-                                       node.name.includes('select') ||
-                                       node.name.includes('checkbox') ||
-                                       node.name.includes('check') ||
-                                       node.name.includes('radio') ||
-                                       node.name.toLowerCase().includes('select') ||
-                                       node.name.toLowerCase().includes('checkbox');
-                    
-                    if (isSelectCell && !selectCellFound) {
+                    // Check for select cell components - only exact name match
+                    if (node.name === 'Data table select cell item' && !selectCellFound) {
                       selectCellFound = true;
-                      console.log('🔍 Found select cell component:', node.name, node.type);
+                      console.log('🔍 Found Data table select cell item:', node.name, node.type);
                       if (node.type === 'INSTANCE' && node.mainComponent) {
                         selectCellComponent = node.mainComponent;
-                        console.log('✅ Using select cell from instance:', selectCellComponent.name);
+                        console.log('✅ Using Data table select cell item from instance:', selectCellComponent.name);
                       } else if (node.type === 'COMPONENT') {
                         selectCellComponent = node;
-                        console.log('✅ Using select cell component directly:', selectCellComponent.name);
+                        console.log('✅ Using Data table select cell item component directly:', selectCellComponent.name);
                       }
                     }
                     
@@ -1806,26 +1802,22 @@ figma.ui.onmessage = async (msg: any) => {
                       expandCellFound = true;
                       if (node.type === 'INSTANCE' && node.mainComponent) {
                         expandCellComponent = node.mainComponent;
+                        console.log('✅ Found Data table expand cell item from instance:', expandCellComponent.name);
+                      } else if (node.type === 'COMPONENT') {
+                        expandCellComponent = node;
+                        console.log('✅ Found Data table expand cell item component directly:', expandCellComponent.name);
                       }
                     }
-                    // Check for select/checkbox components with various common names
-                    const isSelectCell = node.name === 'Data table select cell item' ||
-                                       node.name.includes('select') ||
-                                       node.name.includes('checkbox') ||
-                                       node.name.includes('check') ||
-                                       node.name.includes('radio') ||
-                                       node.name.toLowerCase().includes('select') ||
-                                       node.name.toLowerCase().includes('checkbox');
-                    
-                    if (isSelectCell && !selectCellFound) {
+                    // Check for select cell components - only exact name match
+                    if (node.name === 'Data table select cell item' && !selectCellFound) {
                       selectCellFound = true;
-                      console.log('🔍 Found select cell component:', node.name, node.type);
+                      console.log('🔍 Found Data table select cell item:', node.name, node.type);
                       if (node.type === 'INSTANCE' && node.mainComponent) {
                         selectCellComponent = node.mainComponent;
-                        console.log('✅ Using select cell from instance:', selectCellComponent.name);
+                        console.log('✅ Using Data table select cell item from instance:', selectCellComponent.name);
                       } else if (node.type === 'COMPONENT') {
                         selectCellComponent = node;
-                        console.log('✅ Using select cell component directly:', selectCellComponent.name);
+                        console.log('✅ Using Data table select cell item component directly:', selectCellComponent.name);
                       }
                     }
                     // Check for divider components - prioritize exact name match and skip AI labels
