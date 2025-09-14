@@ -244,7 +244,17 @@ window.addEventListener('DOMContentLoaded', () => {
   const generateTableFromPromptBtn = document.getElementById('generateTableFromPromptBtn') as HTMLButtonElement | null;
   useSinglePrompt?.addEventListener('change', () => {
     if (singlePromptContainer) {
-      singlePromptContainer.style.display = useSinglePrompt.checked ? 'block' : 'none';
+      if (useSinglePrompt.checked) {
+        singlePromptContainer.style.display = 'block';
+        requestAnimationFrame(() => {
+          singlePromptContainer.classList.add('show');
+        });
+      } else {
+        singlePromptContainer.classList.remove('show');
+        setTimeout(() => {
+          singlePromptContainer.style.display = 'none';
+        }, 250);
+      }
     }
 
     // If single prompt is selected, deselect file upload
@@ -253,7 +263,10 @@ window.addEventListener('DOMContentLoaded', () => {
     if (useSinglePrompt?.checked && useFileUpload) {
       useFileUpload.checked = false;
       if (fileUploadContainer) {
-        fileUploadContainer.style.display = 'none';
+        fileUploadContainer.classList.remove('show');
+        setTimeout(() => {
+          fileUploadContainer.style.display = 'none';
+        }, 250);
       }
     }
   });
@@ -267,14 +280,22 @@ window.addEventListener('DOMContentLoaded', () => {
       generateTableFromPromptBtn.disabled = !hasPrompt;
       generateTableFromPromptBtn.style.opacity = hasPrompt ? '1' : '0.5';
       generateTableFromPromptBtn.style.cursor = hasPrompt ? 'pointer' : 'not-allowed';
+      generateTableFromPromptBtn.title = hasPrompt ? 'Generate table with AI' : 'Enter a prompt to enable';
+      
+      // Add visual feedback for character count
+      const charCount = singlePromptText.value.length;
+      if (charCount > 0 && charCount < 10) {
+        generateTableFromPromptBtn.title = 'Prompt too short - add more details';
+      }
     }
   }
 
-  // Initially disable the button
+  // Initially disable the button with better visual feedback
   if (generateTableFromPromptBtn) {
     generateTableFromPromptBtn.disabled = true;
     generateTableFromPromptBtn.style.opacity = '0.5';
     generateTableFromPromptBtn.style.cursor = 'not-allowed';
+    generateTableFromPromptBtn.title = 'Enter a prompt to enable';
   }
 
   // Listen for prompt input changes
@@ -289,7 +310,17 @@ window.addEventListener('DOMContentLoaded', () => {
   const fileUploadContainer = document.getElementById('fileUploadContainer') as HTMLElement | null;
   useFileUpload?.addEventListener('change', () => {
     if (fileUploadContainer) {
-      fileUploadContainer.style.display = useFileUpload.checked ? 'block' : 'none';
+      if (useFileUpload.checked) {
+        fileUploadContainer.style.display = 'block';
+        requestAnimationFrame(() => {
+          fileUploadContainer.classList.add('show');
+        });
+      } else {
+        fileUploadContainer.classList.remove('show');
+        setTimeout(() => {
+          fileUploadContainer.style.display = 'none';
+        }, 250);
+      }
     }
 
     // If file upload is selected, deselect single prompt
@@ -298,7 +329,10 @@ window.addEventListener('DOMContentLoaded', () => {
     if (useFileUpload?.checked && useSinglePrompt) {
       useSinglePrompt.checked = false;
       if (singlePromptContainer) {
-        singlePromptContainer.style.display = 'none';
+        singlePromptContainer.classList.remove('show');
+        setTimeout(() => {
+          singlePromptContainer.style.display = 'none';
+        }, 250);
       }
     }
   });
@@ -366,6 +400,10 @@ window.addEventListener('DOMContentLoaded', () => {
     const prompt = (document.getElementById('singlePromptText') as HTMLTextAreaElement | null)?.value?.trim();
     if (!prompt) { showMessage('Enter a prompt', 'error'); return; }
 
+    // Add loading state to button
+    generateTableFromPromptBtn.classList.add('loading');
+    generateTableFromPromptBtn.disabled = true;
+    
     // Show loader when starting AI generation
     showLoader('Generating content with AI...');
 
@@ -373,6 +411,8 @@ window.addEventListener('DOMContentLoaded', () => {
     const apiKey = ((document.getElementById('spApiKey') as HTMLInputElement | null)?.value || '').trim();
     if (!apiKey) {
       hideLoader(); // Hide loader if there's an error
+      generateTableFromPromptBtn.classList.remove('loading');
+      generateTableFromPromptBtn.disabled = false;
       showMessage('Provide IBM Cloud API key', 'error');
       return;
     }
@@ -499,12 +539,17 @@ function createGrid() {
   // Update state with sorted data to ensure consistency
   state.cellProperties = sortedCellProperties;
 
+  let cellIndex = 0;
   for (let r = 1; r <= state.gridRows; r++) {
     for (let c = 1; c <= state.gridCols; c++) {
       const cell = document.createElement('div');
       cell.className = 'cell';
       cell.dataset.row = String(r);
       cell.dataset.col = String(c);
+      
+      // Add staggered animation delay
+      cell.style.animationDelay = `${cellIndex * 20}ms`;
+      cellIndex++;
 
       const key = `${r},${c}`;
       const cellState = sortedCellProperties.get(key);
@@ -727,7 +772,11 @@ function setupEventListeners() {
   // elements.reorderColumnsBtn.addEventListener('click', openColumnReorderModal); // Removed - now handled in HTML
   elements.createTableBtn.addEventListener('click', createTable);
   elements.cancelPropsBtn.addEventListener('click', closePropertyEditor);
-  elements.propertyEditorOverlay.addEventListener('click', closePropertyEditor);
+  elements.propertyEditorOverlay.addEventListener('click', (e) => {
+    if (e.target === elements.propertyEditorOverlay) {
+      closePropertyEditor();
+    }
+  });
   elements.savePropsBtn.addEventListener('click', saveCellProperties);
   elements.customCellTextToggle.addEventListener('change', function (this: HTMLInputElement) {
     const show = this.checked;
@@ -752,7 +801,19 @@ function setupEventListeners() {
   elements.generateSampleCheckbox.addEventListener('change', () => {
     const isChecked = elements.generateSampleCheckbox.checked;
     elements.customCellText.disabled = isChecked;
-    elements.aiPromptContainer.style.display = isChecked ? 'block' : 'none';
+    
+    if (isChecked) {
+      elements.aiPromptContainer.style.display = 'block';
+      requestAnimationFrame(() => {
+        elements.aiPromptContainer.classList.add('show');
+      });
+    } else {
+      elements.aiPromptContainer.classList.remove('show');
+      setTimeout(() => {
+        elements.aiPromptContainer.style.display = 'none';
+      }, 250);
+    }
+    
     // Disable custom cell text toggle when AI generation is enabled
     elements.customCellTextToggle.disabled = isChecked;
   });
@@ -763,8 +824,34 @@ function setupEventListeners() {
   const watsonxConfig = document.getElementById('watsonxConfig') as HTMLElement | null;
   aiSource?.addEventListener('change', () => {
     const v = aiSource.value;
-    if (fakerConfig) fakerConfig.style.display = v === 'faker' ? 'block' : 'none';
-    if (watsonxConfig) watsonxConfig.style.display = v === 'watsonx' ? 'block' : 'none';
+    
+    if (fakerConfig) {
+      if (v === 'faker') {
+        fakerConfig.style.display = 'block';
+        requestAnimationFrame(() => {
+          fakerConfig.classList.add('show');
+        });
+      } else {
+        fakerConfig.classList.remove('show');
+        setTimeout(() => {
+          fakerConfig.style.display = 'none';
+        }, 250);
+      }
+    }
+    
+    if (watsonxConfig) {
+      if (v === 'watsonx') {
+        watsonxConfig.style.display = 'block';
+        requestAnimationFrame(() => {
+          watsonxConfig.classList.add('show');
+        });
+      } else {
+        watsonxConfig.classList.remove('show');
+        setTimeout(() => {
+          watsonxConfig.style.display = 'none';
+        }, 250);
+      }
+    }
   });
 
   // Load persisted watsonx settings
@@ -823,6 +910,7 @@ function updateResetButtonState() {
     resetBtn.disabled = !hasChangesToReset;
     resetBtn.style.opacity = hasChangesToReset ? '1' : '0.5';
     resetBtn.style.cursor = hasChangesToReset ? 'pointer' : 'not-allowed';
+    resetBtn.title = hasChangesToReset ? 'Reset all table properties' : 'No changes to reset';
   }
 }
 
@@ -888,6 +976,10 @@ function getCellState(key: string) {
 }
 
 function createTable() {
+  // Add loading state to button
+  elements.createTableBtn.classList.add('loading');
+  elements.createTableBtn.disabled = true;
+  
   showLoader('Generating table...');
 
   // Consolidate property collection for ALL cells in the grid
@@ -952,21 +1044,42 @@ function createTable() {
 function showLoader(message: string) {
   elements.loader.style.display = 'flex';
   elements.loaderText.textContent = message;
+  // Add smooth fade-in animation
+  requestAnimationFrame(() => {
+    elements.loader.classList.add('show');
+  });
 }
 
 function hideLoader() {
-  elements.loader.style.display = 'none';
-  elements.loaderText.textContent = '';
+  elements.loader.classList.remove('show');
+  setTimeout(() => {
+    elements.loader.style.display = 'none';
+    elements.loaderText.textContent = '';
+  }, 250); // Match animation duration
 }
 
 function showMessage(text: string, type: 'success' | 'error') {
   elements.statusMessage.textContent = text;
   elements.statusMessage.className = `status ${type}`;
-  elements.statusMessage.style.display = 'block'; // Always show when there's a message
+  elements.statusMessage.style.display = 'block';
+  // Add smooth animation
+  requestAnimationFrame(() => {
+    elements.statusMessage.classList.add('show');
+  });
+  
+  // Auto-hide success messages after 5 seconds
+  if (type === 'success') {
+    setTimeout(() => {
+      hideMessage();
+    }, 5000);
+  }
 }
 
 function hideMessage() {
-  elements.statusMessage.style.display = 'none';
+  elements.statusMessage.classList.remove('show');
+  setTimeout(() => {
+    elements.statusMessage.style.display = 'none';
+  }, 250);
 }
 
 function showCellTooltip(cell: HTMLDivElement) {
@@ -1560,7 +1673,8 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
 }
 
 function openPropertyEditor(key: string) {
-  if (state.mode !== 'edit') return;
+  // Allow property editor to open regardless of mode
+  // if (state.mode !== 'edit') return;
 
   // If we don't have component info and this is a body cell, request it
   if (!state.selectedComponent && !key.startsWith('header-') && key !== 'footer') {
@@ -1810,8 +1924,7 @@ function openPropertyEditorInternal(key: string) {
     elements.editingCellCoords.textContent = label;
     elements.propertyEditorOverlay.style.display = 'block';
     elements.propertyEditor.style.display = 'block';
-    // Single-prompt UI wiring moved to main page; no wiring here
-
+    
     // Final check: Ensure custom cell text input is shown for body cells if toggle is checked
     if (!key.startsWith('header-') && key !== 'footer') {
       if (elements.customCellTextToggle && elements.customCellTextToggle.checked && elements.customCellTextContainer) {
@@ -2292,6 +2405,9 @@ function updateCellVisuals() {
 
 function updateCreateButtonState() {
   elements.createTableBtn.disabled = !state.sizeConfirmed;
+  elements.createTableBtn.style.opacity = state.sizeConfirmed ? '1' : '0.5';
+  elements.createTableBtn.style.cursor = state.sizeConfirmed ? 'pointer' : 'not-allowed';
+  elements.createTableBtn.title = state.sizeConfirmed ? 'Create table in Figma' : 'Select a component first';
 }
 
 
@@ -2307,6 +2423,13 @@ window.onmessage = (event) => {
   switch (msg.type) {
     case 'ai-table-response': {
       hideLoader();
+      // Remove loading state from AI button
+      const aiBtn = document.getElementById('generateTableFromPromptBtn') as HTMLButtonElement | null;
+      if (aiBtn) {
+        aiBtn.classList.remove('loading');
+        aiBtn.disabled = false;
+      }
+      
       const headers: string[] = (msg.headers || []).map(String);
       const rowsData: string[][] = Array.isArray(msg.rows) ? msg.rows.map((r: any) => Array.isArray(r) ? r.map(String) : []) : [];
       if (!headers.length || !rowsData.length) {
@@ -2443,6 +2566,10 @@ window.onmessage = (event) => {
 
     case "table-created":
       hideLoader();
+      // Remove loading state from button
+      elements.createTableBtn.classList.remove('loading');
+      elements.createTableBtn.disabled = false;
+      
       if (msg.isComponent) {
         showMessage("Table component created successfully! You can now reuse it.", "success");
       } else {
@@ -2595,6 +2722,10 @@ window.onmessage = (event) => {
 
     case "creation-error":
       hideLoader();
+      // Remove loading state from button
+      elements.createTableBtn.classList.remove('loading');
+      elements.createTableBtn.disabled = false;
+      
       showMessage(`Error: ${msg.message}`, "error");
       break;
 
@@ -2674,9 +2805,12 @@ window.onmessage = (event) => {
         cell.classList.add('selected');
       });
       state.sizeConfirmed = true;
-      // Show grid UI
+      // Show grid UI with animation
       elements.gridContainer.style.display = 'flex';
       elements.actionButtons.style.display = 'flex';
+      requestAnimationFrame(() => {
+        elements.gridContainer.classList.add('show');
+      });
 
       // Remove old scan options if present
       let optionsDiv = document.getElementById('scanOptionsContainer') as HTMLDivElement | null;
@@ -2826,10 +2960,13 @@ window.onmessage = (event) => {
       state.currentEditingCell = null;
       state.hasComponent = true; // Ensure this is true for generated tables
 
-      // Show UI
+      // Show UI with animation
       elements.landingPage.style.display = 'none';
       elements.gridContainer.style.display = 'flex';
       elements.actionButtons.style.display = 'flex';
+      requestAnimationFrame(() => {
+        elements.gridContainer.classList.add('show');
+      });
 
       console.log(`[UI] Showing grid and action buttons. Grid display: ${elements.gridContainer.style.display}, Action buttons display: ${elements.actionButtons.style.display}`);
 
@@ -2992,6 +3129,10 @@ window.onmessage = (event) => {
 
     case "table-updated":
       hideLoader();
+      // Remove loading state from button
+      elements.createTableBtn.classList.remove('loading');
+      elements.createTableBtn.disabled = false;
+      
       showMessage("Table updated successfully!", "success");
       // Keep the button as "Update Table" since we're still editing the same table
       elements.createTableBtn.textContent = 'Update Table';
@@ -3484,8 +3625,11 @@ function openColumnReorderModal() {
     columnList.appendChild(columnItem);
   }
   
-  // Show modal
+  // Show modal with animation
   overlay.style.display = 'flex';
+  requestAnimationFrame(() => {
+    overlay.classList.add('show');
+  });
   
   // Setup modal event listeners
   setupColumnReorderModalListeners();
@@ -3545,9 +3689,14 @@ function setupColumnReorderModalListeners() {
   const applyBtn = document.getElementById('applyReorderBtn');
   const overlay = document.getElementById('columnReorderOverlay');
   
-  // Close modal handlers
+  // Close modal handlers with animation
   const closeModal = () => {
-    if (overlay) overlay.style.display = 'none';
+    if (overlay) {
+      overlay.classList.remove('show');
+      setTimeout(() => {
+        overlay.style.display = 'none';
+      }, 250);
+    }
   };
   
   closeBtn?.addEventListener('click', closeModal);
@@ -3641,9 +3790,14 @@ function applyColumnReorder() {
   // Apply the reordering and deletion to the table data
   reorderAndDeleteColumns(remainingColumns);
   
-  // Close modal
+  // Close modal with animation
   const overlay = document.getElementById('columnReorderOverlay');
-  if (overlay) overlay.style.display = 'none';
+  if (overlay) {
+    overlay.classList.remove('show');
+    setTimeout(() => {
+      overlay.style.display = 'none';
+    }, 250);
+  }
   
   // Show success message
   const deletedCount = columnItems.length - remainingColumns.length;
@@ -3702,6 +3856,9 @@ function reorderAndDeleteColumns(remainingColumns: number[]) {
   
   // Recreate the grid to reflect the new structure
   createGrid();
+  
+  // Update cell visuals to show the reordered content
+  updateCellVisuals();
   
   // Mark changes for reset
   markChangesForReset();

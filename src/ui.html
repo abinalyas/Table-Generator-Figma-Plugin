@@ -279,6 +279,13 @@
       position: relative;
       overflow: hidden;
       transition: all var(--animation-standard);
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+
+    .status.show {
+      opacity: 1;
+      transform: translateY(0);
     }
 
     .status::before {
@@ -331,6 +338,14 @@
       overflow-x: auto;
       margin-left: auto;
       margin-right: auto;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all var(--animation-standard);
+    }
+
+    .grid-container.show {
+      opacity: 1;
+      transform: translateY(0);
     }
 
     .grid {
@@ -373,6 +388,11 @@
       word-break: break-word;
       box-shadow: var(--shadow-01);
       backdrop-filter: var(--backdrop-blur);
+    }
+
+    .cell:active {
+      transform: scale(0.98);
+      transition: transform 0.1s ease;
     }
     
     .cell:hover {
@@ -476,6 +496,8 @@
       box-shadow: var(--shadow-01);
       backdrop-filter: var(--backdrop-blur);
       overflow: hidden;
+      white-space: nowrap;
+      user-select: none;
     }
 
     .btn::before {
@@ -527,6 +549,11 @@
       cursor: not-allowed;
       transform: none;
       box-shadow: none;
+      opacity: 0.5;
+    }
+
+    .btn:disabled::before {
+      display: none;
     }
 
     .btn-secondary {
@@ -602,6 +629,16 @@
       margin-bottom: var(--cds-spacing-05);
       position: relative;
       z-index: 5;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 480px) {
+      .button-group,
+      .dimension-presets,
+      .selection-actions,
+      .mode-toggle {
+        gap: var(--cds-spacing-03);
+      }
     }
 
     .dimension-preset {
@@ -681,6 +718,11 @@
 
     .property-field {
       margin-bottom: var(--cds-spacing-05);
+      transition: all var(--animation-fast);
+    }
+
+    .property-field:focus-within {
+      transform: translateY(-1px);
     }
 
     .property-field label {
@@ -1306,6 +1348,13 @@
       opacity: 0.5;
     }
 
+    .styled-input:disabled {
+      background: var(--cds-field);
+      color: var(--cds-text-placeholder);
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
     /* Carbon Select styles - Dark Theme */
     select.styled-input {
       background-image: url("data:image/svg+xml,%3csvg width='16' height='16' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='m8 11L3 6l.7-.7L8 9.6l4.3-4.3L13 6-8 11z' fill='%23f4f4f4'/%3e");
@@ -1450,6 +1499,11 @@
       transform: translateY(-1px);
       box-shadow: var(--shadow-02);
     }
+
+    .header-cell:active {
+      transform: scale(0.98);
+      transition: transform 0.1s ease;
+    }
     
     /* Carbon Footer - Full width spanning entire table */
     .footer-grid {
@@ -1492,6 +1546,11 @@
       transform: translateY(-1px);
       box-shadow: var(--shadow-02);
     }
+
+    .footer-cell:active {
+      transform: scale(0.98);
+      transition: transform 0.1s ease;
+    }
     
     #singlePromptMain {
       margin: var(--cds-spacing-06) 0;
@@ -1515,8 +1574,8 @@
       position: fixed;
       right: 1px;
       bottom: 2px;
-      width: 1rem;
-      height: 1rem;
+      width: 1.25rem;
+      height: 1.25rem;
       cursor: nwse-resize;
       z-index: 9999;
       pointer-events: auto;
@@ -1531,6 +1590,10 @@
     .resize-corner svg {
       width: 100%;
       height: 100%;
+    }
+
+    .resize-corner svg path {
+      fill: var(--cds-text-primary);
     }
 
 
@@ -1836,6 +1899,11 @@
 
     .toggle-container:hover {
       background: rgba(57, 57, 57, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .toggle-container:active {
+      transform: translateY(0);
     }
 
     .toggle-container input[type="checkbox"] {
@@ -1899,6 +1967,34 @@
       backdrop-filter: var(--backdrop-blur);
       position: relative;
       overflow: hidden;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all var(--animation-standard);
+    }
+
+    .ai-data-section.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Smooth transitions for all interactive sections */
+    #singlePromptContainer,
+    #fileUploadContainer,
+    #aiPromptContainer,
+    #fakerConfig,
+    #watsonxConfig {
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all var(--animation-standard);
+    }
+
+    #singlePromptContainer.show,
+    #fileUploadContainer.show,
+    #aiPromptContainer.show,
+    #fakerConfig.show,
+    #watsonxConfig.show {
+      opacity: 1;
+      transform: translateY(0);
     }
 
     .ai-data-section::before {
@@ -1939,6 +2035,12 @@
       justify-content: center;
       align-items: center;
       flex-direction: column;
+      opacity: 0;
+      transition: opacity var(--animation-standard);
+    }
+
+    .loader.show {
+      opacity: 1;
     }
 
     .loader-spinner {
@@ -1977,6 +2079,35 @@
       100% { opacity: 1; }
     }
 
+    /* Stagger animation for grid cells */
+    .cell {
+      animation: cellFadeIn 0.3s ease-out;
+      animation-fill-mode: both;
+    }
+
+    @keyframes cellFadeIn {
+      from {
+        opacity: 0;
+        transform: scale(0.9);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    /* Add stagger delay for each cell */
+    .cell:nth-child(1) { animation-delay: 0ms; }
+    .cell:nth-child(2) { animation-delay: 20ms; }
+    .cell:nth-child(3) { animation-delay: 40ms; }
+    .cell:nth-child(4) { animation-delay: 60ms; }
+    .cell:nth-child(5) { animation-delay: 80ms; }
+    .cell:nth-child(6) { animation-delay: 100ms; }
+    .cell:nth-child(7) { animation-delay: 120ms; }
+    .cell:nth-child(8) { animation-delay: 140ms; }
+    .cell:nth-child(9) { animation-delay: 160ms; }
+    .cell:nth-child(10) { animation-delay: 180ms; }
+
     /* Enhanced Form Groups */
     .form-group {
       margin-bottom: var(--cds-spacing-06);
@@ -1991,6 +2122,11 @@
     .form-group:hover {
       border-color: var(--cds-border-interactive);
       box-shadow: var(--shadow-02);
+    }
+
+    .form-group:focus-within {
+      border-color: var(--cds-border-interactive);
+      box-shadow: 0 0 0 2px rgba(69, 137, 255, 0.2), var(--shadow-02);
     }
 
     .form-group label {
@@ -2029,6 +2165,11 @@
 
     ::-webkit-scrollbar-thumb:hover {
       background: var(--cds-border-interactive);
+      box-shadow: 0 0 4px rgba(69, 137, 255, 0.3);
+    }
+
+    ::-webkit-scrollbar-thumb:active {
+      background: var(--cds-button-primary);
     }
 
     /* Enhanced Selection Highlight */
@@ -2040,6 +2181,36 @@
     /* Smooth Transitions for All Interactive Elements */
     * {
       transition: color var(--animation-fast), background-color var(--animation-fast), border-color var(--animation-fast);
+    }
+
+    /* Improved focus states for accessibility */
+    button:focus,
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: 2px solid var(--cds-focus);
+      outline-offset: 2px;
+    }
+
+    /* Loading state for buttons */
+    .btn.loading {
+      position: relative;
+      color: transparent;
+      pointer-events: none;
+    }
+
+    .btn.loading::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 16px;
+      height: 16px;
+      margin: -8px 0 0 -8px;
+      border: 2px solid transparent;
+      border-top: 2px solid currentColor;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
     }
 
     /* Enhanced Focus Styles */
@@ -2062,6 +2233,12 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      opacity: 0;
+      transition: opacity var(--animation-standard);
+    }
+
+    .modal-overlay.show {
+      opacity: 1;
     }
 
     .modal-content {
@@ -2075,6 +2252,12 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      transform: scale(0.9) translateY(20px);
+      transition: transform var(--animation-standard);
+    }
+
+    .modal-overlay.show .modal-content {
+      transform: scale(1) translateY(0);
     }
 
     .modal-header {
@@ -2471,10 +2654,10 @@
 
   <!-- Resize corner handle -->
   <div class="resize-corner" id="resizeCorner">
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M16 0V16H0L16 0Z" fill="#161616" />
-      <path d="M6.22577 16H3L16 3V6.22576L6.22577 16Z" fill="#6f6f6f" />
-      <path d="M11.8602 16H8.63441L16 8.63441V11.8602L11.8602 16Z" fill="#6f6f6f" />
+    <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M16 0V16H0L16 0Z" fill="var(--cds-text-primary)" />
+      <path d="M6.22577 16H3L16 3V6.22576L6.22577 16Z" fill="var(--cds-text-secondary)" />
+      <path d="M11.8602 16H8.63441L16 8.63441V11.8602L11.8602 16Z" fill="var(--cds-text-secondary)" />
     </svg>
   </div>
   <script>
