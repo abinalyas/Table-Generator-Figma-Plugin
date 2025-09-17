@@ -2258,9 +2258,35 @@ function updateCellVisuals() {
         // Find any TEXT property to display as cell text
         for (const propName of availableProps) {
           const type = state.selectedComponent.propertyTypes[propName];
-          if (type === 'TEXT' && props.properties[propName]) {
-            displayText += props.properties[propName];
+          if (type === 'TEXT' && typeof props.properties[propName] === 'string' && props.properties[propName].toString().trim() !== '') {
+            displayText = props.properties[propName].toString();
             break; // Use the first TEXT property found
+          }
+        }
+        // Fallbacks when the detected TEXT key doesn't exist in props
+        if (!displayText) {
+          // Known hashed key used by some table cells
+          if (props.properties['Cell text#12234:32']) {
+            displayText = props.properties['Cell text#12234:32'];
+          } else {
+            // Generic fallback: use the first string prop containing "text"
+            const textProps = Object.keys(props.properties).filter(prop =>
+              typeof props.properties[prop] === 'string' &&
+              props.properties[prop].toString().trim() !== '' &&
+              prop.toLowerCase().includes('text') &&
+              !prop.toLowerCase().includes('second')
+            );
+            if (textProps.length > 0) {
+              displayText = props.properties[textProps[0]].toString();
+            } else {
+              // Last-resort fallback: any first non-empty string property
+              const anyStringProp = Object.keys(props.properties).find(prop =>
+                typeof props.properties[prop] === 'string' && props.properties[prop].toString().trim() !== ''
+              );
+              if (anyStringProp) {
+                displayText = props.properties[anyStringProp].toString();
+              }
+            }
           }
         }
         // If no text and slot is checked, show empty
@@ -2268,17 +2294,23 @@ function updateCellVisuals() {
           displayText = '';
         }
       } else {
-        // Fallback: look for common text property names in the loaded properties
-        const textProps = Object.keys(props.properties).filter(prop =>
-          prop.toLowerCase().includes('text') &&
-          !prop.toLowerCase().includes('second') &&
-          props.properties[prop] &&
-          typeof props.properties[prop] === 'string' &&
-          props.properties[prop].trim() !== ''
-        );
+        // Prefer plain 'Cell text' when component props are unavailable
+        if (typeof props.properties['Cell text'] === 'string' && props.properties['Cell text'].toString().trim() !== '') {
+          displayText = props.properties['Cell text'].toString();
+        } else {
+          // Fallback: look for common text property names in the loaded properties
+          const textProps = Object.keys(props.properties).filter(prop =>
+            prop.toLowerCase().includes('text') &&
+            !prop.toLowerCase().includes('second') &&
+            typeof props.properties[prop] === 'string' &&
+            props.properties[prop].toString().trim() !== ''
+          );
 
-        if (textProps.length > 0) {
-          displayText = props.properties[textProps[0]];
+          if (textProps.length > 0) {
+            // Prefer the un-hashed key 'Cell text' over hashed ones if both exist
+            const preferred = textProps.find(p => p === 'Cell text') || textProps[0];
+            displayText = props.properties[preferred].toString();
+          }
         }
 
         // Check for slot property
@@ -2485,6 +2517,8 @@ window.onmessage = (event) => {
 
       const headerTextKey = headerAvailableProps.find(p => headerPropertyTypes[p] === 'TEXT') || 'Cell text';
       const bodyTextKey = bodyAvailableProps.find(p => bodyPropertyTypes[p] === 'TEXT') || 'Cell text';
+      const bodyVisibilityKey = bodyAvailableProps.find(p => bodyPropertyTypes[p] === 'BOOLEAN' && (p.toLowerCase().includes('show') || p.toLowerCase().includes('text')) && !p.toLowerCase().includes('slot')) || '';
+      const bodySlotKey = bodyAvailableProps.find(p => bodyPropertyTypes[p] === 'BOOLEAN' && p.toLowerCase().includes('slot')) || '';
 
       // Apply header cell properties
       for (let c = 1; c <= desiredCols; c++) {
@@ -2499,6 +2533,14 @@ window.onmessage = (event) => {
           const key = `${r + 1},${c + 1}`;
           const cellState = getCellState(key);
           cellState.properties[bodyTextKey] = fixedRows[r][c] || '';
+          // Ensure text is visible in preview (and in final table) by enabling visibility
+          if (bodyVisibilityKey) {
+            cellState.properties[bodyVisibilityKey] = true;
+          }
+          // If a slot toggle exists, disable it to show text
+          if (bodySlotKey) {
+            cellState.properties[bodySlotKey] = false;
+          }
         }
       }
 
