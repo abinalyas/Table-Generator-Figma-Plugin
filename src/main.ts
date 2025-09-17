@@ -125,133 +125,16 @@ interface ScanResult {
 let lastScanResult: ScanResult | undefined;
 let isCreatingTable = false;
 
-figma.on("selectionchange", async () => {
-    const now = Date.now();
-    if (now - lastScanTime < SCAN_DEBOUNCE_MS) {
-        console.log(`[selectionchange] Debouncing - ${now - lastScanTime}ms since last scan`);
-        return;
-    }
-    
-    const selection = figma.currentPage.selection;
-    console.log(`[selectionchange] Selection changed - count: ${selection.length}, types: ${selection.map(s => s.type).join(', ')}, names: ${selection.map(s => s.name).join(', ')}`);
-
-    if (selection.length === 1) {
-        const selectedNode = selection[0];
-
-        // Case 1: Existing "Generated Table" frame or component is selected for update
-        console.log(`[selectionchange] Checking for generated table: type=${selectedNode.type}, name=${selectedNode.name}, isGeneratedTable=${selectedNode.getPluginData('isGeneratedTable')}`);
-        if ((selectedNode.type === "FRAME" || selectedNode.type === "COMPONENT") && selectedNode.getPluginData('isGeneratedTable') === 'true' && (selectedNode.name === 'Generated Table' || selectedNode.name.startsWith('Generated Table ('))) {
-            const tableFrame = selectedNode as FrameNode | ComponentNode;
-            const settings = tableFrame.getPluginData('tableSettings');
-            if (settings) {
-                try {
-                    // Note: We'll rely on the existing lastScanResult or let the user scan again if needed
-                    // The rescan logic was causing memory issues, so we'll keep it simple
-                    const parsedSettings = JSON.parse(settings);
-                    figma.ui.postMessage({
-                        type: 'edit-existing-table',
-                        settings: parsedSettings,
-                        tableId: tableFrame.id
-                    });
-                    return;
-                } catch (e) {
-                    console.error("Error parsing table settings from plugin data", e);
-                    // Even if parsing fails, this is still a valid generated table
-                    // Send a message to show the table is selected but settings couldn't be loaded
-                    figma.ui.postMessage({
-                        type: 'generated-table-selected-no-settings',
-                        tableId: tableFrame.id
-                    });
-                    return;
-                }
-            } else {
-                // Generated table without settings - still valid, just no stored configuration
-                console.log("Generated table selected but no settings found");
-                figma.ui.postMessage({
-                    type: 'generated-table-selected-no-settings',
-                    tableId: tableFrame.id
-                });
-                return;
-            }
-        }
-        // Case 1.5: "Data table" component is selected
-        else if (selectedNode.type === "FRAME" && selectedNode.name.includes('Data table')) {
-            figma.ui.postMessage({
-                type: "table-selected",
-                tableId: selectedNode.id
-            });
-            return;
-        }
-        // Case 2: "Data table" component (Frame, Component, ComponentSet) or instance of one is selected for scanning
-        else if (
-            (selectedNode.type === "FRAME" || selectedNode.type === "COMPONENT" || selectedNode.type === "COMPONENT_SET") && selectedNode.name.includes('Data table')
-        ) {
-            figma.ui.postMessage({
-                type: "table-selected",
-                tableId: selectedNode.id
-            });
-            return;
-        }
-        // Case 3: Instance is selected (could be a Data table instance or a Data table row cell item)
-        else if (selectedNode.type === "INSTANCE") {
-            try {
-                const mainComponent = await selectedNode.getMainComponentAsync();
-                console.log(`Selected Instance: ${selectedNode.name}, Main Component: ${mainComponent?.name}`);
-
-                // FIRST: Check if it's a "Data table row cell item" - ignore these
-                // Check both the main component name and the node name for cell items
-                if ((mainComponent && mainComponent.name === "Data table row cell item") || 
-                    selectedNode.name === "Data table body row item" ||
-                    selectedNode.name.includes("row cell item")) {
-                    console.log(`[selectionchange] Ignoring selection of individual cell item: ${selectedNode.name}`);
-                    return;
-                }
-                
-                // SECOND: Check if it's a "Data table" instance (main component name contains "Data table")
-                if (mainComponent && mainComponent.name.includes('Data table')) {
-                    console.log(`[selectionchange] Found Data table instance, sending table-selected`);
-        figma.ui.postMessage({
-                        type: "table-selected",
-                        tableId: selectedNode.id
-                    });
-                    return; // IMPORTANT: Return here to prevent further processing
-                }
-                
-                // THIRD: Fallback - check if the selected node name contains "Data table" (but not "row cell item")
-                if (selectedNode.name.includes('Data table') && !selectedNode.name.includes('row cell item')) {
-                    console.log(`[selectionchange] Found Data table instance by node name, sending table-selected`);
-      figma.ui.postMessage({
-                        type: "table-selected",
-                        tableId: selectedNode.id
-                    });
-                    return; // IMPORTANT: Return here to prevent further processing
-                }
-    } catch (error) {
-                console.error('❌ Error getting main component or component name:', error);
-            }
-        }
-    }
-
-    // If none of the above conditions are met, clear selection
-    console.log(`[selectionchange] Clearing selection - no valid component found`);
-      selectedComponent = null;
-    lastScanResult = undefined;
-    
-    // Add a small delay to prevent race conditions with subsequent selections
-    setTimeout(() => {
-        // Double-check that selection is still empty before clearing
-        const currentSelection = figma.currentPage.selection;
-        if (currentSelection.length === 0) {
-      figma.ui.postMessage({
-        type: "selection-cleared",
-                isValidComponent: false,
-                clearUI: true
-      });
-    }
-    }, 50);
-    });
+// Moved selection listener into core/selection.ts
 
 
+
+import { initSelectionHandlers } from './core/selection';
+import { initMessageRouter } from './core/messageRouter';
+
+// Initialize core listeners
+initSelectionHandlers();
+initMessageRouter();
 
 // Helper function to find matching property
 function findMatchingProperty(availableProperties: string[], uiPropName: string): string | null {

@@ -798,6 +798,44 @@ function setupEventListeners() {
   document.querySelectorAll('.apply-option').forEach(option => {
     option.addEventListener('click', handleApplyOptionClick);
   });
+  // Helper to toggle which AI config is visible
+  function updateAiConfigVisibility() {
+    const aiSource = document.getElementById('aiSource') as HTMLSelectElement | null;
+    const fakerConfig = document.getElementById('fakerConfig') as HTMLElement | null;
+    const watsonxConfig = document.getElementById('watsonxConfig') as HTMLElement | null;
+    const isChecked = elements.generateSampleCheckbox.checked;
+
+    if (!aiSource || (!fakerConfig && !watsonxConfig)) return;
+
+    if (!isChecked) {
+      // Hide both when AI generation is disabled
+      if (fakerConfig) { fakerConfig.classList.remove('show'); fakerConfig.style.display = 'none'; }
+      if (watsonxConfig) { watsonxConfig.classList.remove('show'); watsonxConfig.style.display = 'none'; }
+      return;
+    }
+
+    // Show only the selected source config
+    const v = aiSource.value;
+    if (fakerConfig) {
+      if (v === 'faker') {
+        fakerConfig.style.display = 'block';
+        requestAnimationFrame(() => { fakerConfig.classList.add('show'); });
+      } else {
+        fakerConfig.classList.remove('show');
+        setTimeout(() => { fakerConfig.style.display = 'none'; }, 250);
+      }
+    }
+    if (watsonxConfig) {
+      if (v === 'watsonx') {
+        watsonxConfig.style.display = 'block';
+        requestAnimationFrame(() => { watsonxConfig.classList.add('show'); });
+      } else {
+        watsonxConfig.classList.remove('show');
+        setTimeout(() => { watsonxConfig.style.display = 'none'; }, 250);
+      }
+    }
+  }
+
   elements.generateSampleCheckbox.addEventListener('change', () => {
     const isChecked = elements.generateSampleCheckbox.checked;
     elements.customCellText.disabled = isChecked;
@@ -807,11 +845,15 @@ function setupEventListeners() {
       requestAnimationFrame(() => {
         elements.aiPromptContainer.classList.add('show');
       });
+      // Ensure the correct AI config is shown immediately on first enable
+      updateAiConfigVisibility();
     } else {
       elements.aiPromptContainer.classList.remove('show');
       setTimeout(() => {
         elements.aiPromptContainer.style.display = 'none';
       }, 250);
+      // Hide both configs when disabling
+      updateAiConfigVisibility();
     }
     
     // Disable custom cell text toggle when AI generation is enabled
@@ -823,35 +865,7 @@ function setupEventListeners() {
   const fakerConfig = document.getElementById('fakerConfig') as HTMLElement | null;
   const watsonxConfig = document.getElementById('watsonxConfig') as HTMLElement | null;
   aiSource?.addEventListener('change', () => {
-    const v = aiSource.value;
-    
-    if (fakerConfig) {
-      if (v === 'faker') {
-        fakerConfig.style.display = 'block';
-        requestAnimationFrame(() => {
-          fakerConfig.classList.add('show');
-        });
-      } else {
-        fakerConfig.classList.remove('show');
-        setTimeout(() => {
-          fakerConfig.style.display = 'none';
-        }, 250);
-      }
-    }
-    
-    if (watsonxConfig) {
-      if (v === 'watsonx') {
-        watsonxConfig.style.display = 'block';
-        requestAnimationFrame(() => {
-          watsonxConfig.classList.add('show');
-        });
-      } else {
-        watsonxConfig.classList.remove('show');
-        setTimeout(() => {
-          watsonxConfig.style.display = 'none';
-        }, 250);
-      }
-    }
+    updateAiConfigVisibility();
   });
 
   // Load persisted watsonx settings
@@ -2265,11 +2279,11 @@ function updateCellVisuals() {
         }
         // Fallbacks when the detected TEXT key doesn't exist in props
         if (!displayText) {
-          // Known hashed key used by some table cells
-          if (props.properties['Cell text#12234:32']) {
-            displayText = props.properties['Cell text#12234:32'];
+          // 1) Prefer plain 'Cell text' if present
+          if (typeof props.properties['Cell text'] === 'string' && props.properties['Cell text'].toString().trim() !== '') {
+            displayText = props.properties['Cell text'].toString();
           } else {
-            // Generic fallback: use the first string prop containing "text"
+            // 2) Any key containing 'text' (includes hashed variants)
             const textProps = Object.keys(props.properties).filter(prop =>
               typeof props.properties[prop] === 'string' &&
               props.properties[prop].toString().trim() !== '' &&
@@ -2277,9 +2291,11 @@ function updateCellVisuals() {
               !prop.toLowerCase().includes('second')
             );
             if (textProps.length > 0) {
-              displayText = props.properties[textProps[0]].toString();
+              // Prefer exact 'Cell text' when listed among matches
+              const preferred = textProps.find(p => p === 'Cell text') || textProps[0];
+              displayText = props.properties[preferred].toString();
             } else {
-              // Last-resort fallback: any first non-empty string property
+              // 3) Last-resort: any non-empty string property
               const anyStringProp = Object.keys(props.properties).find(prop =>
                 typeof props.properties[prop] === 'string' && props.properties[prop].toString().trim() !== ''
               );
@@ -2649,8 +2665,8 @@ window.onmessage = (event) => {
 
         // Helper to find the correct TEXT property key for a cell
         function getCellTextProp() {
-          // Always use the first TEXT property from availableProps
-          return availableProps.find(p => propertyTypes[p] === 'TEXT');
+          // Prefer the first TEXT property; fallback to generic 'Cell text'
+          return availableProps.find(p => propertyTypes[p] === 'TEXT') || 'Cell text';
         }
 
         // Helper to find the property that controls text visibility
@@ -2721,7 +2737,7 @@ window.onmessage = (event) => {
         const { mode, key } = pendingFakerContext;
         const availableProps: string[] = state.selectedComponent?.availableProperties || [];
         const propertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
-        function getCellTextProp() { return availableProps.find(p => propertyTypes[p] === 'TEXT'); }
+        function getCellTextProp() { return availableProps.find(p => propertyTypes[p] === 'TEXT') || 'Cell text'; }
         function getTextVisibilityProp() { return availableProps.find(p => propertyTypes[p] === 'BOOLEAN' && (p.toLowerCase().includes('show') || p.toLowerCase().includes('text')) && !p.toLowerCase().includes('slot')); }
         const applyAiData = (cellKey: string, data: string) => {
           const cellState = getCellState(cellKey);
@@ -3615,36 +3631,43 @@ function sortColumnData(cellProperties: Map<string, any>, cols: number, rows: nu
     const sorted = headerData?.properties?.['Sorted'];
     
     if (sortable === 'True' && (sorted === 'Ascending' || sorted === 'Descending')) {
-      const columnData: { rowIndex: number; cellData: any; value: string }[] = [];
+      const columnData: { rowIndex: number; value: string }[] = [];
       
       for (let r = 1; r <= rows; r++) {
         const cellData = sortedCellProperties.get(`${r},${c}`);
         let cellValue = '';
-        
         if (cellData?.properties) {
-          const textProp = Object.keys(cellData.properties).find(prop => 
-            prop.toLowerCase().includes('text') && !prop.toLowerCase().includes('second') &&
-            typeof cellData.properties[prop] === 'string');
-          cellValue = (textProp && cellData.properties[textProp]) || 
-                     cellData.properties['Cell text#12234:32'] || '';
+          if (typeof cellData.properties['Cell text'] === 'string' && cellData.properties['Cell text'].toString().trim() !== '') {
+            cellValue = cellData.properties['Cell text'];
+          } else {
+            const textProp = Object.keys(cellData.properties).find(prop => 
+              prop.toLowerCase().includes('text') && !prop.toLowerCase().includes('second') && typeof cellData.properties[prop] === 'string');
+            cellValue = (textProp && cellData.properties[textProp]) || cellData.properties['Cell text#12234:32'] || '';
+          }
         }
-        
-        columnData.push({ rowIndex: r, cellData, value: String(cellValue) });
+        columnData.push({ rowIndex: r, value: String(cellValue) });
       }
       
       columnData.sort((a, b) => {
         const numA = parseFloat(a.value);
         const numB = parseFloat(b.value);
-        
         if (!isNaN(numA) && !isNaN(numB)) {
           return sorted === 'Ascending' ? numA - numB : numB - numA;
         }
         return sorted === 'Ascending' ? a.value.localeCompare(b.value) : b.value.localeCompare(a.value);
       });
       
-      for (let r = 1; r <= rows; r++) {
-        sortedCellProperties.set(`${r},${c}`, columnData[r - 1].cellData);
+      // Reorder entire rows based on the sorted order of the selected column
+      const newMap = new Map(sortedCellProperties);
+      for (let newRow = 1; newRow <= rows; newRow++) {
+        const sourceRow = columnData[newRow - 1].rowIndex;
+        for (let cc = 1; cc <= cols; cc++) {
+          const src = sortedCellProperties.get(`${sourceRow},${cc}`);
+          newMap.set(`${newRow},${cc}`, src);
+        }
       }
+      // Replace with reordered map and stop after first sortable column
+      return newMap;
     }
   }
   

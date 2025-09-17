@@ -29,67 +29,58 @@ export function mapPropertyNames(uiProperties: { [key: string]: any }, component
 }
 
 export function sortColumnData(cellProps: any, cols: number, rows: number): any {
-    const sortedCellProps = {...cellProps};
-    
+    const sortedCellProps = { ...cellProps };
+
     for (let c = 1; c <= cols; c++) {
         const headerKey = `header-${c}`;
         const headerData = cellProps[headerKey];
-        
-        if (headerData && headerData.properties) {
-            const sortable = headerData.properties['Sortable'];
-            const sorted = headerData.properties['Sorted'];
-            
-            if (sortable === 'True' && (sorted === 'Ascending' || sorted === 'Descending')) {
-                const columnData: { rowIndex: number; cellData: any; value: string }[] = [];
-                
-                for (let r = 0; r < rows; r++) {
-                    const cellKey = `${r}-${c - 1}`;
-                    const cellData = cellProps[cellKey];
-                    
-                    let cellValue = '';
-                    if (cellData && cellData.properties) {
-                        const textProp = Object.keys(cellData.properties).find(
-                            prop => prop.toLowerCase().includes('text') && 
-                                   !prop.toLowerCase().includes('second') &&
-                                   typeof cellData.properties[prop] === 'string'
-                        );
-                        
-                        if (textProp) {
-                            cellValue = String(cellData.properties[textProp]);
-                        } else if (cellData.properties['Cell text#12234:32']) {
-                            cellValue = String(cellData.properties['Cell text#12234:32']);
-                        }
-                    }
-                    
-                    columnData.push({
-                        rowIndex: r,
-                        cellData: cellData,
-                        value: cellValue
-                    });
-                }
-                
-                columnData.sort((a, b) => {
-                    const numA = parseFloat(a.value);
-                    const numB = parseFloat(b.value);
-                    
-                    if (!isNaN(numA) && !isNaN(numB)) {
-                        return sorted === 'Ascending' ? numA - numB : numB - numA;
-                    } else {
-                        return sorted === 'Ascending' 
-                            ? a.value.localeCompare(b.value) 
-                            : b.value.localeCompare(a.value);
-                    }
-                });
-                
-                for (let r = 0; r < rows; r++) {
-                    const originalRowIndex = columnData[r].rowIndex;
-                    const newCellKey = `${r}-${c - 1}`;
-                    sortedCellProps[newCellKey] = columnData[r].cellData;
+        if (!headerData || !headerData.properties) continue;
+
+        const sortable = headerData.properties['Sortable'];
+        const sorted = headerData.properties['Sorted'];
+        if (!(sortable === 'True' && (sorted === 'Ascending' || sorted === 'Descending'))) continue;
+
+        // Collect sort keys for each row based on column c
+        const columnData: { rowIndex: number; value: string }[] = [];
+        for (let r = 0; r < rows; r++) {
+            const cellKey = `${r}-${c - 1}`;
+            const cellData = cellProps[cellKey];
+            let cellValue = '';
+            if (cellData && cellData.properties) {
+                if (typeof cellData.properties['Cell text'] === 'string' && cellData.properties['Cell text'].toString().trim() !== '') {
+                    cellValue = String(cellData.properties['Cell text']);
+                } else {
+                    const textProp = Object.keys(cellData.properties).find(prop =>
+                        prop.toLowerCase().includes('text') && !prop.toLowerCase().includes('second') && typeof cellData.properties[prop] === 'string');
+                    cellValue = textProp ? String(cellData.properties[textProp]) : String(cellData.properties['Cell text#12234:32'] || '');
                 }
             }
+            columnData.push({ rowIndex: r, value: cellValue });
         }
+
+        // Sort the row indices by the column values
+        columnData.sort((a, b) => {
+            const numA = parseFloat(a.value);
+            const numB = parseFloat(b.value);
+            if (!isNaN(numA) && !isNaN(numB)) {
+                return sorted === 'Ascending' ? numA - numB : numB - numA;
+            }
+            return sorted === 'Ascending' ? a.value.localeCompare(b.value) : b.value.localeCompare(a.value);
+        });
+
+        // Rebuild all columns for the new row order
+        const newProps: any = { ...sortedCellProps };
+        for (let newRow = 0; newRow < rows; newRow++) {
+            const sourceRow = columnData[newRow].rowIndex;
+            for (let cc = 0; cc < cols; cc++) {
+                const srcKey = `${sourceRow}-${cc}`;
+                const destKey = `${newRow}-${cc}`;
+                newProps[destKey] = sortedCellProps[srcKey];
+            }
+        }
+        return newProps; // Assume one active sorted column
     }
-    
+
     return sortedCellProps;
 }
 

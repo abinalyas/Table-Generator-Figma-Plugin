@@ -1,5 +1,6 @@
 import { performTableScan, ScanResult } from '../scanner';
 import { sortColumnData, mapPropertyNames, createStyledDivider, applyHeaderStyling, extractFooterDividerColorVariable } from '../utils';
+import { markAsGeneratedTable, writeTableSettings } from '../core/metadata';
 import { getLastScanResult } from './scanHandlers';
 
 let isCreatingTable = false;
@@ -285,7 +286,7 @@ export async function handleTableCreation(msg: any) {
         tableFrame.resize(totalTableWidth, tableFrame.height);
         
         // Just use the frame directly as a component-like structure
-        tableFrame.setPluginData('isGeneratedTable', 'true');
+        markAsGeneratedTable(tableFrame);
         const tableSettings = {
             columns: msg.cols,
             rows: msg.rows,
@@ -295,7 +296,7 @@ export async function handleTableCreation(msg: any) {
             includeExpandable: msg.includeExpandable,
             cellProperties: msg.cellProps,
         };
-        tableFrame.setPluginData('tableSettings', JSON.stringify(tableSettings));
+        writeTableSettings(tableFrame, tableSettings);
         
         figma.currentPage.appendChild(tableFrame);
         figma.viewport.scrollAndZoomIntoView([tableFrame]);
