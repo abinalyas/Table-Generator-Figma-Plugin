@@ -2540,6 +2540,12 @@ window.onmessage = (event) => {
       for (let c = 1; c <= desiredCols; c++) {
         const key = `header-${c}`;
         const cellState = getCellState(key);
+        // Clear ALL old text properties regardless of component type (to handle component variant changes)
+        Object.keys(cellState.properties).forEach(prop => {
+          if (prop.toLowerCase().includes('text') && !prop.toLowerCase().includes('slot') && !prop.toLowerCase().includes('second')) {
+            delete cellState.properties[prop];
+          }
+        });
         cellState.properties[headerTextKey] = fixedHeaders[c - 1] || `H${c}`;
       }
 
@@ -2548,6 +2554,19 @@ window.onmessage = (event) => {
         for (let c = 0; c < desiredCols; c++) {
           const key = `${r + 1},${c + 1}`;
           const cellState = getCellState(key);
+          // Clear ALL old text properties regardless of component type (to handle component variant changes)
+          Object.keys(cellState.properties).forEach(prop => {
+            if (prop.toLowerCase().includes('text') && !prop.toLowerCase().includes('slot') && !prop.toLowerCase().includes('second')) {
+              delete cellState.properties[prop];
+            }
+          });
+          // Clear any old boolean properties that will be set
+          if (bodyVisibilityKey && typeof cellState.properties[bodyVisibilityKey] !== 'undefined') {
+            delete cellState.properties[bodyVisibilityKey];
+          }
+          if (bodySlotKey && typeof cellState.properties[bodySlotKey] !== 'undefined') {
+            delete cellState.properties[bodySlotKey];
+          }
           cellState.properties[bodyTextKey] = fixedRows[r][c] || '';
           // Ensure text is visible in preview (and in final table) by enabling visibility
           if (bodyVisibilityKey) {
@@ -3932,4 +3951,4 @@ function reorderAndDeleteColumns(remainingColumns: number[]) {
 // Make openColumnReorderModal available globally
 (window as any).openColumnReorderModal = openColumnReorderModal;
 
-export { }; // Treat this file as a module 
+export { }; // Treat this file as a module
