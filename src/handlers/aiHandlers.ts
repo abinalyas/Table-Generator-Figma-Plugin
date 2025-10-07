@@ -1,7 +1,7 @@
 export async function handleAITableGeneration(msg: any) {
     try {
         const { prompt, apiKey, rows, cols } = msg as { prompt: string, apiKey: string, rows: number, cols: number };
-        const proxyUrl = 'http://localhost:3000';
+        const proxyUrl = 'https://table-generator-server.vercel.app';
         const endpoint = 'https://us-south.ml.cloud.ibm.com';
 
         const tokenRes = await fetch(`${proxyUrl}/token`, {

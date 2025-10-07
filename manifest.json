@@ -8,7 +8,8 @@
   "networkAccess": {
     "allowedDomains": [
       "https://api.datamuse.com",
-      "https://cdn.sheetjs.com"
+      "https://cdn.sheetjs.com",
+      "https://table-generator-server.vercel.app"
     ],
     "devAllowedDomains": [
       "http://localhost:3000",

@@ -2208,7 +2208,7 @@ async function saveCellProperties() {
         }
         const remember = true;
         const useProxy = true;
-        const proxyUrl = 'http://localhost:3000';
+        const proxyUrl = 'https://table-generator-server.vercel.app';
         pendingFakerContext = { mode, key, fakerMethod: 'watsonx' };
         parent.postMessage({ pluginMessage: { type: 'generate-watsonx-data', prompt, endpoint, apiKey, accessToken, useAccessToken, useProxy, proxyUrl, count, remember } }, '*');
         return;

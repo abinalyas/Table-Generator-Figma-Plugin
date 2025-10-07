@@ -1,47 +1,49 @@
-const faker = require('faker');
+// Faker functionality temporarily disabled for performance
+// const faker = require('faker');
 
 export function getFakerValue(type: string) {
+    // Faker disabled - return simple placeholder values
     const t = type.toLowerCase();
     let result;
     switch (t) {
         case 'people name':
         case 'name':
-            result = faker.name.findName();
+            result = 'John Doe';
             break;
         case 'first name':
-            result = faker.name.firstName();
+            result = 'John';
             break;
         case 'last name':
-            result = faker.name.lastName();
+            result = 'Doe';
             break;
         case 'brand name':
         case 'company':
-            result = faker.company.companyName();
+            result = 'Company Inc';
             break;
         case 'mobile number':
-            result = faker.phone.phoneNumber();
+            result = '+1 (555) 123-4567';
             break;
         case 'date':
-            result = faker.date.recent().toLocaleDateString();
+            result = new Date().toLocaleDateString();
             break;
         case 'random number':
         case 'number':
-            result = faker.datatype.number({ min: 1, max: 1000 });
+            result = Math.floor(Math.random() * 1000) + 1;
             break;
         case 'price':
-            result = faker.commerce.price();
+            result = '$' + (Math.random() * 100).toFixed(2);
             break;
         case 'email':
-            result = faker.internet.email();
+            result = 'user@example.com';
             break;
         case 'product':
-            result = faker.commerce.productName();
+            result = 'Sample Product';
             break;
         case 'color':
-            result = faker.commerce.color();
+            result = 'Blue';
             break;
         default:
-            result = faker.lorem.words(2);
+            result = 'Sample Text';
     }
     return result;
 }

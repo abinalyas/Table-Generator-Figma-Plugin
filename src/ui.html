@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: http://localhost:3000 https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3000 https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>IBM Carbon Table Generator</title>
   <style>
@@ -616,6 +616,26 @@
     .btn-danger:active {
       background: var(--cds-button-danger-active);
       border-color: var(--cds-button-danger-active);
+      transform: translateY(0);
+      box-shadow: var(--shadow-01);
+    }
+
+    .btn-warning {
+      background: linear-gradient(135deg, #f1c21b 0%, #d2a106 100%);
+      color: var(--cds-text-inverse);
+      border: 1px solid #f1c21b;
+    }
+
+    .btn-warning:hover {
+      background: #d2a106;
+      border-color: #d2a106;
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-02);
+    }
+
+    .btn-warning:active {
+      background: #b28600;
+      border-color: #b28600;
       transform: translateY(0);
       box-shadow: var(--shadow-01);
     }
@@ -2398,6 +2418,13 @@
       border-color: var(--cds-support-error);
       text-decoration: line-through;
     }
+
+    .column-content {
+      display: flex;
+      align-items: center;
+      gap: var(--cds-spacing-03);
+      width: 100%;
+    }
   </style>
 </head>
 <body>
@@ -2497,11 +2524,11 @@
             <label for="singlePromptText">Prompt</label>
             <textarea id="singlePromptText" class="styled-input" placeholder="e.g., Create a table for user management"></textarea>
           </div>
-          <div class="property-field">
+          <div class="property-field" style="display: none;">
             <label for="spApiKey">IBM Cloud API Key</label>
             <input type="password" id="spApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
           </div>
-          <!-- <p class="hint">Uses local proxy http://localhost:3000 and endpoint https://us-south.ml.cloud.ibm.com</p> -->
+          <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ AI powered by cloud server - no API key required</p>
           <button id="generateTableFromPromptBtn" class="btn btn-primary">Generate content with AI</button>
         </div>
         
@@ -2583,11 +2610,11 @@
               <label for="watsonxPrompt">Prompt</label>
               <textarea id="watsonxPrompt" class="styled-input" placeholder="Describe the content to generate, e.g., IBM product names"></textarea>
             </div>
-            <div class="property-field">
+            <div class="property-field" style="display: none;">
               <label for="watsonxApiKey">IBM Cloud API Key</label>
               <input type="password" id="watsonxApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
             </div>
-            <!-- <p class="hint">watsonx.ai via proxy http://localhost:3000 (endpoint fixed to https://us-south.ml.cloud.ibm.com)</p> -->
+            <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ AI powered by cloud server - no API key required</p>
           </div>
         </div>
         <div class="property-field checkbox" id="secondLineContainer" style="display: none;">
