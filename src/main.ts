@@ -125,11 +125,16 @@ interface ScanResult {
 let lastScanResult: ScanResult | undefined;
 let isCreatingTable = false;
 
-// Import and initialize the proper selection handler
-import { initSelectionHandlers } from './core/selection';
+// Moved selection listener into core/selection.ts
 
-// Initialize selection handlers
+
+
+import { initSelectionHandlers } from './core/selection';
+import { initMessageRouter } from './core/messageRouter';
+
+// Initialize core listeners
 initSelectionHandlers();
+initMessageRouter();
 
 // Helper function to find matching property
 function findMatchingProperty(availableProperties: string[], uiPropName: string): string | null {
@@ -645,50 +650,24 @@ async function scanGeneratedTable(tableFrame: FrameNode | ComponentNode): Promis
             for (const instance of allInstances) {
                 if (instance.mainComponent) {
                     const compName = instance.mainComponent.name.toLowerCase();
-                    const instanceName = instance.name.toLowerCase();
                     
-                    console.log(`🔍 Checking instance: ${instance.name} -> component: ${instance.mainComponent.name}`);
-                    
-                    // Categorize components with more flexible matching
-                    if (!bodyCell) {
-                        // Look for body cells - any cell that's not header, footer, select, or expand
-                        const isBodyCell = (compName.includes('cell') || compName.includes('row')) && 
-                                         !compName.includes('header') && 
-                                         !compName.includes('footer') && 
-                                         !compName.includes('select') && 
-                                         !compName.includes('expand') &&
-                                         !instanceName.includes('header') &&
-                                         !instanceName.includes('footer') &&
-                                         !instanceName.includes('select') &&
-                                         !instanceName.includes('expand');
-                        
-                        if (isBodyCell) {
-                            bodyCell = instance.mainComponent;
-                            console.log(`✅ Found body cell: ${bodyCell.name} (from instance: ${instance.name})`);
-                        }
-                    }
-                    
-                    if (!headerCell && ((compName.includes('header') && compName.includes('cell')) || instanceName.includes('header'))) {
+                    // Categorize components
+                    if (!bodyCell && compName.includes('cell') && !compName.includes('header') && !compName.includes('footer') && !compName.includes('select') && !compName.includes('expand')) {
+                        bodyCell = instance.mainComponent;
+                        console.log(`✅ Found body cell: ${bodyCell.name}`);
+                    } else if (!headerCell && compName.includes('header') && compName.includes('cell')) {
                         headerCell = instance.mainComponent;
                         console.log(`✅ Found header cell: ${headerCell.name}`);
-                    }
-                    
-                    if (!footer && (compName.includes('footer') || compName.includes('pagination') || instanceName.includes('footer'))) {
+                    } else if (!footer && (compName.includes('footer') || compName.includes('pagination'))) {
                         footer = instance.mainComponent;
                         console.log(`✅ Found footer: ${footer.name}`);
-                    }
-                    
-                    if (!selectCellComponent && ((compName.includes('select') && compName.includes('cell')) || instanceName.includes('select'))) {
+                    } else if (!selectCellComponent && compName.includes('select') && compName.includes('cell')) {
                         selectCellComponent = instance.mainComponent;
                         console.log(`✅ Found select cell: ${selectCellComponent.name}`);
-                    }
-                    
-                    if (!expandCellComponent && ((compName.includes('expand') && compName.includes('cell')) || instanceName.includes('expand'))) {
+                    } else if (!expandCellComponent && compName.includes('expand') && compName.includes('cell')) {
                         expandCellComponent = instance.mainComponent;
                         console.log(`✅ Found expand cell: ${expandCellComponent.name}`);
-                    }
-                    
-                    if (!dividerComponent && (compName.includes('divider') || instanceName.includes('divider'))) {
+                    } else if (!dividerComponent && compName.includes('divider')) {
                         dividerComponent = instance.mainComponent;
                         console.log(`✅ Found divider: ${dividerComponent.name}`);
                     }
@@ -727,37 +706,10 @@ async function scanGeneratedTable(tableFrame: FrameNode | ComponentNode): Promis
                 }
             }
             
-            // If we still don't have a body cell, try a more aggressive fallback
+            // If we still don't have a body cell, this scan failed
             if (!bodyCell) {
-                console.log('⚠️ Primary scan failed, trying fallback approach...');
-                
-                // Fallback: look for any component that could be a cell
-                for (const instance of allInstances) {
-                    if (instance.mainComponent) {
-                        const compName = instance.mainComponent.name.toLowerCase();
-                        const instanceName = instance.name.toLowerCase();
-                        
-                        // Very permissive matching - any component that might be a cell
-                        const couldBeCell = compName.includes('cell') || 
-                                          compName.includes('row') || 
-                                          compName.includes('item') ||
-                                          instanceName.includes('cell') ||
-                                          instanceName.includes('row') ||
-                                          instanceName.includes('item');
-                        
-                        if (couldBeCell && !compName.includes('header') && !compName.includes('footer')) {
-                            bodyCell = instance.mainComponent;
-                            console.log(`✅ Fallback: Found potential body cell: ${bodyCell.name} (from instance: ${instance.name})`);
-                            break;
-                        }
-                    }
-                }
-                
-                // If still no body cell, this scan failed
-                if (!bodyCell) {
-                    console.log('❌ Could not extract body cell from generated table even with fallback');
-                    return null;
-                }
+                console.log('❌ Could not extract body cell from generated table');
+                return null;
             }
             
             console.log('✅ Successfully scanned generated table structure');
@@ -1073,7 +1025,7 @@ figma.ui.onmessage = async (msg: any) => {
                 // Use proxy endpoints
                 if (!accessToken) {
                     console.log('Getting token via proxy...');
-                    const tokenRes = await fetch(`${proxyUrl.replace(/\/$/, '')}/api/token`, {
+                    const tokenRes = await fetch(`${proxyUrl.replace(/\/$/, '')}/token`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ apiKey: apiKeyToUse })
@@ -1084,7 +1036,7 @@ figma.ui.onmessage = async (msg: any) => {
                     console.log('Got token via proxy');
                 }
                 console.log('Generating text via proxy...');
-                const genRes = await fetch(`${proxyUrl.replace(/\/$/, '')}/api/generate`, {
+                const genRes = await fetch(`${proxyUrl.replace(/\/$/, '')}/generate`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ endpoint: endpointToUse, accessToken, prompt, count })
@@ -1138,10 +1090,10 @@ figma.ui.onmessage = async (msg: any) => {
     } else if (msg.type === 'generate-table-with-ai') {
         try {
             const { prompt, apiKey, rows, cols } = msg as { prompt: string, apiKey: string, rows: number, cols: number };
-            const proxyUrl = 'https://table-generator-server.vercel.app';
+            const proxyUrl = 'http://localhost:3000';
             const endpoint = 'https://us-south.ml.cloud.ibm.com';
 
-            const tokenRes = await fetch(`${proxyUrl}/api/token`, {
+            const tokenRes = await fetch(`${proxyUrl}/token`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ apiKey })
@@ -1152,7 +1104,7 @@ figma.ui.onmessage = async (msg: any) => {
             }
             const { access_token } = await tokenRes.json();
 
-            const tableRes = await fetch(`${proxyUrl}/api/generateTable`, {
+            const tableRes = await fetch(`${proxyUrl}/generateTable`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ endpoint, accessToken: access_token, prompt, rows, cols })
@@ -1447,7 +1399,6 @@ figma.ui.onmessage = async (msg: any) => {
         cellInstanceMap.forEach(instance => instance.remove());
 
     } else if (msg.type === 'scan-table') {
-        console.log(`[scan-table] *** SCAN-TABLE MESSAGE RECEIVED ***`);
         const now = Date.now();
         if (now - lastScanTime < SCAN_DEBOUNCE_MS) {
             console.log(`[scan-table] Debouncing scan - ${now - lastScanTime}ms since last scan`);
@@ -1471,43 +1422,6 @@ figma.ui.onmessage = async (msg: any) => {
 
         const tableFrame = selection[0];
         
-        // Check if this is a generated table first
-        const isGeneratedTable = 'getPluginData' in tableFrame && tableFrame.getPluginData('isGeneratedTable') === 'true';
-        console.log(`[scan-table] Is generated table: ${isGeneratedTable}`);
-        
-        if (isGeneratedTable) {
-            console.log(`[scan-table] Detected generated table, using generated table scanning logic...`);
-            const scanResult = await performTableScan(tableFrame);
-            
-            if (scanResult) {
-                console.log(`[scan-table] Generated table scan completed successfully`);
-                figma.ui.postMessage({
-                    type: 'scan-table-result',
-                    success: true,
-                    message: `Tap on the cells below to personalize your table.`,
-                    details: {
-                        footer: !!scanResult.footer,
-                        numCols: scanResult.numCols || 5,
-                        bodyCellComponent: scanResult.bodyCell,
-                        headerCellComponent: scanResult.headerCell,
-                        footerComponent: scanResult.footer,
-                        expandCellComponent: scanResult.expandCellComponent,
-                        selectCellComponent: scanResult.selectCellComponent,
-                        dividerComponent: scanResult.dividerComponent
-                    }
-                });
-                return;
-            } else {
-                console.log(`[scan-table] Generated table scan failed`);
-                figma.ui.postMessage({
-                    type: 'scan-table-result',
-                    success: false,
-                    message: 'Failed to scan generated table. Please try re-scanning or ensure the table structure is intact.'
-                });
-                return;
-            }
-        }
-        
         // Check if the selected item is a cell item that should be ignored
         if (tableFrame.type === "INSTANCE") {
             try {
@@ -1528,57 +1442,74 @@ figma.ui.onmessage = async (msg: any) => {
             }
         }
         
-        // --- Set table Type property to 'Expandable + Selectable' before scanning ---
-        console.log(`[scan-table] Setting table Type property to enable expandable + selectable features`);
-        
-        if (tableFrame.type === 'INSTANCE' && 'componentProperties' in tableFrame) {
-            const componentProps = Object.keys(tableFrame.componentProperties || {});
-            console.log(`[scan-table] Table has ${componentProps.length} properties:`, componentProps);
-            
-            if (componentProps.length > 0) {
-                // Look for Type property (common names: Type, Variant, Style, etc.)
-                const typeProperties = componentProps.filter(prop => 
-                    prop.toLowerCase().includes('type') || 
-                    prop.toLowerCase().includes('variant') ||
-                    prop.toLowerCase().includes('style')
-                );
-                
-                console.log(`[scan-table] Found potential type properties:`, typeProperties);
-
-                for (const typeProp of typeProperties) {
-                    try {
-                        console.log(`[scan-table] Setting ${typeProp} to 'Expandable + Selectable'`);
-                        tableFrame.setProperties({ [typeProp]: 'Expandable + Selectable' });
-                        console.log(`[scan-table] Successfully set ${typeProp} to 'Expandable + Selectable'`);
-                        break; // Stop on first success
-                    } catch (error) {
-                        console.log(`[scan-table] Failed to set ${typeProp}:`, (error as Error).message);
-                        
-                        // Try alternative values
-                        const alternativeValues = [
-                            'Expandable+Selectable',
-                            'Selectable + Expandable', 
-                            'Selectable+Expandable',
-                            'Both',
-                            'All',
-                            'Full'
-                        ];
-                        
-                        for (const altValue of alternativeValues) {
-                            try {
-                                console.log(`[scan-table] Trying alternative value ${typeProp}: '${altValue}'`);
-                                tableFrame.setProperties({ [typeProp]: altValue });
-                                console.log(`[scan-table] Successfully set ${typeProp} to '${altValue}'`);
-                                break;
-                            } catch (altError) {
-                                console.log(`[scan-table] Alternative value '${altValue}' failed:`, (altError as Error).message);
-                            }
-                        }
-                    }
+        // --- Set the 'type' property to 'Expandable + Selectable' if possible ---
+        if ('componentProperties' in tableFrame && 'setProperties' in tableFrame && typeof tableFrame.setProperties === 'function') {
+          const typeProp = tableFrame.componentProperties['type'];
+          
+          // Find the correct property name for the type/variant property
+          let typePropertyName = null;
+          for (const [propName, prop] of Object.entries(tableFrame.componentProperties)) {
+            if (prop.type === 'VARIANT') {
+              // Check if this property has expandable/selectable options
+              if ('mainComponent' in tableFrame && tableFrame.mainComponent && 'variantProperties' in tableFrame.mainComponent) {
+                const variantProps = tableFrame.mainComponent.variantProperties as any;
+                const variantKey = Object.keys(variantProps).find(k => k.startsWith(propName));
+                if (variantKey && variantProps[variantKey] && typeof variantProps[variantKey] === 'object' && 'values' in variantProps[variantKey] && Array.isArray(variantProps[variantKey].values)) {
+                  const possibleValues = variantProps[variantKey].values as string[];
+                  // Find a case-insensitive match for expandable + selectable
+                  const found = possibleValues.find(v => v.trim().toLowerCase().includes('expandable') && v.trim().toLowerCase().includes('selectable'));
+                  if (found) {
+                    typePropertyName = propName;
+                  }
+                } else {
                 }
+              } else {
+              }
             }
+          }
+          
+          
+          if (typePropertyName && tableFrame.mainComponent) {
+            // Find the correct variantKey again for setting
+            const variantProps = tableFrame.mainComponent.variantProperties as any;
+            const variantKey = Object.keys(variantProps).find(k => k.startsWith(typePropertyName));
+            let targetValue = 'Expandable + Selectable';
+            let variantValue = targetValue;
+            if (variantKey && variantProps[variantKey] && typeof variantProps[variantKey] === 'object' && 'values' in variantProps[variantKey] && Array.isArray(variantProps[variantKey].values)) {
+              const possibleValues = variantProps[variantKey].values as string[];
+              // Find a case-insensitive match
+              const found = possibleValues.find(v => v.trim().toLowerCase().includes('expandable') && v.trim().toLowerCase().includes('selectable'));
+              if (found) {
+                variantValue = found;
+              } else {
+              }
+            }
+            const propertiesToSet: any = {};
+            propertiesToSet[typePropertyName] = variantValue;
+            
+            // Check if the combination is valid before setting
+            let mainComponentSet = null;
+            if (tableFrame.mainComponent && tableFrame.mainComponent.parent && tableFrame.mainComponent.parent.type === "COMPONENT_SET") {
+                mainComponentSet = tableFrame.mainComponent.parent as ComponentSetNode;
+            }
+            
+            if (mainComponentSet && isValidVariantCombination(mainComponentSet, propertiesToSet)) {
+                try {
+            tableFrame.setProperties(propertiesToSet);
+            // Wait for Figma to update the instance tree
+            await Promise.resolve();
+            // Add additional delay to ensure the instance tree is updated
+            await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (error) {
+                    console.error('Error in tableFrame setProperties:', error);
+                }
+            } else {
+                console.warn('Invalid variant combination for table frame:', propertiesToSet);
+            }
+          } else {
+          }
+        } else {
         }
-        
         // --- Custom scan for specific instances/components ---
         let expandCellFound = false;
         let selectCellFound = false;
