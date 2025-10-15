@@ -43,28 +43,15 @@ export async function findBodyCellComponent(): Promise<ComponentNode | null> {
     
     // If we still don't have a body cell, try the broader search
     if (!bodyCell) {
-        console.log(`[Backend] No Data table found or extraction failed, trying broader search...`);
+        console.log(`[Backend] No Data table found or extraction failed, trying broader search on current page only...`);
     
         // Search for components that might be the body cell component
-        // Search in all pages, not just the current page
+        // Only search in the current page to avoid loading all pages
         const allComponents: ComponentNode[] = [];
         
-        console.log(`[Backend] Searching for components...`);
-        console.log(`[Backend] Root has ${figma.root.children.length} children`);
+        console.log(`[Backend] Searching for components on current page only...`);
         
-        // Search in all pages
-        figma.root.children.forEach((page, index) => {
-            console.log(`[Backend] Checking page ${index}: ${page.name} (type: ${page.type})`);
-            if (page.type === "PAGE") {
-                const pageComponents = page.findAll(node => 
-                    node.type === "COMPONENT"
-        ) as ComponentNode[];
-                console.log(`[Backend] Page ${page.name} has ${pageComponents.length} components:`, pageComponents.map(c => c.name));
-                allComponents.push(...pageComponents);
-            }
-        });
-        
-        // Also search in the current page specifically
+        // Search only in the current page to avoid loading all pages
         const currentPageComponents = figma.currentPage.findAll(node => 
             node.type === "COMPONENT"
         ) as ComponentNode[];
@@ -76,7 +63,7 @@ export async function findBodyCellComponent(): Promise<ComponentNode | null> {
             index === self.findIndex(c => c.id === comp.id)
         );
         
-        console.log(`[Backend] Found ${uniqueComponents.length} total components in all pages:`, uniqueComponents.map(c => c.name));
+        console.log(`[Backend] Found ${uniqueComponents.length} total components on current page:`, uniqueComponents.map(c => c.name));
         
         // Look for the most likely body cell component with more comprehensive search
         bodyCell = uniqueComponents.find(comp => 

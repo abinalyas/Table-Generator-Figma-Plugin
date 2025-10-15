@@ -17,6 +17,13 @@ export class TableCreationHandler {
             // The actual table creation logic would be moved here from main.ts
             // This is a placeholder for the extraction
             Logger.info('TableCreationHandler: Creation logic would be implemented here');
+            
+            // Send a basic response to prevent UI from hanging
+            figma.ui.postMessage({
+                type: 'table-created',
+                success: true,
+                message: 'Table creation placeholder - full implementation needed'
+            });
         } catch (error) {
             Logger.error('Error creating table:', error);
             figma.notify('Error creating table. Please try again.');

@@ -83,3 +83,15 @@ export interface PropertyDefinition {
   dependsOn?: string;
   showWhen?: string;
 }
+
+export interface ScanResult {
+  headerCell: ComponentNode | null;
+  headerRowComponent: ComponentNode | null;
+  bodyCell: ComponentNode | null;
+  bodyRowComponent: ComponentNode | null;
+  footer: ComponentNode | null;
+  selectCellComponent: ComponentNode | null;
+  expandCellComponent: ComponentNode | null;
+  dividerComponent: ComponentNode | null;
+  numCols?: number;
+}

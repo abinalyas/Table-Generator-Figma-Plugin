@@ -13,15 +13,6 @@ function sortColumnData(cellProps: any, cols: number, rows: number): any {
     // Create a copy of the cellProps to avoid modifying the original
     const sortedCellProps = {...cellProps};
     
-    // Explicitly preserve all header cell properties
-    for (let c = 1; c <= cols; c++) {
-        const headerKey = `header-${c}`;
-        if (cellProps[headerKey]) {
-            sortedCellProps[headerKey] = { ...cellProps[headerKey] };
-            console.log(`[sortColumnData] Preserved header ${c} properties:`, sortedCellProps[headerKey]);
-        }
-    }
-    
     // Check each column for sorting properties
     for (let c = 1; c <= cols; c++) {
         const headerKey = `header-${c}`;
@@ -91,10 +82,6 @@ function sortColumnData(cellProps: any, cols: number, rows: number): any {
                     // Move the data from original position to new position
                     sortedCellProps[newCellKey] = columnData[r].cellData;
                 }
-                
-                // IMPORTANT: Preserve the header cell properties (Sortable, Sorted, etc.)
-                // The header properties should remain unchanged after sorting
-                console.log(`[sortColumnData] Preserving header properties for column ${c}:`, headerData.properties);
             }
         }
     }
@@ -129,7 +116,6 @@ interface ScanResult {
     bodyCell: ComponentNode | null;
     bodyRowComponent: ComponentNode | null;
     footer: ComponentNode | null;
-    toolbar?: ComponentNode | null;
     numCols: number;
     selectCellComponent: ComponentNode | null;
     expandCellComponent: ComponentNode | null;
@@ -139,42 +125,152 @@ interface ScanResult {
 let lastScanResult: ScanResult | undefined;
 let isCreatingTable = false;
 
-// Moved selection listener into core/selection.ts
+figma.on("selectionchange", async () => {
+    const now = Date.now();
+    if (now - lastScanTime < SCAN_DEBOUNCE_MS) {
+        console.log(`[selectionchange] Debouncing - ${now - lastScanTime}ms since last scan`);
+        return;
+    }
+    
+    const selection = figma.currentPage.selection;
+    console.log(`[selectionchange] Selection changed - count: ${selection.length}, types: ${selection.map(s => s.type).join(', ')}, names: ${selection.map(s => s.name).join(', ')}`);
+
+    if (selection.length === 1) {
+        const selectedNode = selection[0];
+
+        // Case 1: Existing "Generated Table" frame or component is selected for update
+        console.log(`[selectionchange] Checking for generated table: type=${selectedNode.type}, name=${selectedNode.name}, isGeneratedTable=${selectedNode.getPluginData('isGeneratedTable')}`);
+        if ((selectedNode.type === "FRAME" || selectedNode.type === "COMPONENT") && selectedNode.getPluginData('isGeneratedTable') === 'true' && (selectedNode.name === 'Generated Table' || selectedNode.name.startsWith('Generated Table ('))) {
+            const tableFrame = selectedNode as FrameNode | ComponentNode;
+            const settings = tableFrame.getPluginData('tableSettings');
+            if (settings) {
+                try {
+                    // Note: We'll rely on the existing lastScanResult or let the user scan again if needed
+                    // The rescan logic was causing memory issues, so we'll keep it simple
+                    const parsedSettings = JSON.parse(settings);
+                    figma.ui.postMessage({
+                        type: 'edit-existing-table',
+                        settings: parsedSettings,
+                        tableId: tableFrame.id
+                    });
+                    return;
+                } catch (e) {
+                    console.error("Error parsing table settings from plugin data", e);
+                    // Even if parsing fails, this is still a valid generated table
+                    // Send a message to show the table is selected but settings couldn't be loaded
+                    figma.ui.postMessage({
+                        type: 'generated-table-selected-no-settings',
+                        tableId: tableFrame.id
+                    });
+                    return;
+                }
+            } else {
+                // Generated table without settings - still valid, just no stored configuration
+                console.log("Generated table selected but no settings found");
+                figma.ui.postMessage({
+                    type: 'generated-table-selected-no-settings',
+                    tableId: tableFrame.id
+                });
+                return;
+            }
+        }
+        // Case 1.5: "Data table" component is selected
+        else if (selectedNode.type === "FRAME" && selectedNode.name.includes('Data table')) {
+            figma.ui.postMessage({
+                type: "table-selected",
+                tableId: selectedNode.id
+            });
+            return;
+        }
+        // Case 2: "Data table" component (Frame, Component, ComponentSet) or instance of one is selected for scanning
+        else if (
+            (selectedNode.type === "FRAME" || selectedNode.type === "COMPONENT" || selectedNode.type === "COMPONENT_SET") && selectedNode.name.includes('Data table')
+        ) {
+            figma.ui.postMessage({
+                type: "table-selected",
+                tableId: selectedNode.id
+            });
+            return;
+        }
+        // Case 3: Instance is selected (could be a Data table instance or a Data table row cell item)
+        else if (selectedNode.type === "INSTANCE") {
+            try {
+                const mainComponent = await selectedNode.getMainComponentAsync();
+                console.log(`Selected Instance: ${selectedNode.name}, Main Component: ${mainComponent?.name}`);
+
+                // FIRST: Check if it's a "Data table row cell item" - ignore these
+                // Check both the main component name and the node name for cell items
+                if ((mainComponent && mainComponent.name === "Data table row cell item") || 
+                    selectedNode.name === "Data table body row item" ||
+                    selectedNode.name.includes("row cell item")) {
+                    console.log(`[selectionchange] Ignoring selection of individual cell item: ${selectedNode.name}`);
+                    return;
+                }
+                
+                // SECOND: Check if it's a "Data table" instance (main component name contains "Data table")
+                if (mainComponent && mainComponent.name.includes('Data table')) {
+                    console.log(`[selectionchange] Found Data table instance, sending table-selected`);
+        figma.ui.postMessage({
+                        type: "table-selected",
+                        tableId: selectedNode.id
+                    });
+                    return; // IMPORTANT: Return here to prevent further processing
+                }
+                
+                // THIRD: Fallback - check if the selected node name contains "Data table" (but not "row cell item")
+                if (selectedNode.name.includes('Data table') && !selectedNode.name.includes('row cell item')) {
+                    console.log(`[selectionchange] Found Data table instance by node name, sending table-selected`);
+      figma.ui.postMessage({
+                        type: "table-selected",
+                        tableId: selectedNode.id
+                    });
+                    return; // IMPORTANT: Return here to prevent further processing
+                }
+    } catch (error) {
+                console.error('❌ Error getting main component or component name:', error);
+            }
+        }
+    }
+
+    // If none of the above conditions are met, clear selection
+    console.log(`[selectionchange] Clearing selection - no valid component found`);
+      selectedComponent = null;
+    lastScanResult = undefined;
+    
+    // Add a small delay to prevent race conditions with subsequent selections
+    setTimeout(() => {
+        // Double-check that selection is still empty before clearing
+        const currentSelection = figma.currentPage.selection;
+        if (currentSelection.length === 0) {
+      figma.ui.postMessage({
+        type: "selection-cleared",
+                isValidComponent: false,
+                clearUI: true
+      });
+    }
+    }, 50);
+    });
 
 
-
-import { initSelectionHandlers } from './core/selection';
-
-// Initialize core listeners
-initSelectionHandlers();
 
 // Helper function to find matching property
 function findMatchingProperty(availableProperties: string[], uiPropName: string): string | null {
-    console.log(`🔍 [findMatchingProperty] Looking for: "${uiPropName}"`);
-    console.log(`🔍 [findMatchingProperty] Available:`, availableProperties.slice(0, 5)); // Show first 5 for brevity
-    
     // First try exact match
     const exactMatch = availableProperties.find((prop: string) => prop === uiPropName);
     if (exactMatch) {
-        console.log(`✅ [findMatchingProperty] Exact match found: "${exactMatch}"`);
         return exactMatch;
     }
-    
     // Try match at start of property name
     const startsWithMatch = availableProperties.find((prop: string) => prop.toLowerCase().startsWith(uiPropName.toLowerCase()));
     if (startsWithMatch) {
-        console.log(`✅ [findMatchingProperty] StartsWith match found: "${startsWithMatch}"`);
         return startsWithMatch;
     }
-    
     // Try contains match
     const containsMatch = availableProperties.find((prop: string) => prop.toLowerCase().includes(uiPropName.toLowerCase()));
     if (containsMatch) {
-        console.log(`✅ [findMatchingProperty] Contains match found: "${containsMatch}"`);
         return containsMatch;
     }
     
-    console.log(`❌ [findMatchingProperty] No match found for: "${uiPropName}"`);
     return null;
 }
 
@@ -323,7 +419,6 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
             let headerCell: InstanceNode | null = null;
             let bodyCell: InstanceNode | null = null;
             let footer: InstanceNode | null = null;
-            let toolbarComponent: ComponentNode | null = null;
             let numCols = 0;
             let headerRowComponent: ComponentNode | null = null;
             let bodyRowComponent: ComponentNode | null = null;
@@ -453,34 +548,7 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
                 }
                 
                 allInstances = tableFrame.findAll(n => n.type === 'INSTANCE' || n.type === 'COMPONENT') as (InstanceNode | ComponentNode)[];
-                console.log(`🔍 Found ${allInstances.length} total instances in performTableScan`);
-                
-                // Log all component names for debugging
-                console.log('🔍 All component names found in performTableScan:');
-                allInstances.forEach(node => {
-                    if (node.type === 'INSTANCE' && node.mainComponent) {
-                        console.log(`  - ${node.mainComponent.name}`);
-                        if (node.mainComponent.name.toLowerCase().includes('toolbar')) {
-                            console.log(`    🎯 TOOLBAR FOUND: ${node.mainComponent.name}`);
-                        }
-                    } else if (node.type === 'COMPONENT') {
-                        console.log(`  - ${node.name}`);
-                        if (node.name.toLowerCase().includes('toolbar')) {
-                            console.log(`    🎯 TOOLBAR FOUND: ${node.name}`);
-                        }
-                    }
-                });
-                
                 for (const node of allInstances) {
-                    // Check for toolbar components
-                    if (node.name && node.name.toLowerCase().includes('toolbar')) {
-                        console.log(`🎯 Found toolbar node: ${node.name} (type: ${node.type})`);
-                        if (node.type === 'INSTANCE' && node.mainComponent && !toolbarComponent) {
-                            toolbarComponent = node.mainComponent;
-                            console.log(`✅ Found toolbar component: ${toolbarComponent.name}`);
-                        }
-                    }
-                    
                     if (node.name === 'Data table expand cell item') {
                       expandCellFound = true;
                       if (node.type === 'INSTANCE' && node.mainComponent) {
@@ -609,7 +677,7 @@ async function scanGeneratedTable(tableFrame: FrameNode | ComponentNode): Promis
                 const storedScan = JSON.parse(scanData);
                 console.log('🔄 Found stored scan data, attempting to restore components...');
                 
-                let headerCell = null, bodyCell = null, footer = null, toolbarComponent = null;
+                let headerCell = null, bodyCell = null, footer = null;
                 let selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
                 
                 // Restore components by ID
@@ -634,14 +702,6 @@ async function scanGeneratedTable(tableFrame: FrameNode | ComponentNode): Promis
                     if (footerNode && footerNode.type === 'COMPONENT') {
                         footer = footerNode;
                         console.log('✅ Restored footer from stored ID:', footer.name);
-                    }
-                }
-                
-                if (storedScan.toolbarId) {
-                    const toolbarNode = figma.getNodeById(storedScan.toolbarId);
-                    if (toolbarNode && toolbarNode.type === 'COMPONENT') {
-                        toolbarComponent = toolbarNode;
-                        console.log('✅ Restored toolbar from stored ID:', toolbarComponent.name);
                     }
                 }
                 
@@ -692,7 +752,7 @@ async function scanGeneratedTable(tableFrame: FrameNode | ComponentNode): Promis
         // Fallback: scan the generated table structure
         console.log('🔄 Scanning generated table structure manually...');
         
-        let headerCell = null, bodyCell = null, footer = null, toolbarComponent = null;
+        let headerCell = null, bodyCell = null, footer = null;
         let selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
         let numCols = 0;
         
@@ -707,12 +767,6 @@ async function scanGeneratedTable(tableFrame: FrameNode | ComponentNode): Promis
             for (const instance of allInstances) {
                 if (instance.mainComponent) {
                     const compName = instance.mainComponent.name.toLowerCase();
-                    console.log(`🔍 Checking component: ${instance.mainComponent.name} (${compName})`);
-                    
-                    // Check specifically for toolbar-related components
-                    if (compName.includes('toolbar') || compName.includes('wrapper')) {
-                        console.log(`🎯 TOOLBAR CANDIDATE: ${instance.mainComponent.name} - contains 'toolbar' or 'wrapper'`);
-                    }
                     
                     // Categorize components
                     if (!bodyCell && compName.includes('cell') && !compName.includes('header') && !compName.includes('footer') && !compName.includes('select') && !compName.includes('expand')) {
@@ -724,13 +778,6 @@ async function scanGeneratedTable(tableFrame: FrameNode | ComponentNode): Promis
                     } else if (!footer && (compName.includes('footer') || compName.includes('pagination'))) {
                         footer = instance.mainComponent;
                         console.log(`✅ Found footer: ${footer.name}`);
-                    } else if (!toolbarComponent && compName.includes('toolbar')) {
-                        toolbarComponent = instance.mainComponent;
-                        console.log(`✅ Found toolbar: ${toolbarComponent.name}`);
-                    } else if (compName.includes('toolbar')) {
-                        console.log(`🔍 Found toolbar component but already have one: ${instance.mainComponent.name}`);
-                    } else if (compName.includes('toolbar') || compName.includes('wrapper')) {
-                        console.log(`🔍 Component contains 'toolbar' or 'wrapper': ${instance.mainComponent.name} (${compName})`);
                     } else if (!selectCellComponent && compName.includes('select') && compName.includes('cell')) {
                         selectCellComponent = instance.mainComponent;
                         console.log(`✅ Found select cell: ${selectCellComponent.name}`);
@@ -847,7 +894,7 @@ async function autoScanForDataTable(): Promise<ScanResult | null> {
 // Helper function to restore full scan result from stored data
 async function restoreFullScanResult(storedScan: any): Promise<ScanResult | null> {
     try {
-        let headerCell = null, bodyCell = null, footer = null, toolbarComponent = null;
+        let headerCell = null, bodyCell = null, footer = null;
         let selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
         let headerRowComponent = null, bodyRowComponent = null;
         
@@ -870,13 +917,6 @@ async function restoreFullScanResult(storedScan: any): Promise<ScanResult | null
             const footerNode = figma.getNodeById(storedScan.footerId);
             if (footerNode && footerNode.type === 'COMPONENT') {
                 footer = footerNode;
-            }
-        }
-        
-        if (storedScan.toolbarId) {
-            const toolbarNode = figma.getNodeById(storedScan.toolbarId);
-            if (toolbarNode && toolbarNode.type === 'COMPONENT') {
-                toolbarComponent = toolbarNode;
             }
         }
         
@@ -957,451 +997,6 @@ function isValidVariantCombination(componentSet: ComponentSetNode, properties: {
     } catch (error) {
         console.error('❌ Error validating variant combination:', error);
         return false;
-    }
-}
-
-// ============================================================
-// SMART SLOT DETECTION - Automatically detect content type and suggest slot components
-// ============================================================
-
-interface SmartSlotSuggestion {
-    columnIndex: number;
-    columnName: string;
-    contentType: 'status' | 'user' | 'action' | 'editDelete' | 'singleEdit' | 'singleDelete' | 'boolean' | 'url' | 'date' | 'number' | 'label' | 'text';
-    suggestedComponent: 'statusIcon' | 'slotGroup' | 'tag' | 'avatar' | 'overflow' | 'checkbox' | 'link' | 'edit' | 'delete' | null;
-    confidence: number; // 0-1
-    samples: string[];
-    componentId?: string;  // Added for auto-apply functionality
-    componentName?: string;  // Added for auto-apply functionality
-    actionType?: 'edit' | 'delete';  // For single action detection
-}
-
-function analyzeColumnContent(columnData: string[], columnName: string): SmartSlotSuggestion['contentType'] {
-    console.log(`🔬 [analyzeColumnContent] Analyzing column: "${columnName}"`);
-    
-    // Remove empty values for analysis
-    const nonEmptyData = columnData.filter(val => val && val.trim() !== '');
-    if (nonEmptyData.length === 0) return 'text';
-    
-    // Action column detection - MUST come first to prevent misclassification
-    // Check for column names with "action", "option", "menu", etc.
-    if (columnName.toLowerCase().includes('action') || columnName.toLowerCase().includes('option') || columnName.toLowerCase().includes('menu')) {
-        // Check if it's edit/delete actions (1-2 actions) vs overflow (3+ actions)
-        const actionKeywords = ['edit', 'delete', 'remove', 'update', 'modify', 'trash', 'view', 'details', 'download', 'export', 'import', 'copy', 'duplicate'];
-        const actionValues = nonEmptyData.filter(val => 
-            actionKeywords.some(keyword => val.toLowerCase().includes(keyword))
-        );
-        
-        const uniqueValues = new Set(nonEmptyData).size;
-        console.log(`🔍 Action column analysis: ${columnName}`);
-        console.log(`  📊 Total values: ${nonEmptyData.length}, Unique values: ${uniqueValues}`);
-        console.log(`  🎯 Action keywords found: ${actionValues.length}/${nonEmptyData.length}`);
-        console.log(`  📝 Values:`, nonEmptyData);
-        
-        // If we have action keywords
-        if (actionValues.length > 0) {
-            // FIRST: Check unique value count - if 3+, always use overflow
-            if (uniqueValues >= 3) {
-                console.log(`  ✅ Detected overflow actions (${uniqueValues} unique values)`);
-                return 'action';
-            }
-            
-            // For 1-2 unique values, check if cells contain combined actions
-            // (e.g., "Edit/Delete", "Edit,Delete", "Edit & Delete")
-            const hasCombinedAction = nonEmptyData.some(value => {
-                const lowerVal = value.toLowerCase();
-                const hasEdit = lowerVal.includes('edit') || lowerVal.includes('update') || lowerVal.includes('modify');
-                const hasDelete = lowerVal.includes('delete') || lowerVal.includes('remove') || lowerVal.includes('trash');
-                return hasEdit && hasDelete;
-            });
-            
-            if (hasCombinedAction && uniqueValues === 1) {
-                console.log(`  ✅ Detected combined edit/delete actions in single cell (e.g., "Edit/Delete")`);
-                return 'editDelete';
-            }
-            
-            // Single action type: use direct icon swap (edit OR delete only)
-            if (uniqueValues === 1) {
-                const firstValue = nonEmptyData[0].toLowerCase();
-                const hasEdit = firstValue.includes('edit') || firstValue.includes('update') || firstValue.includes('modify');
-                const hasDelete = firstValue.includes('delete') || firstValue.includes('remove') || firstValue.includes('trash');
-                
-                if (hasEdit) {
-                    console.log(`  ✅ Detected single EDIT action`);
-                    return 'singleEdit';
-                } else if (hasDelete) {
-                    console.log(`  ✅ Detected single DELETE action`);
-                    return 'singleDelete';
-                }
-            }
-            
-            // Two different actions: check if they should use slot group or overflow
-            if (uniqueValues === 2) {
-                // If both values are combinations or if it's edit+delete, use slot group
-                if (hasCombinedAction) {
-                    console.log(`  ✅ Detected combined edit/delete actions (2 unique values with combinations)`);
-                    return 'editDelete';
-                }
-                // Otherwise use overflow for mixed actions
-                console.log(`  ✅ Detected edit/delete actions (2 unique values)`);
-                return 'editDelete';
-            }
-        }
-        
-        // For 3+ different actions, use overflow
-        console.log(`  ✅ Detected overflow actions (${uniqueValues} unique values)`);
-        return 'action';
-    }
-    
-    // Status detection - Carbon Design System status icon values + common status keywords
-    const carbonStatusValues = ['failed', 'succeeded', 'pending', 'in-progress', 'not started', 'incomplete', 'unknown', 'normal', 'informative'];
-    const statusKeywords = [...carbonStatusValues, 'active', 'inactive', 'approved', 'rejected', 'completed', 'cancelled', 'draft', 'published', 'archived', 'enabled', 'disabled', 'success', 'error', 'warning'];
-    const statusMatch = nonEmptyData.filter(val => 
-        statusKeywords.some(keyword => val.toLowerCase().includes(keyword.toLowerCase()))
-    ).length;
-    if (statusMatch / nonEmptyData.length > 0.5) return 'status';
-    
-    // User detection - names, emails
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const namePattern = /^[A-Z][a-z]+ [A-Z][a-z]+$/; // First Last
-    const emailMatch = nonEmptyData.filter(val => emailPattern.test(val)).length;
-    const nameMatch = nonEmptyData.filter(val => namePattern.test(val)).length;
-    if (emailMatch / nonEmptyData.length > 0.5 || nameMatch / nonEmptyData.length > 0.5) return 'user';
-    
-    // Boolean detection
-    const booleanValues = ['true', 'false', 'yes', 'no', '0', '1'];
-    const booleanMatch = nonEmptyData.filter(val => 
-        booleanValues.includes(val.toLowerCase())
-    ).length;
-    if (booleanMatch / nonEmptyData.length > 0.7) return 'boolean';
-    
-    // URL detection
-    const urlPattern = /^https?:\/\//;
-    const urlMatch = nonEmptyData.filter(val => urlPattern.test(val)).length;
-    if (urlMatch / nonEmptyData.length > 0.5) return 'url';
-    
-    // Date detection
-    const datePattern = /^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$/;
-    const dateMatch = nonEmptyData.filter(val => datePattern.test(val)).length;
-    if (dateMatch / nonEmptyData.length > 0.5) return 'date';
-    
-    // Number detection
-    const numberPattern = /^\d+(\.\d+)?$/;
-    const numberMatch = nonEmptyData.filter(val => numberPattern.test(val)).length;
-    if (numberMatch / nonEmptyData.length > 0.7) return 'number';
-    
-    // Label/Tag detection - comma-separated values or role/type columns
-    const hasCommas = nonEmptyData.filter(val => val.includes(',')).length;
-    const labelKeywords = ['role', 'type', 'category', 'tag', 'label', 'department', 'team', 'skill'];
-    const isLabelColumn = labelKeywords.some(keyword => columnName.toLowerCase().includes(keyword));
-    
-    // Short values (1-2 words) that could be labels
-    const shortValues = nonEmptyData.filter(val => {
-        const words = val.trim().split(/\s+/);
-        return words.length <= 2 && val.length <= 20;
-    }).length;
-    
-    if (hasCommas / nonEmptyData.length > 0.3 || isLabelColumn || shortValues / nonEmptyData.length > 0.7) {
-        return 'label';
-    }
-    
-    return 'text';
-}
-
-function suggestSlotComponent(contentType: SmartSlotSuggestion['contentType']): SmartSlotSuggestion['suggestedComponent'] {
-    const componentMap: Record<SmartSlotSuggestion['contentType'], SmartSlotSuggestion['suggestedComponent']> = {
-        'status': 'statusIcon', // Status Icon component for status values (Failed, Succeeded, etc.)
-        'user': 'slotGroup', // Slot group with Avatar + Text for user names
-        'action': 'overflow', // Overflow Menu for 3+ actions
-        'editDelete': 'slotGroup', // Slot group with Edit + Delete icons for 2 actions
-        'singleEdit': 'edit', // Single Edit icon for single edit action
-        'singleDelete': 'delete', // Single Delete icon for single delete action
-        'boolean': 'checkbox',
-        'url': 'link',
-        'label': 'tag', // Tag component for labels, roles, types, comma-separated values
-        'date': null,
-        'number': null,
-        'text': null
-    };
-    return componentMap[contentType];
-}
-
-function analyzeTableDataForSmartSlots(gridData: string[][], headers: string[]): SmartSlotSuggestion[] {
-    console.log('🔍 Analyzing table data for smart slot suggestions...');
-    const suggestions: SmartSlotSuggestion[] = [];
-    
-    // Validate input
-    if (!gridData || !Array.isArray(gridData) || gridData.length === 0) {
-        console.log('⚠️ No grid data to analyze');
-        return suggestions;
-    }
-    
-    const numColumns = headers.length;
-    
-    for (let colIndex = 0; colIndex < numColumns; colIndex++) {
-        // Convert all values to strings and filter out empty ones
-        const columnData = gridData.map(row => {
-            const value = row[colIndex];
-            // Convert any value (including booleans) to string
-            return value != null ? String(value) : '';
-        });
-        const columnName = headers[colIndex] || `Column ${colIndex + 1}`;
-        
-        const contentType = analyzeColumnContent(columnData, columnName);
-        const suggestedComponent = suggestSlotComponent(contentType);
-        
-        if (suggestedComponent) {
-            const samples = columnData.filter(val => val && val.trim() !== '' && val !== 'true' && val !== 'false').slice(0, 3);
-            
-            // Only add suggestion if we have actual text samples (not just 'true'/'false')
-            if (samples.length > 0) {
-                suggestions.push({
-                    columnIndex: colIndex,
-                    columnName,
-                    contentType,
-                    suggestedComponent,
-                    confidence: 0.8, // Could be calculated based on matching percentage
-                    samples
-                });
-                
-                console.log(`💡 Column "${columnName}" (${colIndex}): ${contentType} → suggest ${suggestedComponent}`);
-                console.log(`   Samples: ${samples.join(', ')}`);
-            }
-        }
-    }
-    
-    console.log(`✅ Found ${suggestions.length} smart slot suggestions`);
-    return suggestions;
-}
-
-// Function to discover all available components from libraries for swap slot
-async function discoverAvailableComponents(): Promise<ComponentNode[]> {
-    console.log('🔍 Discovering available components from libraries...');
-    const allComponents: ComponentNode[] = [];
-    
-    try {
-        // First, find all components that are already in the file (including library components that have been used)
-        const fileComponents = figma.root.findAll(node => node.type === 'COMPONENT') as ComponentNode[];
-        console.log(`📦 Found ${fileComponents.length} components in file`);
-        
-        // Also find components from component sets that are already in the file
-        const componentSets = figma.root.findAll(node => node.type === 'COMPONENT_SET') as ComponentSetNode[];
-        console.log(`📦 Found ${componentSets.length} component sets in file`);
-        
-        // Add all components from component sets
-        for (const componentSet of componentSets) {
-            const variants = componentSet.children.filter(child => child.type === 'COMPONENT') as ComponentNode[];
-            allComponents.push(...variants);
-            console.log(`📦 Added ${variants.length} variants from component set: ${componentSet.name}`);
-        }
-        
-        // Add standalone components
-        allComponents.push(...fileComponents);
-        
-        // Remove duplicates based on ID
-        const uniqueComponents = allComponents.filter((component, index, self) => 
-            index === self.findIndex(c => c.id === component.id)
-        );
-        
-        console.log(`✅ Total unique components discovered: ${uniqueComponents.length}`);
-        
-        // Categorize components by source
-        const pageComponents = figma.currentPage.findAll(node => node.type === 'COMPONENT') as ComponentNode[];
-        const pageComponentIds = new Set(pageComponents.map(c => c.id));
-        const libraryComponents = uniqueComponents.filter(c => !pageComponentIds.has(c.id));
-        
-        console.log(`📋 Components breakdown:`);
-        console.log(`  - On current page: ${pageComponents.length}`);
-        console.log(`  - From libraries: ${libraryComponents.length}`);
-        
-        // Log some examples from libraries
-        if (libraryComponents.length > 0) {
-            console.log(`📋 Sample library components:`);
-            libraryComponents.slice(0, 10).forEach((comp, index) => {
-                console.log(`  ${index + 1}. ${comp.name} (ID: ${comp.id}, Key: ${comp.key})`);
-            });
-        }
-        
-        // Try to find Overflow component using library component discovery
-        console.log('🔍 Searching for Overflow component from library components...');
-        try {
-            // Method 1: Try to find from existing component sets on pages
-            const componentSets = figma.root.findAll(node => node.type === 'COMPONENT_SET') as ComponentSetNode[];
-            console.log(`📦 Found ${componentSets.length} component sets already on pages`);
-            
-            for (const componentSet of componentSets) {
-                const setName = componentSet.name.toLowerCase();
-                if (setName.includes('overflow') || setName.includes('menu') || setName.includes('action')) {
-                    console.log(`🎯 Found potential Overflow component set on page: ${componentSet.name}`);
-                    
-                    const existingVariants = componentSet.children.filter(child => child.type === 'COMPONENT') as ComponentNode[];
-                    if (existingVariants.length > 0) {
-                        console.log(`✅ Component set already accessible with ${existingVariants.length} variants`);
-                        for (const variant of existingVariants) {
-                            if (!uniqueComponents.find(c => c.id === variant.id)) {
-                                uniqueComponents.push(variant);
-                                console.log(`✅ Added existing variant: ${variant.name}`);
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Method 2: Try to discover from library components using known Carbon keys
-            console.log('🔍 Attempting to discover Overflow from Carbon library components...');
-            const carbonOverflowKeys = [
-                // These are common Carbon Overflow component keys - we'll try to import them
-                'overflow-menu-key-1', // Placeholder - we'll need real keys
-                'overflow-menu-key-2', // Placeholder - we'll need real keys
-            ];
-            
-            // Get any collected keys from previous sessions
-            let collectedKeys = [];
-            try {
-                const existingKeys = figma.currentPage.getPluginData('collectedCarbonKeys');
-                if (existingKeys) {
-                    collectedKeys = JSON.parse(existingKeys);
-                    console.log(`📦 Found ${collectedKeys.length} previously collected Carbon keys`);
-                }
-            } catch (e) {
-                console.log('No previously collected Carbon keys found');
-            }
-            
-            // Try to import components using collected keys
-            for (const keyInfo of collectedKeys) {
-                try {
-                    console.log(`🔄 Trying to import component with key: ${keyInfo.key}`);
-                    const importedComponent = await figma.importComponentByKeyAsync(keyInfo.key);
-                    if (importedComponent) {
-                        // Check if this is an Overflow component
-                        const componentName = importedComponent.name.toLowerCase();
-                        if (componentName.includes('overflow') || componentName.includes('menu')) {
-                            console.log(`✅ Found Overflow component from library: ${importedComponent.name}`);
-                            if (!uniqueComponents.find(c => c.id === importedComponent.id)) {
-                                uniqueComponents.push(importedComponent);
-                                
-                                // Store this Overflow component for future use
-                                const overflowInfo = {
-                                    name: importedComponent.name,
-                                    key: keyInfo.key,
-                                    id: importedComponent.id,
-                                    description: importedComponent.description || '',
-                                    width: importedComponent.width,
-                                    height: importedComponent.height,
-                                    timestamp: Date.now()
-                                };
-                                figma.currentPage.setPluginData('foundOverflowComponent', JSON.stringify(overflowInfo));
-                            }
-                        } else if (!uniqueComponents.find(c => c.id === importedComponent.id)) {
-                            // Add any other useful component
-                            uniqueComponents.push(importedComponent);
-                            console.log(`✅ Added library component: ${importedComponent.name}`);
-                        }
-                    }
-                } catch (importError) {
-                    console.log(`ℹ️ Could not import component with key ${keyInfo.key}: ${importError instanceof Error ? importError.message : 'Unknown error'}`);
-                }
-            }
-            
-        } catch (searchError) {
-            console.log('ℹ️ Library component search completed with errors:', searchError);
-        }
-
-        // Auto-discover common Carbon table components
-        console.log('🔍 Auto-discovering common Carbon table components...');
-        try {
-            // Get collected Carbon keys from plugin data
-            let collectedKeys = [];
-            try {
-                const existingKeys = figma.currentPage.getPluginData('collectedCarbonKeys');
-                if (existingKeys) {
-                    collectedKeys = JSON.parse(existingKeys);
-                    console.log(`📦 Found ${collectedKeys.length} collected Carbon component keys`);
-                }
-            } catch (e) {
-                console.log('No collected Carbon keys found');
-            }
-            
-            // ============================================================
-            // HARDCODED CARBON DESIGN SYSTEM COMPONENT KEYS
-            // ============================================================
-            // These keys are STABLE across all files that have the Carbon library enabled.
-            // You can hardcode keys here and they will work for ALL USERS!
-            // 
-            // To add more keys:
-            // 1. Select the component in the Carbon library file
-            // 2. Run in Figma console: figma.currentPage.selection[0].key
-            // 3. Add the key here with a descriptive comment
-            // ============================================================
-            // ============================================================
-            // SMART SLOT COMPONENTS - For automatic slot detection
-            // ============================================================
-            // These components will be automatically added to cells based on content type
-            // Get keys by selecting the component instance and clicking "Get Component Keys"
-            const smartSlotComponents = {
-                overflow: '608ab39a49081fa1a460e71af33de459e6154ee7', // Overflow Menu - for 3+ action buttons
-                statusIcon: 'd94da074d575aa0ae337fc054f4f19bc311049b8', // Status icon - for status values (Failed, Succeeded, Pending, In-progress, etc.)
-                slotGroup: '761fd2270cc978c88b9cce64926b4c8245831bdc', // Slot group (Direction=Horizontal) - for name columns with avatar + text, or action columns with edit + delete
-                avatar: 'd80f0d175851756c4601e87e6e0abeb5539b24e8', // Avatar - for user profile images
-                text: 'e73c62eb16dcb7f54df1384f176fc7a3c0f64df5', // Text/Label - for user names
-                tag: 'c95a2fb5332d75515d2ed90ac487bc864fcb09b5', // Tag - for labels, roles, types, comma-separated values
-                edit: 'a4ba4c4aa1f2b0f0a5206341aafbb7d7eafa47e6', // Edit icon - for edit actions
-                delete: '84a7c6755b83b8e88ca803851c280d1e06255b93', // Trash-can icon - for delete actions
-                // Add more component keys here:
-                // checkbox: 'CHECKBOX_KEY_HERE', // Checkbox - for boolean values
-                // link: 'LINK_KEY_HERE', // Link - for URLs
-            };
-            
-            const knownCarbonKeys = [
-                'eb0c6fa56e00a94f56d7f6f1cfe9cde4006c5c20', // Carbon Table (Expandable + Selectable)
-                smartSlotComponents.overflow, // Overflow Menu
-                smartSlotComponents.statusIcon, // Status icon
-                // Add all smart slot component keys to the import list
-            ];
-            
-            // Combine hardcoded keys with user-collected keys
-            const allKeysToTry = [
-                ...knownCarbonKeys,
-                ...collectedKeys.map((k: any) => k.key)
-            ];
-            
-            console.log(`🧪 Testing ${allKeysToTry.length} potential Carbon component keys...`);
-            
-            for (const key of allKeysToTry) {
-                try {
-                    const importedComponent = await figma.importComponentByKeyAsync(key);
-                    if (importedComponent && !uniqueComponents.find(c => c.id === importedComponent.id)) {
-                        uniqueComponents.push(importedComponent);
-                        console.log(`✅ Auto-discovered: ${importedComponent.name} (Key: ${key})`);
-                        
-                        // Check if this is the Overflow component we're looking for
-                        if (importedComponent.name.toLowerCase().includes('overflow')) {
-                            console.log(`🎯 Found Overflow component: ${importedComponent.name}`);
-                        }
-                        
-                        // Check for other useful table components
-                        const componentName = importedComponent.name.toLowerCase();
-                        if (componentName.includes('button') || 
-                            componentName.includes('action') || 
-                            componentName.includes('menu') ||
-                            componentName.includes('dropdown') ||
-                            componentName.includes('icon')) {
-                            console.log(`🎯 Found useful table component: ${importedComponent.name}`);
-                        }
-                    }
-                } catch (importError) {
-                    // Component with this key doesn't exist or isn't accessible - this is normal
-                }
-            }
-        } catch (testError) {
-            console.log('ℹ️ Auto-discovery completed');
-        }
-        
-        return uniqueComponents;
-        
-    } catch (error) {
-        console.error('❌ Error discovering components:', error);
-        return [];
     }
 }
 
@@ -1535,8 +1130,7 @@ figma.ui.onmessage = async (msg: any) => {
                     console.warn('Failed to persist watsonx settings', e);
                 }
             }
-            // When using proxy, API key is not required (it's in environment variables)
-            if (!endpointToUse || (!useAccessToken && !useProxy && !apiKeyToUse && !uiAccessToken)) {
+            if (!endpointToUse || (!useAccessToken && !apiKeyToUse && !uiAccessToken)) {
                 figma.ui.postMessage({ type: 'watsonx-data-response', data: [] });
                 figma.notify('Missing watsonx endpoint or credentials');
                 return;
@@ -1551,7 +1145,7 @@ figma.ui.onmessage = async (msg: any) => {
                     const tokenRes = await fetch(`${proxyUrl.replace(/\/$/, '')}/token`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({}) // API key is now in environment variables
+                        body: JSON.stringify({ apiKey: apiKeyToUse })
                     });
                     if (!tokenRes.ok) throw new Error('Proxy token fetch failed');
                     const tokenJson = await tokenRes.json();
@@ -1612,14 +1206,14 @@ figma.ui.onmessage = async (msg: any) => {
 
     } else if (msg.type === 'generate-table-with-ai') {
         try {
-            const { prompt, rows, cols } = msg as { prompt: string, rows: number, cols: number };
-            const proxyUrl = 'https://application-44.21hwt6k1vujm.us-east.codeengine.appdomain.cloud';
+            const { prompt, apiKey, rows, cols } = msg as { prompt: string, apiKey: string, rows: number, cols: number };
+            const proxyUrl = 'http://localhost:3000';
             const endpoint = 'https://us-south.ml.cloud.ibm.com';
 
             const tokenRes = await fetch(`${proxyUrl}/token`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({}) // API key is now in environment variables
+                body: JSON.stringify({ apiKey })
             });
             if (!tokenRes.ok) {
                 const t = await tokenRes.text();
@@ -1860,21 +1454,6 @@ figma.ui.onmessage = async (msg: any) => {
                         propertyTypes[propName] = prop.type;
                     }
                     
-                    // Load saved cell properties from table metadata
-                    let savedCellProperties = null;
-                    if (tableId) {
-                        const tableSettingsData = tableNode.getPluginData('tableSettings');
-                        if (tableSettingsData) {
-                            try {
-                                const tableSettings = JSON.parse(tableSettingsData);
-                                savedCellProperties = tableSettings.cellProperties;
-                                console.log(`[Backend] Loaded ${Object.keys(savedCellProperties || {}).length} cell properties from table metadata`);
-                            } catch (e) {
-                                console.warn('[Backend] Could not parse table settings:', e);
-                            }
-                        }
-                    }
-                    
                     figma.ui.postMessage({
                         type: "component-info",
                         component: {
@@ -1884,8 +1463,7 @@ figma.ui.onmessage = async (msg: any) => {
                             properties: propertyValues,
                             availableProperties,
                             propertyTypes,
-                        },
-                        savedCellProperties: savedCellProperties // Send the saved cell properties to UI
+                        }
                     });
                     return;
                 }
@@ -1981,90 +1559,73 @@ figma.ui.onmessage = async (msg: any) => {
             }
         }
         
-        // --- Set the 'type' property to 'Expandable + Selectable' and Toolbar to enable all necessary components ---
-        console.log(`[scan-table] Setting table properties to enable all necessary components`);
-        
+        // --- Set the 'type' property to 'Expandable + Selectable' if possible ---
         if ('componentProperties' in tableFrame && 'setProperties' in tableFrame && typeof tableFrame.setProperties === 'function') {
-          console.log(`[scan-table] Table has componentProperties, attempting to set properties...`);
+          const typeProp = tableFrame.componentProperties['type'];
           
-          // Log all available properties for debugging
-          console.log(`[scan-table] 📋 Available properties:`, Object.keys(tableFrame.componentProperties));
+          // Find the correct property name for the type/variant property
+          let typePropertyName = null;
           for (const [propName, prop] of Object.entries(tableFrame.componentProperties)) {
-            console.log(`[scan-table]   "${propName}" = "${(prop as any).value}" (type: ${(prop as any).type})`);
-          }
-          
-          try {
-            // Try to set the 'type' property to 'Expandable + Selectable'
-            const propertiesToSet: any = {};
-            propertiesToSet['type'] = 'Expandable + Selectable';
-            
-            console.log(`[scan-table] Attempting to set Type property:`, propertiesToSet);
-            tableFrame.setProperties(propertiesToSet);
-            console.log(`[scan-table] ✅ Successfully set Type to 'Expandable + Selectable'`);
-            
-          } catch (error) {
-            console.log(`[scan-table] Direct type setting failed, trying alternative approach...`);
-            
-            // Try alternative property names and values
-            const alternativeNames = ['Type', 'Variant', 'Style', 'Mode'];
-            const alternativeValues = [
-              'Expandable + Selectable',
-              'Expandable+Selectable', 
-              'Selectable + Expandable',
-              'Both'
-            ];
-            
-            let success = false;
-            for (const propName of alternativeNames) {
-              for (const value of alternativeValues) {
-                try {
-                  const altProperties: any = {};
-                  altProperties[propName] = value;
-                  console.log(`[scan-table] Trying ${propName} = ${value}`);
-                  tableFrame.setProperties(altProperties);
-                  console.log(`[scan-table] ✅ Successfully set ${propName} to '${value}'`);
-                  success = true;
-                  break;
-                } catch (altError) {
-                  // Try next combination
-                }
-              }
-              if (success) break;
-            }
-            
-            if (!success) {
-              console.warn(`[scan-table] Could not set table type property`);
-            }
-          }
-          
-          // Set Toolbar property to enable toolbar elements
-          try {
-            // Find toolbar property (might be Toolbar#62100:0 or similar)
-            for (const [propName, prop] of Object.entries(tableFrame.componentProperties)) {
-              if (propName.toLowerCase().startsWith('toolbar')) {
-                const toolbarProps: any = {};
-                if ((prop as any).type === 'BOOLEAN') {
-                  toolbarProps[propName] = true;
-                  console.log(`[scan-table] Setting BOOLEAN ${propName} to true`);
+            if (prop.type === 'VARIANT') {
+              // Check if this property has expandable/selectable options
+              if ('mainComponent' in tableFrame && tableFrame.mainComponent && 'variantProperties' in tableFrame.mainComponent) {
+                const variantProps = tableFrame.mainComponent.variantProperties as any;
+                const variantKey = Object.keys(variantProps).find(k => k.startsWith(propName));
+                if (variantKey && variantProps[variantKey] && typeof variantProps[variantKey] === 'object' && 'values' in variantProps[variantKey] && Array.isArray(variantProps[variantKey].values)) {
+                  const possibleValues = variantProps[variantKey].values as string[];
+                  // Find a case-insensitive match for expandable + selectable
+                  const found = possibleValues.find(v => v.trim().toLowerCase().includes('expandable') && v.trim().toLowerCase().includes('selectable'));
+                  if (found) {
+                    typePropertyName = propName;
+                  }
                 } else {
-                  toolbarProps[propName] = 'True';
-                  console.log(`[scan-table] Setting ${propName} to 'True'`);
                 }
-                tableFrame.setProperties(toolbarProps);
-                console.log(`[scan-table] ✅ Successfully enabled Toolbar property`);
-                break;
+              } else {
               }
             }
-          } catch (toolbarError) {
-            console.log(`[scan-table] ℹ️ Toolbar property not available (this is OK)`);
           }
           
-          // Wait for Figma to update the instance tree
-          await Promise.resolve();
-          await new Promise(resolve => setTimeout(resolve, 150));
           
+          if (typePropertyName && tableFrame.mainComponent) {
+            // Find the correct variantKey again for setting
+            const variantProps = tableFrame.mainComponent.variantProperties as any;
+            const variantKey = Object.keys(variantProps).find(k => k.startsWith(typePropertyName));
+            let targetValue = 'Expandable + Selectable';
+            let variantValue = targetValue;
+            if (variantKey && variantProps[variantKey] && typeof variantProps[variantKey] === 'object' && 'values' in variantProps[variantKey] && Array.isArray(variantProps[variantKey].values)) {
+              const possibleValues = variantProps[variantKey].values as string[];
+              // Find a case-insensitive match
+              const found = possibleValues.find(v => v.trim().toLowerCase().includes('expandable') && v.trim().toLowerCase().includes('selectable'));
+              if (found) {
+                variantValue = found;
+              } else {
+              }
+            }
+            const propertiesToSet: any = {};
+            propertiesToSet[typePropertyName] = variantValue;
+            
+            // Check if the combination is valid before setting
+            let mainComponentSet = null;
+            if (tableFrame.mainComponent && tableFrame.mainComponent.parent && tableFrame.mainComponent.parent.type === "COMPONENT_SET") {
+                mainComponentSet = tableFrame.mainComponent.parent as ComponentSetNode;
+            }
+            
+            if (mainComponentSet && isValidVariantCombination(mainComponentSet, propertiesToSet)) {
+                try {
+            tableFrame.setProperties(propertiesToSet);
+            // Wait for Figma to update the instance tree
+            await Promise.resolve();
+            // Add additional delay to ensure the instance tree is updated
+            await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (error) {
+                    console.error('Error in tableFrame setProperties:', error);
+                }
+            } else {
+                console.warn('Invalid variant combination for table frame:', propertiesToSet);
+            }
+          } else {
+          }
         } else {
-          console.log(`[scan-table] Table does not have componentProperties or setProperties method`);
         }
         // --- Custom scan for specific instances/components ---
         let expandCellFound = false;
@@ -2125,7 +1686,6 @@ figma.ui.onmessage = async (msg: any) => {
             let headerCell: InstanceNode | null = null;
             let bodyCell: InstanceNode | null = null;
             let footer: InstanceNode | null = null;
-            let toolbarComponent: ComponentNode | null = null;
             let numCols = 0;
             let headerRowComponent: ComponentNode | null = null;
             let bodyRowComponent: ComponentNode | null = null;
@@ -2238,15 +1798,6 @@ figma.ui.onmessage = async (msg: any) => {
             if ('findAll' in tableFrame && typeof tableFrame.findAll === 'function') {
                 allInstances = tableFrame.findAll(n => n.type === 'INSTANCE' || n.type === 'COMPONENT') as (InstanceNode | ComponentNode)[];
                 for (const node of allInstances) {
-                    // Check for toolbar components
-                    if (node.name && node.name.toLowerCase().includes('toolbar')) {
-                        console.log(`🎯 Found toolbar node in second scan: ${node.name} (type: ${node.type})`);
-                        if (node.type === 'INSTANCE' && node.mainComponent && !toolbarComponent) {
-                            toolbarComponent = node.mainComponent;
-                            console.log(`✅ Found toolbar component in second scan: ${toolbarComponent.name}`);
-                        }
-                    }
-                    
                     if (node.name === 'Data table expand cell item') {
                       expandCellFound = true;
                       if (node.type === 'INSTANCE' && node.mainComponent) {
@@ -2657,7 +2208,6 @@ figma.ui.onmessage = async (msg: any) => {
                 bodyCell: bodyCell ? bodyCell.mainComponent : null,
                 bodyRowComponent,
                 footer: footer ? footer.mainComponent : null,
-                toolbar: toolbarComponent,
                 numCols,
                 selectCellComponent,
                 expandCellComponent,
@@ -2686,7 +2236,6 @@ figma.ui.onmessage = async (msg: any) => {
                         headerCellId: headerCell ? headerCell.id : null,
                         bodyCellId: bodyCell ? bodyCell.id : null,
                         footerId: footer ? footer.id : null,
-                        toolbarId: toolbarComponent ? (toolbarComponent as any).id : null,
                         selectCellId: selectCellComponent?.id || null,
                         expandCellId: expandCellComponent?.id || null,
                         dividerId: dividerComponent?.id || null,
@@ -2695,29 +2244,6 @@ figma.ui.onmessage = async (msg: any) => {
                     };
                     tableFrame.setPluginData('tableGeneratorScan', JSON.stringify(scanData));
                     console.log('✅ Stored scan result in table frame plugin data');
-            console.log('📊 Scan result summary:', {
-                headerCell: (headerCell as any)?.name || 'Not found',
-                bodyCell: (bodyCell as any)?.name || 'Not found', 
-                footer: (footer as any)?.name || 'Not found',
-                toolbar: (toolbarComponent as any)?.name || 'Not found',
-                selectCell: (selectCellComponent as any)?.name || 'Not found',
-                expandCell: (expandCellComponent as any)?.name || 'Not found',
-                divider: (dividerComponent as any)?.name || 'Not found'
-            });
-            
-            // Debug: Search specifically for toolbar components
-            console.log('🔍 Searching specifically for toolbar components...');
-            const allNodes = tableFrame.findAll(n => true);
-            console.log(`🔍 Found ${allNodes.length} total nodes in table`);
-            
-            allNodes.forEach(node => {
-                if (node.name && node.name.toLowerCase().includes('toolbar')) {
-                    console.log(`🎯 FOUND TOOLBAR NODE: ${node.name} (type: ${node.type})`);
-                    if (node.type === 'INSTANCE' && (node as InstanceNode).mainComponent) {
-                        console.log(`🎯 TOOLBAR INSTANCE: ${node.name} -> ${(node as InstanceNode).mainComponent?.name}`);
-                    }
-                }
-            });
                 }
             } catch (error) {
                 console.log('⚠️ Could not store scan result in plugin data:', error);
@@ -2804,30 +2330,13 @@ figma.ui.onmessage = async (msg: any) => {
                 return;
             }
 
-            const { headerCell, bodyCell, footer, toolbar, numCols } = lastScanResult;
-            console.log('🔍 Using scan result for table generation:', {
-                headerCell: headerCell?.name || 'Not found',
-                bodyCell: bodyCell?.name || 'Not found',
-                footer: footer?.name || 'Not found', 
-                toolbar: toolbar?.name || 'Not found',
-                numCols
-            });
+            const { headerCell, bodyCell, footer, numCols } = lastScanResult;
             figma.ui.postMessage({ type: 'show-loader', message: 'Generating table...' });
 
             const includeHeader = msg.includeHeader !== false;
             const includeFooter = msg.includeFooter === true;
-            const includeToolbar = msg.includeToolbar === true;
             const includeSelectable = msg.includeSelectable === true;
             const includeExpandable = msg.includeExpandable === true;
-            
-            console.log('🔍 Table generation flags:', {
-                includeHeader,
-                includeFooter,
-                includeToolbar,
-                includeSelectable,
-                includeExpandable,
-                msgIncludeToolbar: msg.includeToolbar
-            });
             const rows = msg.rows || 3;
             const cols = msg.cols || numCols || 3;
             let cellProps = msg.cellProps || {};
@@ -3117,337 +2626,7 @@ figma.ui.onmessage = async (msg: any) => {
                             if (cellData && cellData.properties) {
                                 try {
                                     const validProps = mapPropertyNames(cellData.properties, cell.componentProperties);
-                                    
-                                    // Log if this cell has a Swap slot property
-                                    const swapSlotKey = Object.keys(validProps).find(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
-                                    if (swapSlotKey) {
-                                        console.log(`🔄 Cell ${key} has Swap slot: ${swapSlotKey} = ${validProps[swapSlotKey]}`);
-                                    }
-                                    
                                     cell.setProperties(validProps);
-                                    
-                                    // If this cell has slot component properties (e.g., for Status Icon label)
-                                    // Check if any Swap slot property was set (the hash might vary)
-                                    const hasSwapSlot = Object.keys(validProps).some(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
-                                    const swapComponentId = swapSlotKey ? validProps[swapSlotKey] : null;
-                                    
-                                    if (cellData.slotComponentProps && hasSwapSlot && swapComponentId) {
-                                        // Store the cell reference and config for the async operation
-                                        const cellRef = cell;
-                                        const slotPropsConfig = cellData.slotComponentProps;
-                                        const cellKeyForLog = key;
-                                        
-                                        // Check if this is a nested slot case (Slot group with Avatar + Text)
-                                        const isNestedSlot = slotPropsConfig.nestedSlots === true;
-                                        
-                                        // Use setTimeout to allow Figma to complete the component swap
-                                        setTimeout(async () => {
-                                            try {
-                                                console.log(`🔧 Configuring slot component for cell ${cellKeyForLog}:`, slotPropsConfig);
-                                                
-                                                if (isNestedSlot) {
-                                                    // Handle Slot Group with Avatar + Text OR Edit + Delete
-                                                    let avatarComponent: ComponentNode | null = null;
-                                                    let textComponent: ComponentNode | null = null;
-                                                    let editComponent: ComponentNode | null = null;
-                                                    let deleteComponent: ComponentNode | null = null;
-                                                    
-                                                    if (slotPropsConfig.userName) {
-                                                        // User name case: Avatar + Text
-                                                        console.log(`👥 Processing nested slots for user: ${slotPropsConfig.userName}`);
-                                                        
-                                                        // Import the Avatar and Text components
-                                                        avatarComponent = await figma.importComponentByKeyAsync(slotPropsConfig.avatarKey);
-                                                        textComponent = await figma.importComponentByKeyAsync(slotPropsConfig.textKey);
-                                                        console.log(`  ✅ Imported Avatar and Text components`);
-                                                    } else if (slotPropsConfig.editKey && slotPropsConfig.deleteKey) {
-                                                        // Edit/Delete case: Edit + Delete icons
-                                                        console.log(`⚡ Processing nested slots for edit/delete actions`);
-                                                        
-                                                        // Import the Edit and Delete components
-                                                        editComponent = await figma.importComponentByKeyAsync(slotPropsConfig.editKey);
-                                                        deleteComponent = await figma.importComponentByKeyAsync(slotPropsConfig.deleteKey);
-                                                        console.log(`  ✅ Imported Edit and Delete components`);
-                                                    }
-                                                    
-                                                    // Find the Slot group component that was just swapped in
-                                                    const slotGroupComponents = cellRef.findAll(node => {
-                                                        if (node.type === 'INSTANCE') {
-                                                            const mainComp = (node as InstanceNode).mainComponent;
-                                                            return mainComp !== null && mainComp.id === swapComponentId;
-                                                        }
-                                                        return false;
-                                                    }) as InstanceNode[];
-                                                    
-                                                    if (slotGroupComponents.length > 0) {
-                                                        const slotGroup = slotGroupComponents[0];
-                                                        console.log(`  📦 Found Slot Group: ${slotGroup.name}`);
-                                                        console.log(`  📋 Slot Group children count:`, slotGroup.children.length);
-                                                        
-                                                        // Find the actual slot instances inside the Slot Group
-                                                        // Slots are children of the Slot Group, not properties
-                                                        const slotInstances = slotGroup.children.filter(child => 
-                                                            child.type === 'INSTANCE' && 
-                                                            child.name.toLowerCase().includes('slot')
-                                                        ) as InstanceNode[];
-                                                        
-                                                        console.log(`  🎰 Found ${slotInstances.length} slot instances:`, slotInstances.map(s => s.name));
-                                                        
-                                                        if (slotInstances.length >= 2) {
-                                                            const firstSlot = slotInstances[0];
-                                                            const secondSlot = slotInstances[1];
-                                                            
-                                                            if (slotPropsConfig.userName && avatarComponent && textComponent) {
-                                                                // User name case: Avatar + Text
-                                                                console.log(`  🔄 Swapping ${firstSlot.name} with Avatar...`);
-                                                                console.log(`  🔄 Swapping ${secondSlot.name} with Text...`);
-                                                                console.log(`  📏 Before swap - firstSlot layoutSizingHorizontal:`, firstSlot.layoutSizingHorizontal);
-                                                                console.log(`  📏 Before swap - slotGroup layoutMode:`, slotGroup.layoutMode);
-                                                                
-                                                                firstSlot.swapComponent(avatarComponent);
-                                                                secondSlot.swapComponent(textComponent);
-                                                                
-                                                                console.log(`  ✅ Nested slots swapped for user!`);
-                                                            } else if (slotPropsConfig.editKey && slotPropsConfig.deleteKey && editComponent && deleteComponent) {
-                                                                // Edit/Delete case: Edit + Delete icons
-                                                                console.log(`  🔄 Swapping ${firstSlot.name} with Edit...`);
-                                                                console.log(`  🔄 Swapping ${secondSlot.name} with Delete...`);
-                                                                
-                                                                firstSlot.swapComponent(editComponent);
-                                                                secondSlot.swapComponent(deleteComponent);
-                                                                
-                                                                console.log(`  ✅ Nested slots swapped for edit/delete!`);
-                                                            }
-                                                            
-                                                            // Now configure components (only for user names)
-                                                            if (slotPropsConfig.userName && avatarComponent && textComponent) {
-                                                                setTimeout(() => {
-                                                                    // Configure Avatar component
-                                                                    const avatarInstances = slotGroup.findAll(node => {
-                                                                        if (node.type === 'INSTANCE') {
-                                                                            const mainComp = (node as InstanceNode).mainComponent;
-                                                                            return mainComp !== null && mainComp.id === avatarComponent.id;
-                                                                        }
-                                                                        return false;
-                                                                    }) as InstanceNode[];
-                                                                
-                                                                if (avatarInstances.length > 0) {
-                                                                    const avatarInstance = avatarInstances[0];
-                                                                    console.log(`  👤 Found Avatar instance, configuring...`);
-                                                                    console.log(`  📋 Avatar properties:`, Object.keys(avatarInstance.componentProperties));
-                                                                    
-                                                                    // Extract first 2 letters of the name for initials
-                                                                    const userName = slotPropsConfig.userName || '';
-                                                                    const initials = userName.substring(0, 2).toUpperCase();
-                                                                    
-                                                                    // Find the properties
-                                                                    const typeProp = Object.keys(avatarInstance.componentProperties).find(prop => 
-                                                                        prop.toLowerCase().includes('type')
-                                                                    );
-                                                                    const sizeProp = Object.keys(avatarInstance.componentProperties).find(prop => 
-                                                                        prop.toLowerCase().includes('size')
-                                                                    );
-                                                                    const initialsProp = Object.keys(avatarInstance.componentProperties).find(prop => 
-                                                                        prop.toLowerCase().includes('initial')
-                                                                    );
-                                                                    
-                                                                    const avatarProps: any = {};
-                                                                    if (typeProp) avatarProps[typeProp] = 'Initials';
-                                                                    if (sizeProp) avatarProps[sizeProp] = 'Medium';
-                                                                    if (initialsProp) avatarProps[initialsProp] = initials;
-                                                                    
-                                                                    if (Object.keys(avatarProps).length > 0) {
-                                                                        avatarInstance.setProperties(avatarProps);
-                                                                        console.log(`  ✅ Set Avatar properties:`, avatarProps);
-                                                                    }
-                                                                    
-                                                                    // Set Avatar layout properties to HUG
-                                                                    avatarInstance.layoutSizingHorizontal = 'HUG';
-                                                                    avatarInstance.layoutSizingVertical = 'HUG';
-                                                                    avatarInstance.layoutGrow = 0;
-                                                                    console.log(`  📏 Set Avatar layout to HUG`);
-                                                                    
-                                                                    // Set fixed dimensions for Avatar (36px x 36px)
-                                                                    avatarInstance.resize(36, 36);
-                                                                    console.log(`  📏 Set Avatar dimensions: 36px x 36px`);
-                                                                }
-                                                                
-                                                                // Configure Text component
-                                                                const textInstances = slotGroup.findAll(node => {
-                                                                    if (node.type === 'INSTANCE') {
-                                                                        const mainComp = (node as InstanceNode).mainComponent;
-                                                                        return mainComp !== null && mainComp.id === textComponent.id;
-                                                                    }
-                                                                    return false;
-                                                                }) as InstanceNode[];
-                                                                
-                                                                if (textInstances.length > 0) {
-                                                                    const textInstance = textInstances[0];
-                                                                    console.log(`  📝 Found Text instance, setting text to: "${slotPropsConfig.userName}"`);
-                                                                    console.log(`  📋 Text instance properties:`, Object.keys(textInstance.componentProperties));
-                                                                    
-                                                                    // Find the text property
-                                                                    const textPropKey = Object.keys(textInstance.componentProperties).find(prop => 
-                                                                        prop.toLowerCase().includes('text') || prop.toLowerCase().includes('label')
-                                                                    );
-                                                                    
-                                                                    if (textPropKey) {
-                                                                        textInstance.setProperties({
-                                                                            [textPropKey]: slotPropsConfig.userName
-                                                                        });
-                                                                        console.log(`  ✅ Set text property: ${textPropKey} = "${slotPropsConfig.userName}"`);
-                                                                    } else {
-                                                                        console.warn(`  ⚠️ No text property found in Text instance`);
-                                                                    }
-                                                                } else {
-                                                                    console.warn(`  ⚠️ Text instance not found after swap`);
-                                                                }
-                                                            }, 100); // Additional delay for nested component swap
-                                                                }
-                                                        } else {
-                                                            console.warn(`  ⚠️ Expected 2 slot instances, found ${slotInstances.length}`);
-                                                        }
-                                                    }
-                                                } else if (slotPropsConfig.suggestedComponent === 'tag') {
-                                                    // Handle Tag component configuration
-                                                    console.log(`  🏷️ Configuring Tag component...`);
-                                                    
-                                                    // Get the cell value for tag text from slotPropsConfig
-                                                    const cellValue = slotPropsConfig.tagText || cellData.text || '';
-                                                    console.log(`  📝 Cell value for tags: "${cellValue}"`);
-                                                    
-                                                    // Split by multiple separators: comma, slash, pipe, semicolon, ampersand
-                                                    const tagValues = cellValue
-                                                        .split(/[,\/\|;&]/)  // Split by comma, slash, pipe, semicolon, or ampersand
-                                                        .map((v: string) => v.trim())
-                                                        .filter((v: string) => v.length > 0);
-                                                    console.log(`  🏷️ Tag values after split:`, tagValues);
-                                                    
-                                                    // Available colors for distinct tags
-                                                    const availableColors = [
-                                                        'Blue', 'Cyan', 'Teal', 'Green', 'Purple', 
-                                                        'Magenta', 'Red', 'Gray', 'Cool gray', 'Warm gray'
-                                                    ];
-                                                    
-                                                    // Find the Tag set component that was just swapped in
-                                                    const tagSetComponents = cellRef.findAll(node => {
-                                                        if (node.type === 'INSTANCE') {
-                                                            const mainComp = (node as InstanceNode).mainComponent;
-                                                            return mainComp !== null && mainComp.id === swapComponentId;
-                                                        }
-                                                        return false;
-                                                    }) as InstanceNode[];
-                                                    
-                                                    if (tagSetComponents.length > 0) {
-                                                        const tagSet = tagSetComponents[0];
-                                                        console.log(`  🏷️ Found Tag set component: ${tagSet.name}`);
-                                                        
-                                                        // Debug: Log all children of the tag set
-                                                        console.log(`  🔍 Tag set children:`, tagSet.children.map(child => ({
-                                                            name: child.name,
-                                                            type: child.type,
-                                                            visible: child.visible
-                                                        })));
-                                                        
-                                                        // Debug: Log all instances within the tag set
-                                                        const allInstances = tagSet.findAll(node => node.type === 'INSTANCE') as InstanceNode[];
-                                                        console.log(`  🔍 All instances in tag set:`, allInstances.map(instance => ({
-                                                            name: instance.name,
-                                                            mainComponentName: instance.mainComponent?.name,
-                                                            visible: instance.visible
-                                                        })));
-                                                        
-                                                        // Find all Tag - Read-only instances within the Tag set
-                                                        // Look for instances with the name "Tag - Read-only"
-                                                        const tagInstances = tagSet.findAll(node => {
-                                                            if (node.type === 'INSTANCE') {
-                                                                return node.name === 'Tag - Read-only';
-                                                            }
-                                                            return false;
-                                                        }) as InstanceNode[];
-                                                        
-                                                        console.log(`  🏷️ Found ${tagInstances.length} tag instances`);
-                                                        
-                                                        // Configure each tag instance
-                                                        tagInstances.forEach((tagInstance, index) => {
-                                                            if (index < tagValues.length) {
-                                                                // Show this tag and set its properties
-                                                                const tagValue = tagValues[index];
-                                                                const color = availableColors[index % availableColors.length];
-                                                                
-                                                                console.log(`  🏷️ Configuring tag ${index + 1}: "${tagValue}" with color "${color}"`);
-                                                                
-                                                                // Set tag text
-                                                                const textProp = Object.keys(tagInstance.componentProperties).find(prop => 
-                                                                    prop.toLowerCase().includes('text')
-                                                                );
-                                                                
-                                                                // Set tag color
-                                                                const colorProp = Object.keys(tagInstance.componentProperties).find(prop => 
-                                                                    prop.toLowerCase().includes('color') || prop.toLowerCase().includes('variant')
-                                                                );
-                                                                
-                                                                const tagProps: any = {};
-                                                                if (textProp) tagProps[textProp] = tagValue;
-                                                                if (colorProp) tagProps[colorProp] = color;
-                                                                
-                                                                if (Object.keys(tagProps).length > 0) {
-                                                                    tagInstance.setProperties(tagProps);
-                                                                    console.log(`  ✅ Set tag properties:`, tagProps);
-                                                                }
-                                                                
-                                                                // Make tag visible
-                                                                tagInstance.visible = true;
-                                                            } else {
-                                                                // Hide unused tags
-                                                                console.log(`  👁️ Hiding unused tag ${index + 1}`);
-                                                                tagInstance.visible = false;
-                                                            }
-                                                        });
-                                                        
-                                                        console.log(`  ✅ Tag configuration complete!`);
-                                                    } else {
-                                                        console.warn(`  ⚠️ Tag set component not found in cell ${cellKeyForLog}`);
-                                                    }
-                                                } else {
-                                                    // Handle Status Icon (existing logic)
-                                                    const slottedComponents = cellRef.findAll(node => {
-                                                        if (node.type === 'INSTANCE') {
-                                                            const mainComp = (node as InstanceNode).mainComponent;
-                                                            return mainComp !== null && mainComp.id === swapComponentId;
-                                                        }
-                                                        return false;
-                                                    }) as InstanceNode[];
-                                                    
-                                                    if (slottedComponents.length > 0) {
-                                                        const slottedComponent = slottedComponents[0];
-                                                        console.log(`  📦 Found Status Icon component: ${slottedComponent.name}`);
-                                                        console.log(`  📋 Available properties:`, Object.keys(slottedComponent.componentProperties));
-                                                        console.log(`  📝 Properties to apply (from UI):`, slotPropsConfig);
-                                                        
-                                                        try {
-                                                            const slotProps = mapPropertyNames(slotPropsConfig, slottedComponent.componentProperties);
-                                                            console.log(`  🔍 Mapped properties (after mapPropertyNames):`, slotProps);
-                                                            
-                                                            if (Object.keys(slotProps).length > 0) {
-                                                                console.log(`  🚀 Applying properties to Status Icon...`);
-                                                                slottedComponent.setProperties(slotProps);
-                                                                console.log(`  ✅ Applied properties to Status Icon`);
-                                                            } else {
-                                                                console.warn(`  ⚠️ No properties matched for Status Icon`);
-                                                            }
-                                                        } catch (slotError) {
-                                                            console.warn(`  ⚠️ Could not set Status Icon properties:`, slotError);
-                                                        }
-                                                    } else {
-                                                        console.warn(`  ⚠️ Status Icon component not found in cell ${cellKeyForLog}`);
-                                                    }
-                                                }
-                                            } catch (error) {
-                                                console.error(`  ❌ Error configuring slot component:`, error);
-                                            }
-                                        }, 100); // 100ms delay to allow Figma to complete the swap
-                                    }
                                 } catch (e) { console.warn('Could not set properties for cell', key, e); }
                             }
                         }
@@ -3842,37 +3021,6 @@ figma.ui.onmessage = async (msg: any) => {
                 }
             }
 
-            // Add toolbar if requested (placed at the top before header)
-            console.log('🔍 Toolbar generation check:', {
-                includeToolbar,
-                toolbarExists: !!toolbar,
-                toolbarName: toolbar?.name || 'null',
-                condition: includeToolbar && toolbar
-            });
-            
-            if (includeToolbar && toolbar) {
-                console.log('[Backend] Adding toolbar to table...');
-                try {
-                    const toolbarClone = toolbar.createInstance();
-                    toolbarClone.name = "Toolbar";
-                    toolbarClone.layoutSizingHorizontal = 'FIXED';
-                    toolbarClone.resize(totalTableWidth, toolbarClone.height);
-                    
-                    // Insert toolbar at the beginning (top) of the table
-                    tableFrame.insertChild(0, toolbarClone);
-                    console.log('✅ Successfully added toolbar to table at the top');
-                } catch (error) {
-                    console.error('Error creating toolbar:', error);
-                    figma.notify('⚠️ Toolbar component is no longer available');
-                }
-            } else if (includeToolbar && !toolbar) {
-                console.log('⚠️ Toolbar requested but not found in scan result');
-            } else if (!includeToolbar) {
-                console.log('ℹ️ Toolbar not requested (includeToolbar = false)');
-            } else {
-                console.log('ℹ️ Toolbar condition not met - includeToolbar:', includeToolbar, 'toolbar:', !!toolbar);
-            }
-
             if (includeFooter && footer) {
                 try {
                     const footerClone = footer.createInstance();
@@ -3902,7 +3050,6 @@ figma.ui.onmessage = async (msg: any) => {
                 rows: msg.rows,
                 includeHeader: msg.includeHeader,
                 includeFooter: msg.includeFooter,
-                includeToolbar: msg.includeToolbar,
                 includeSelectable: msg.includeSelectable,
                 includeExpandable: msg.includeExpandable,
                 cellProperties: msg.cellProps,
@@ -3918,7 +3065,6 @@ figma.ui.onmessage = async (msg: any) => {
                         headerCellId: lastScanResult.headerCell?.id || null,
                         bodyCellId: lastScanResult.bodyCell?.id || null,
                         footerId: lastScanResult.footer?.id || null,
-                        toolbarId: lastScanResult.toolbar?.id || null,
                         selectCellId: lastScanResult.selectCellComponent?.id || null,
                         expandCellId: lastScanResult.expandCellComponent?.id || null,
                         dividerId: lastScanResult.dividerComponent?.id || null,
@@ -3993,7 +3139,6 @@ figma.ui.onmessage = async (msg: any) => {
                 console.log('✅ Table converted to component successfully');
                 figma.notify('Table component created successfully!');
                 figma.ui.postMessage({ type: 'table-created', success: true, isComponent: true });
-                
             } catch (error) {
                 console.error('❌ Error converting table to component:', error);
                 // Fallback: use the original frame
@@ -4039,7 +3184,7 @@ figma.ui.onmessage = async (msg: any) => {
                         console.log('Stored scan data:', storedScan);
                         
                         // Try to restore components by their IDs
-                        let headerCell = null, bodyCell = null, footer = null, toolbarComponent = null, selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
+                        let headerCell = null, bodyCell = null, footer = null, selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
                         let headerRowComponent = null, bodyRowComponent = null;
                         
                         // Restore body cell (most critical)
@@ -4084,19 +3229,6 @@ figma.ui.onmessage = async (msg: any) => {
                                 }
                             } catch (error) {
                                 console.log('Could not restore footer from ID:', error);
-                            }
-                        }
-                        
-                        // Restore toolbar
-                        if (storedScan.toolbarId) {
-                            try {
-                                const toolbarNode = figma.getNodeById(storedScan.toolbarId);
-                                if (toolbarNode && toolbarNode.type === 'COMPONENT') {
-                                    toolbarComponent = toolbarNode;
-                                    console.log('✅ Restored toolbar from stored ID:', toolbarComponent.name);
-                                }
-                            } catch (error) {
-                                console.log('Could not restore toolbar from ID:', error);
                             }
                         }
                         
@@ -4172,7 +3304,6 @@ figma.ui.onmessage = async (msg: any) => {
                                 bodyCell,
                                 bodyRowComponent,
                                 footer,
-                                toolbar: toolbarComponent,
                                 numCols: storedScan.numCols || 3,
                                 selectCellComponent,
                                 expandCellComponent,
@@ -4318,7 +3449,6 @@ figma.ui.onmessage = async (msg: any) => {
                                         bodyCell,
                                         bodyRowComponent,
                                         footer,
-                                        toolbar: toolbarComponent,
                                         numCols: storedScan.numCols || 3,
                                         selectCellComponent,
                                         expandCellComponent,
@@ -4370,7 +3500,7 @@ figma.ui.onmessage = async (msg: any) => {
                 console.log('No lastScanResult available, finding components dynamically...');
                 
                 // More intelligent component search that prioritizes original components over instances
-                let headerCell = null, bodyCell = null, footer = null, toolbarComponent = null, selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
+                let headerCell = null, bodyCell = null, footer = null, selectCellComponent = null, expandCellComponent = null, dividerComponent = null;
                 
                 // First, try to find components by looking at the existing table instances
                 // This is more reliable than searching the entire document
@@ -4396,11 +3526,6 @@ figma.ui.onmessage = async (msg: any) => {
                             } else if (!footer && compName.includes('footer')) {
                                 footer = instance.mainComponent;
                                 console.log(`✅ Found footer from table instance: ${footer.name}`);
-                            } else if (!toolbarComponent && compName.includes('toolbar')) {
-                                toolbarComponent = instance.mainComponent;
-                                console.log(`✅ Found toolbar from table instance: ${toolbarComponent.name}`);
-                            } else if (compName.includes('toolbar')) {
-                                console.log(`🔍 Found toolbar component but already have one: ${instance.mainComponent.name}`);
                             } else if (!selectCellComponent && compName.includes('select') && compName.includes('cell')) {
                                 selectCellComponent = instance.mainComponent;
                                 console.log(`✅ Found select cell from table instance: ${selectCellComponent.name}`);
@@ -4530,7 +3655,6 @@ figma.ui.onmessage = async (msg: any) => {
                     bodyCell: bodyCell as ComponentNode | null,
                     bodyRowComponent: null,
                     footer: footer as ComponentNode | null,
-                    toolbar: toolbarComponent as ComponentNode | null,
                     numCols: msg.cols || 5,
                     selectCellComponent: selectCellComponent as ComponentNode | null,
                     expandCellComponent: expandCellComponent as ComponentNode | null,
@@ -4610,7 +3734,6 @@ figma.ui.onmessage = async (msg: any) => {
                 cols: msg.cols,
                 includeHeader: msg.includeHeader,
                 includeFooter: msg.includeFooter,
-                includeToolbar: msg.includeToolbar,
                 includeSelectable: msg.includeSelectable,
                 includeExpandable: msg.includeExpandable,
                 cellPropsKeys: Object.keys(msg.cellProps)
@@ -4633,20 +3756,13 @@ figma.ui.onmessage = async (msg: any) => {
             console.log('✅ Configured table frame layout properties');
 
             // Re-use the creation logic, but target the existing frame
-            const { headerCell, bodyCell, footer, toolbar, numCols } = lastScanResult!;
-            
-            const includeHeader = msg.includeHeader !== false;
-            const includeFooter = msg.includeFooter === true;
-            const includeToolbar = msg.includeToolbar === true;
-            const includeSelectable = msg.includeSelectable === true;
-            const includeExpandable = msg.includeExpandable === true;
-            const { rows, cols } = msg;
+            const { headerCell, bodyCell, footer, numCols } = lastScanResult!;
+            const { rows, cols, includeHeader, includeFooter, includeSelectable, includeExpandable } = msg;
             let { cellProps } = msg;
             
-            // Get the original table settings to preserve header/footer/toolbar state
+            // Get the original table settings to preserve header/footer state
             let originalIncludeHeader = includeHeader;
             let originalIncludeFooter = includeFooter;
-            let originalIncludeToolbar = includeToolbar;
             let originalIncludeSelectable = includeSelectable;
             let originalIncludeExpandable = includeExpandable;
             
@@ -4716,9 +3832,6 @@ figma.ui.onmessage = async (msg: any) => {
             }
             if (originalIncludeFooter && !lastScanResult?.footer) {
                 console.warn('⚠️ Footer component not found, footer will be skipped');
-            }
-            if (includeToolbar && !lastScanResult?.toolbar) {
-                console.warn('⚠️ Toolbar component not found, toolbar will be skipped');
             }
             if (originalIncludeSelectable && !lastScanResult?.selectCellComponent) {
                 console.warn('⚠️ Select cell component not found, selectable functionality will be disabled');
@@ -4951,309 +4064,6 @@ figma.ui.onmessage = async (msg: any) => {
                         try {
                             const validProps = mapPropertyNames(cellData.properties, cell.componentProperties);
                             cell.setProperties(validProps);
-                            
-                            // Apply smart slot configuration if present (UPDATE)
-                            const swapSlotKey = Object.keys(validProps).find(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
-                            const hasSwapSlot = Object.keys(validProps).some(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
-                            const swapComponentId = swapSlotKey ? validProps[swapSlotKey] : null;
-                            
-                            if (cellData.slotComponentProps && hasSwapSlot && swapComponentId) {
-                                // Store the cell reference and config for the async operation
-                                const cellRef = cell;
-                                const slotPropsConfig = cellData.slotComponentProps;
-                                const cellKeyForLog = key;
-                                
-                                // Check if this is a nested slot case (Slot group with Avatar + Text)
-                                const isNestedSlot = slotPropsConfig.nestedSlots === true;
-                                
-                                // Use setTimeout to allow Figma to complete the component swap
-                                setTimeout(async () => {
-                                    try {
-                                        console.log(`🔧 [UPDATE] Configuring slot component for cell ${cellKeyForLog}:`, slotPropsConfig);
-                                        
-                                        if (isNestedSlot) {
-                                            // Handle Slot Group with Avatar + Text OR Edit + Delete
-                                            let avatarComponent: ComponentNode | null = null;
-                                            let textComponent: ComponentNode | null = null;
-                                            let editComponent: ComponentNode | null = null;
-                                            let deleteComponent: ComponentNode | null = null;
-                                            
-                                            if (slotPropsConfig.userName) {
-                                                // User name case: Avatar + Text
-                                                console.log(`👥 [UPDATE] Processing nested slots for user: ${slotPropsConfig.userName}`);
-                                                
-                                                // Import the Avatar and Text components
-                                                avatarComponent = await figma.importComponentByKeyAsync(slotPropsConfig.avatarKey);
-                                                textComponent = await figma.importComponentByKeyAsync(slotPropsConfig.textKey);
-                                                console.log(`  ✅ [UPDATE] Imported Avatar and Text components`);
-                                            } else if (slotPropsConfig.editKey && slotPropsConfig.deleteKey) {
-                                                // Edit/Delete case: Edit + Delete icons
-                                                console.log(`⚡ [UPDATE] Processing nested slots for edit/delete actions`);
-                                                
-                                                // Import the Edit and Delete components
-                                                editComponent = await figma.importComponentByKeyAsync(slotPropsConfig.editKey);
-                                                deleteComponent = await figma.importComponentByKeyAsync(slotPropsConfig.deleteKey);
-                                                console.log(`  ✅ [UPDATE] Imported Edit and Delete components`);
-                                            }
-                                            
-                                            // Find the Slot group component that was just swapped in
-                                            const slotGroupComponents = cellRef.findAll(node => {
-                                                if (node.type === 'INSTANCE') {
-                                                    const mainComp = (node as InstanceNode).mainComponent;
-                                                    return mainComp !== null && mainComp.id === swapComponentId;
-                                                }
-                                                return false;
-                                            }) as InstanceNode[];
-                                            
-                                            if (slotGroupComponents.length > 0) {
-                                                const slotGroup = slotGroupComponents[0];
-                                                console.log(`  🔍 [UPDATE] Found Slot Group component: ${slotGroup.name}`);
-                                                
-                                                // Find the actual slot instances (children of the Slot Group)
-                                                const slotInstances = slotGroup.children.filter(node => 
-                                                    node.type === 'INSTANCE' && 
-                                                    node.name.toLowerCase().includes('slot')
-                                                ) as InstanceNode[];
-                                                
-                                                console.log(`  🔍 [UPDATE] Found ${slotInstances.length} slot instances`);
-                                                
-                                                if (slotInstances.length >= 2) {
-                                                    const avatarSlot = slotInstances[0];
-                                                    const textSlot = slotInstances[1];
-                                                    
-                                                    if (avatarComponent && textComponent && slotPropsConfig.userName) {
-                                                        // Swap Avatar into first slot
-                                                        console.log(`  📏 [UPDATE] Before swap - avatarSlot layoutSizingHorizontal:`, avatarSlot.layoutSizingHorizontal);
-                                                        console.log(`  📏 [UPDATE] Before swap - slotGroup layoutMode:`, slotGroup.layoutMode);
-                                                        
-                                                        avatarSlot.swapComponent(avatarComponent);
-                                                        console.log(`  ✅ [UPDATE] Swapped Avatar component`);
-                                                        
-                                                        // Configure Avatar properties
-                                                        setTimeout(() => {
-                                                            const avatarInstances = cellRef.findAll(node => {
-                                                                if (node.type === 'INSTANCE') {
-                                                                    const mainComp = (node as InstanceNode).mainComponent;
-                                                                    return mainComp !== null && mainComp.id === avatarComponent!.id;
-                                                                }
-                                                                return false;
-                                                            }) as InstanceNode[];
-                                                            
-                                                            if (avatarInstances.length > 0) {
-                                                                const avatarInstance = avatarInstances[0];
-                                                                console.log(`  🔧 [UPDATE] Configuring Avatar: Type=Initials, Size=Medium, Initial text=${slotPropsConfig.userName.substring(0, 2)}`);
-                                                                
-                                                                // Set Avatar properties
-                                                                const avatarProps: any = {
-                                                                    'Type': 'Initials',
-                                                                    'Size': 'Medium'
-                                                                };
-                                                                
-                                                                // Find the Initial text property
-                                                                const initialTextProp = Object.keys(avatarInstance.componentProperties).find(prop => 
-                                                                    prop.toLowerCase().includes('initial') && prop.toLowerCase().includes('text')
-                                                                );
-                                                                if (initialTextProp) {
-                                                                    avatarProps[initialTextProp] = slotPropsConfig.userName.substring(0, 2);
-                                                                }
-                                                                
-                                                                avatarInstance.setProperties(avatarProps);
-                                                                console.log(`  ✅ [UPDATE] Avatar configured successfully`);
-                                                                
-                                                                // Set Avatar layout properties to HUG
-                                                                avatarInstance.layoutSizingHorizontal = 'HUG';
-                                                                avatarInstance.layoutSizingVertical = 'HUG';
-                                                                avatarInstance.layoutGrow = 0;
-                                                                console.log(`  📏 [UPDATE] Set Avatar layout to HUG`);
-                                                                
-                                                                // Set fixed dimensions for Avatar (36px x 36px)
-                                                                avatarInstance.resize(36, 36);
-                                                                console.log(`  📏 [UPDATE] Set Avatar dimensions: 36px x 36px`);
-                                                            }
-                                                        }, 100);
-                                                        
-                                                        // Swap Text into second slot
-                                                        textSlot.swapComponent(textComponent);
-                                                        console.log(`  ✅ [UPDATE] Swapped Text component`);
-                                                        
-                                                        // Configure Text properties
-                                                        setTimeout(() => {
-                                                            const textInstances = cellRef.findAll(node => {
-                                                                if (node.type === 'INSTANCE') {
-                                                                    const mainComp = (node as InstanceNode).mainComponent;
-                                                                    return mainComp !== null && mainComp.id === textComponent!.id;
-                                                                }
-                                                                return false;
-                                                            }) as InstanceNode[];
-                                                            
-                                                            if (textInstances.length > 0) {
-                                                                const textInstance = textInstances[0];
-                                                                console.log(`  📝 [UPDATE] Found Text instance, setting text to: "${slotPropsConfig.userName}"`);
-                                                                
-                                                                // Find the text property
-                                                                const textPropKey = Object.keys(textInstance.componentProperties).find(prop => 
-                                                                    prop.toLowerCase().includes('text') || prop.toLowerCase().includes('label')
-                                                                );
-                                                                
-                                                                if (textPropKey) {
-                                                                    textInstance.setProperties({
-                                                                        [textPropKey]: slotPropsConfig.userName
-                                                                    });
-                                                                    console.log(`  ✅ [UPDATE] Set text property: ${textPropKey} = "${slotPropsConfig.userName}"`);
-                                                                } else {
-                                                                    console.warn(`  ⚠️ [UPDATE] No text property found in Text instance`);
-                                                                }
-                                                            } else {
-                                                                console.warn(`  ⚠️ [UPDATE] Text instance not found after swap`);
-                                                            }
-                                                        }, 100); // Additional delay for nested component swap
-                                                    } else if (editComponent && deleteComponent) {
-                                                        // Swap Edit icon into first slot
-                                                        avatarSlot.swapComponent(editComponent);
-                                                        console.log(`  ✅ [UPDATE] Swapped Edit icon`);
-                                                        
-                                                        // Swap Delete icon into second slot
-                                                        textSlot.swapComponent(deleteComponent);
-                                                        console.log(`  ✅ [UPDATE] Swapped Delete icon`);
-                                                    }
-                                                } else {
-                                                    console.warn(`  ⚠️ [UPDATE] Expected 2 slot instances, found ${slotInstances.length}`);
-                                                }
-                                            } else {
-                                                console.warn(`  ⚠️ [UPDATE] Slot Group component not found after swap`);
-                                            }
-                                        } else if (slotPropsConfig.suggestedComponent === 'tag') {
-                                            // Handle Tag component configuration
-                                            console.log(`  🏷️ [UPDATE] Configuring Tag component...`);
-                                            
-                                            // Get the cell value for tag text from slotPropsConfig
-                                            const cellValue = slotPropsConfig.tagText || cellData.text || '';
-                                            console.log(`  📝 [UPDATE] Cell value for tags: "${cellValue}"`);
-                                            
-                                            // Split by multiple separators: comma, slash, pipe, semicolon, ampersand
-                                            const tagValues = cellValue
-                                                .split(/[,\/\|;&]/)  // Split by comma, slash, pipe, semicolon, or ampersand
-                                                .map((v: string) => v.trim())
-                                                .filter((v: string) => v.length > 0);
-                                            console.log(`  🏷️ [UPDATE] Tag values after split:`, tagValues);
-                                            
-                                            // Available colors for distinct tags
-                                            const availableColors = [
-                                                'Blue', 'Cyan', 'Teal', 'Green', 'Purple', 
-                                                'Magenta', 'Red', 'Gray', 'Cool gray', 'Warm gray'
-                                            ];
-                                            
-                                            // Find the Tag set component that was just swapped in
-                                            const tagSetComponents = cellRef.findAll(node => {
-                                                if (node.type === 'INSTANCE') {
-                                                    const mainComp = (node as InstanceNode).mainComponent;
-                                                    return mainComp !== null && mainComp.id === swapComponentId;
-                                                }
-                                                return false;
-                                            }) as InstanceNode[];
-                                            
-                                            if (tagSetComponents.length > 0) {
-                                                const tagSet = tagSetComponents[0];
-                                                console.log(`  🏷️ [UPDATE] Found Tag set component: ${tagSet.name}`);
-                                                
-                                                // Find all Tag - Read-only instances within the Tag set
-                                                const tagInstances = tagSet.findAll(node => 
-                                                    node.name === 'Tag - Read-only'
-                                                ) as InstanceNode[];
-                                                
-                                                console.log(`  🏷️ [UPDATE] Found ${tagInstances.length} tag instances`);
-                                                
-                                                // Configure each tag instance
-                                                tagInstances.forEach((tagInstance, index) => {
-                                                    if (index < tagValues.length) {
-                                                        const tagValue = tagValues[index];
-                                                        const color = availableColors[index % availableColors.length];
-                                                        
-                                                        console.log(`  🏷️ [UPDATE] Configuring tag ${index + 1}: "${tagValue}" with color "${color}"`);
-                                                        
-                                                        // Set tag properties
-                                                        const tagProps: any = {};
-                                                        
-                                                        // Find text property
-                                                        const textProp = Object.keys(tagInstance.componentProperties).find(prop => 
-                                                            prop.toLowerCase().includes('text') || prop.toLowerCase().includes('label')
-                                                        );
-                                                        if (textProp) {
-                                                            tagProps[textProp] = tagValue;
-                                                        }
-                                                        
-                                                        // Find color property
-                                                        const colorProp = Object.keys(tagInstance.componentProperties).find(prop => 
-                                                            prop.toLowerCase().includes('color')
-                                                        );
-                                                        if (colorProp) {
-                                                            tagProps[colorProp] = color;
-                                                        }
-                                                        
-                                                        tagInstance.setProperties(tagProps);
-                                                        tagInstance.visible = true;
-                                                    } else {
-                                                        // Hide unused tags
-                                                        tagInstance.visible = false;
-                                                    }
-                                                });
-                                                
-                                                console.log(`  ✅ [UPDATE] Tag configuration complete!`);
-                                            } else {
-                                                console.warn(`  ⚠️ [UPDATE] Tag set component not found after swap`);
-                                            }
-                                        } else {
-                                            // Handle other slot components (Status Icon, etc.)
-                                            console.log(`  🔧 [UPDATE] Configuring ${slotPropsConfig.suggestedComponent} component...`);
-                                            
-                                            // Find the slotted component that was just swapped in
-                                            const slottedComponents = cellRef.findAll(node => {
-                                                if (node.type === 'INSTANCE') {
-                                                    const mainComp = (node as InstanceNode).mainComponent;
-                                                    return mainComp !== null && mainComp.id === swapComponentId;
-                                                }
-                                                return false;
-                                            }) as InstanceNode[];
-                                            
-                                            if (slottedComponents.length > 0) {
-                                                const slottedComponent = slottedComponents[0];
-                                                console.log(`  🔧 [UPDATE] Found slotted component: ${slottedComponent.name}`);
-                                                console.log(`  🔧 [UPDATE] Available properties:`, Object.keys(slottedComponent.componentProperties));
-                                                
-                                                // Apply slot component properties
-                                                if (slotPropsConfig.Status) {
-                                                    slottedComponent.setProperties({
-                                                        'Status': slotPropsConfig.Status
-                                                    });
-                                                    console.log(`  ✅ [UPDATE] Set Status: ${slotPropsConfig.Status}`);
-                                                }
-                                                
-                                                if (slotPropsConfig.Label !== undefined) {
-                                                    slottedComponent.setProperties({
-                                                        'Label': slotPropsConfig.Label
-                                                    });
-                                                    console.log(`  ✅ [UPDATE] Set Label: ${slotPropsConfig.Label}`);
-                                                }
-                                                
-                                                // Set specific text properties based on status
-                                                if (slotPropsConfig.Status && slotPropsConfig[`${slotPropsConfig.Status} text`]) {
-                                                    const textPropName = `${slotPropsConfig.Status} text`;
-                                                    slottedComponent.setProperties({
-                                                        [textPropName]: slotPropsConfig[textPropName]
-                                                    });
-                                                    console.log(`  ✅ [UPDATE] Set ${textPropName}: ${slotPropsConfig[textPropName]}`);
-                                                }
-                                                
-                                                console.log(`  ✅ [UPDATE] Slot component configuration complete!`);
-                                            } else {
-                                                console.warn(`  ⚠️ [UPDATE] Slotted component not found after swap`);
-                                            }
-                                        }
-                                    } catch (error) {
-                                        console.error(`❌ [UPDATE] Error configuring slot component for cell ${cellKeyForLog}:`, error);
-                                    }
-                                }, 100); // Allow time for component swap to complete
-                            }
                                 } catch (e) { console.warn('Could not set properties for cell', key, e); }
                     }
                 }
@@ -5565,28 +4375,6 @@ figma.ui.onmessage = async (msg: any) => {
                 }
             }
 
-            // Add toolbar if requested (placed at the top before header)
-            if (includeToolbar && toolbar) {
-                console.log('[Backend] Adding toolbar to updated table...');
-                try {
-                    const toolbarClone = toolbar.createInstance();
-                    toolbarClone.name = "Toolbar";
-                    toolbarClone.layoutSizingHorizontal = 'FIXED';
-                    toolbarClone.resize(totalTableWidth, toolbarClone.height);
-                    
-                    // Insert toolbar at the beginning (top) of the table
-                    tableFrame.insertChild(0, toolbarClone);
-                    console.log('✅ Successfully added toolbar to updated table at the top');
-                } catch (error) {
-                    console.error('Error creating toolbar in update:', error);
-                    figma.notify('⚠️ Toolbar component is no longer available');
-                }
-            } else if (includeToolbar && !toolbar) {
-                console.log('⚠️ Toolbar requested but not found in scan result (update)');
-            } else if (!includeToolbar) {
-                console.log('ℹ️ Toolbar not requested in update (includeToolbar = false)');
-            }
-
             if (originalIncludeFooter && lastScanResult?.footer) {
                 try {
                     const footerClone = lastScanResult.footer.createInstance();
@@ -5616,13 +4404,11 @@ figma.ui.onmessage = async (msg: any) => {
                 rows: msg.rows,
                 includeHeader: originalIncludeHeader,
                 includeFooter: originalIncludeFooter,
-                includeToolbar: originalIncludeToolbar,
                 includeSelectable: originalIncludeSelectable,
                 includeExpandable: originalIncludeExpandable,
                 cellProperties: cellProps, // Use the sorted cellProps instead of msg.cellProps
             };
             tableFrame.setPluginData('tableSettings', JSON.stringify(tableSettings));
-
 
             figma.notify('✅ Table updated successfully!');
             figma.ui.postMessage({ type: 'table-updated', success: true });
@@ -5633,464 +4419,6 @@ figma.ui.onmessage = async (msg: any) => {
         } finally {
             isCreatingTable = false;
         }
-        })();
-    } else if (msg.type === 'test-swap-component') {
-        console.log('🔄 Testing Overflow component swap...');
-        (async () => {
-            try {
-                // Get the selected nodes
-                const selection = figma.currentPage.selection;
-                if (selection.length === 0) {
-                    figma.notify('⚠️ Please select a cell instance to swap with Overflow');
-                    return;
-                }
-                
-                const selectedNode = selection[0];
-                if (selectedNode.type !== 'INSTANCE') {
-                    figma.notify('⚠️ Please select an instance (not a component) to test swap');
-                    return;
-                }
-                
-                console.log(`📋 Selected instance: ${selectedNode.name} (ID: ${selectedNode.id})`);
-                
-                // Try to import the Overflow component using the hardcoded key
-                const overflowKey = '608ab39a49081fa1a460e71af33de459e6154ee7';
-                console.log(`🔄 Attempting to import Overflow component with key: ${overflowKey}`);
-                
-                try {
-                    const overflowComponent = await figma.importComponentByKeyAsync(overflowKey);
-                    
-                    if (!overflowComponent) {
-                        figma.notify('❌ Could not import Overflow component - is Carbon library enabled?');
-                        return;
-                    }
-                    
-                    console.log(`✅ Successfully imported Overflow component: ${overflowComponent.name}`);
-                    console.log(`   Component ID: ${overflowComponent.id}`);
-                    console.log(`   Component Key: ${overflowComponent.key}`);
-                    
-                    // Perform the swap
-                    (selectedNode as InstanceNode).swapComponent(overflowComponent);
-                    figma.notify(`✅ Successfully swapped to Overflow component!`);
-                    
-                    console.log(`✅ Swap complete! Instance now uses Overflow component.`);
-                    
-                } catch (importError) {
-                    console.error('❌ Error importing Overflow component:', importError);
-                    figma.notify(`❌ Could not import Overflow: ${importError instanceof Error ? importError.message : 'Unknown error'}`);
-                    console.log('💡 Make sure the Carbon Design System library is enabled in this file');
-                }
-                
-            } catch (error) {
-                console.error('❌ Error testing component swap:', error);
-                figma.notify(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            }
-        })();
-    } else if (msg.type === 'analyze-smart-slots') {
-        console.log('🧠 Analyzing table data for smart slot suggestions...');
-        (async () => {
-            try {
-                const { gridData, headers, autoApply } = msg;
-                
-                if (!gridData || !headers) {
-                    figma.notify('⚠️ No table data provided for analysis');
-                    return;
-                }
-                
-                const suggestions = analyzeTableDataForSmartSlots(gridData, headers);
-                
-                // If autoApply is true, automatically apply the suggestions with component imports
-                if (autoApply && suggestions.length > 0) {
-                    console.log(`🤖 Auto-applying ${suggestions.length} smart slot suggestions...`);
-                    
-                    // Import components for each suggestion
-                    const smartSlotComponents: Record<string, string> = {
-                        overflow: '608ab39a49081fa1a460e71af33de459e6154ee7',
-                        statusIcon: 'd94da074d575aa0ae337fc054f4f19bc311049b8',
-                        slotGroup: '761fd2270cc978c88b9cce64926b4c8245831bdc',
-                        avatar: 'd80f0d175851756c4601e87e6e0abeb5539b24e8',
-                        text: 'e73c62eb16dcb7f54df1384f176fc7a3c0f64df5',
-                        tag: 'c95a2fb5332d75515d2ed90ac487bc864fcb09b5',
-                        edit: 'a4ba4c4aa1f2b0f0a5206341aafbb7d7eafa47e6',
-                        delete: '84a7c6755b83b8e88ca803851c280d1e06255b93',
-                    };
-                    
-                    const suggestionsWithComponents = await Promise.all(suggestions.map(async (suggestion) => {
-                        const componentKey = smartSlotComponents[suggestion.suggestedComponent as keyof typeof smartSlotComponents];
-                        
-                        if (componentKey) {
-                            try {
-                                console.log(`📦 Importing ${suggestion.suggestedComponent} (key: ${componentKey})...`);
-                                const component = await figma.importComponentByKeyAsync(componentKey);
-                                
-                                return {
-                                    ...suggestion,
-                                    componentId: component.id,
-                                    componentName: component.name
-                                };
-                            } catch (error) {
-                                console.warn(`⚠️ Could not import ${suggestion.suggestedComponent}:`, error);
-                                return suggestion;
-                            }
-                        }
-                        
-                        return suggestion;
-                    }));
-                    
-                    figma.ui.postMessage({
-                        type: 'auto-apply-smart-slots',
-                        suggestions: suggestionsWithComponents
-                    });
-                    
-                    const appliedCount = suggestionsWithComponents.filter(s => s.componentId).length;
-                    if (appliedCount > 0) {
-                        figma.notify(`✨ Auto-applied ${appliedCount} smart component${appliedCount > 1 ? 's' : ''}`);
-                    } else {
-                        figma.notify('⚠️ Could not import components for auto-apply');
-                    }
-                } else {
-                    // Just send suggestions for manual review
-                    figma.ui.postMessage({
-                        type: 'smart-slot-suggestions',
-                        suggestions
-                    });
-                }
-            } catch (error) {
-                console.error('❌ Error analyzing smart slots:', error);
-                figma.notify(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            }
-        })();
-    } else if (msg.type === 'discover-library-components') {
-        console.log('🔍 Discovering components from all available libraries...');
-        try {
-            // This function will help users discover components from libraries
-            // that are added to their file but not yet used on any page
-            
-            console.log('📋 Instructions for discovering library components:');
-            console.log('1. Open the Carbon Design System library file in Figma');
-            console.log('2. Navigate to the component you want (e.g., Overflow Menu)');
-            console.log('3. Select the component and run: figma.currentPage.selection[0].key');
-            console.log('4. Copy the returned key');
-            console.log('5. Use "Collect Carbon Keys" button to store it in this plugin');
-            
-            figma.notify('📋 Check console for instructions on discovering library components');
-            
-            // Try to provide some guidance by checking what's available
-            const allComponents = figma.root.findAll(node => node.type === 'COMPONENT') as ComponentNode[];
-            const allComponentSets = figma.root.findAll(node => node.type === 'COMPONENT_SET') as ComponentSetNode[];
-            
-            console.log(`📊 Current file has ${allComponents.length} components and ${allComponentSets.length} component sets`);
-            console.log('💡 To access library components not yet used, you need their keys from the library file');
-            
-        } catch (error) {
-            console.error('❌ Error discovering library components:', error);
-            figma.notify(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    } else if (msg.type === 'find-overflow-component') {
-        console.log('🔍 Finding Overflow component automatically...');
-        try {
-            // First, check if we already found the Overflow component
-            let overflowInfo = null;
-            try {
-                const storedOverflow = figma.currentPage.getPluginData('foundOverflowComponent');
-                if (storedOverflow) {
-                    overflowInfo = JSON.parse(storedOverflow);
-                    console.log(`✅ Found previously discovered Overflow component: ${overflowInfo.name}`);
-                    figma.notify(`✅ Overflow component already found: ${overflowInfo.name}`);
-                    return;
-                }
-            } catch (e) {
-                console.log('No previously found Overflow component');
-            }
-            
-            // Try to find the Overflow component in existing component sets
-            const componentSets = figma.root.findAll(node => node.type === 'COMPONENT_SET') as ComponentSetNode[];
-            console.log(`📦 Searching ${componentSets.length} component sets for Overflow...`);
-            let overflowFound = false;
-            
-            for (const componentSet of componentSets) {
-                const setName = componentSet.name.toLowerCase();
-                console.log(`🔍 Checking: "${componentSet.name}"`);
-                
-                if (setName.includes('overflow') || setName.includes('menu') || setName.includes('action')) {
-                    console.log(`🎯 Found potential Overflow component set: ${componentSet.name}`);
-                    
-                    // First, check if the component set already has accessible variants
-                    const existingVariants = componentSet.children.filter(child => child.type === 'COMPONENT') as ComponentNode[];
-                    if (existingVariants.length > 0) {
-                        console.log(`✅ Component set already accessible with ${existingVariants.length} variants`);
-                        for (const variant of existingVariants) {
-                            const variantName = variant.name.toLowerCase();
-                            if (variantName.includes('overflow')) {
-                                console.log(`✅ Found Overflow component: ${variant.name}`);
-                                
-                                // Store this for future use
-                                const overflowInfo = {
-                                    name: variant.name,
-                                    key: componentSet.key,
-                                    id: variant.id,
-                                    description: variant.description || '',
-                                    width: variant.width,
-                                    height: variant.height,
-                                    timestamp: Date.now()
-                                };
-                                
-                                // Save to plugin data
-                                figma.currentPage.setPluginData('foundOverflowComponent', JSON.stringify(overflowInfo));
-                                
-                                figma.notify(`✅ Found Overflow component: ${variant.name}`);
-                                overflowFound = true;
-                                break;
-                            }
-                        }
-                    } else {
-                        // Try to import the component set to access its variants
-                        console.log(`🔄 Attempting to import: ${componentSet.name}`);
-                        try {
-                            const importedSet = await figma.importComponentSetByKeyAsync(componentSet.key);
-                            if (importedSet) {
-                                const variants = importedSet.children.filter(child => child.type === 'COMPONENT') as ComponentNode[];
-                                console.log(`✅ Successfully imported with ${variants.length} variants`);
-                                for (const variant of variants) {
-                                    const variantName = variant.name.toLowerCase();
-                                    if (variantName.includes('overflow')) {
-                                        console.log(`✅ Found Overflow component: ${variant.name}`);
-                                        
-                                        // Store this for future use
-                                        const overflowInfo = {
-                                            name: variant.name,
-                                            key: componentSet.key,
-                                            id: variant.id,
-                                            description: variant.description || '',
-                                            width: variant.width,
-                                            height: variant.height,
-                                            timestamp: Date.now()
-                                        };
-                                        
-                                        // Save to plugin data
-                                        figma.currentPage.setPluginData('foundOverflowComponent', JSON.stringify(overflowInfo));
-                                        
-                                        figma.notify(`✅ Found Overflow component: ${variant.name}`);
-                                        overflowFound = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        } catch (importError) {
-                            console.log(`⚠️ Could not import "${componentSet.name}": ${importError instanceof Error ? importError.message : 'Unknown error'}`);
-                            console.log(`ℹ️ This component set may not be accessible in the current file`);
-                        }
-                    }
-                }
-                
-                if (overflowFound) break;
-            }
-            
-            if (!overflowFound) {
-                console.log('ℹ️ No Overflow component found in component sets');
-                figma.notify('⚠️ Overflow component not found in component sets. Try using "Collect Carbon Keys" on an Overflow component first.');
-            }
-            
-        } catch (error) {
-            console.error('❌ Error finding Overflow component:', error);
-            figma.notify(`❌ Error finding Overflow: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    } else if (msg.type === 'collect-carbon-keys') {
-        console.log('🔑 Collecting Carbon component keys...');
-        try {
-            const selection = figma.currentPage.selection;
-            if (selection.length === 0) {
-                figma.notify('Please select a Carbon component to collect its key');
-                return;
-            }
-            
-            const selectedNode = selection[0];
-            if (selectedNode.type !== 'COMPONENT' && selectedNode.type !== 'INSTANCE') {
-                figma.notify('Please select a Carbon component or instance to collect its key');
-                return;
-            }
-            
-            const component = selectedNode.type === 'INSTANCE' ? selectedNode.mainComponent : selectedNode;
-            if (!component) {
-                figma.notify('Could not get component information');
-                return;
-            }
-            
-            // Store the component key for later use
-            const componentInfo = {
-                name: component.name,
-                key: component.key,
-                id: component.id,
-                description: component.description || '',
-                width: component.width,
-                height: component.height,
-                timestamp: Date.now()
-            };
-            
-            // Get existing collected keys from plugin data (store on current page)
-            let collectedKeys = [];
-            try {
-                const existingKeys = figma.currentPage.getPluginData('collectedCarbonKeys');
-                if (existingKeys) {
-                    collectedKeys = JSON.parse(existingKeys);
-                }
-            } catch (e) {
-                console.log('No existing collected keys found');
-            }
-            
-            // Add new key if not already collected
-            if (!collectedKeys.find((k: any) => k.key === component.key)) {
-                collectedKeys.push(componentInfo);
-                figma.currentPage.setPluginData('collectedCarbonKeys', JSON.stringify(collectedKeys));
-                console.log(`✅ Collected Carbon component key: ${component.name} (${component.key})`);
-                figma.notify(`✅ Collected: ${component.name}`);
-            } else {
-                console.log(`ℹ️ Key already collected: ${component.name}`);
-                figma.notify(`ℹ️ Already collected: ${component.name}`);
-            }
-            
-            // Send all collected keys to UI
-            figma.ui.postMessage({
-                type: 'carbon-keys-collected',
-                keys: collectedKeys,
-                newKey: componentInfo
-            });
-            
-        } catch (error) {
-            console.error('❌ Error collecting Carbon key:', error);
-            figma.notify(`❌ Error collecting key: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    } else if (msg.type === 'get-component-keys') {
-        console.log('🔑 Getting component keys from selection...');
-        try {
-            const selection = figma.currentPage.selection;
-            if (selection.length === 0) {
-                figma.notify('⚠️ Please select a component to get its key');
-                return;
-            }
-            
-            const selectedNode = selection[0];
-            console.log(`📋 Selected node type: ${selectedNode.type}`);
-            console.log(`📋 Selected node name: ${selectedNode.name}`);
-            console.log(`📋 Selected node id: ${selectedNode.id}`);
-            
-            if (selectedNode.type === 'COMPONENT') {
-                const component = selectedNode as ComponentNode;
-                const componentInfo = {
-                    name: component.name,
-                    key: component.key,
-                    id: component.id,
-                    description: component.description || '',
-                    width: component.width,
-                    height: component.height
-                };
-                
-                figma.ui.postMessage({
-                    type: 'component-key-found',
-                    component: componentInfo
-                });
-                
-                console.log(`✅ COMPONENT Key: ${component.key}`);
-                console.log(`   Name: ${component.name}`);
-                console.log(`💡 Add this to main.ts line 1101:`);
-                console.log(`   '${component.key}', // ${component.name}`);
-                figma.notify(`✅ Component key: ${component.key}`);
-                
-            } else if (selectedNode.type === 'INSTANCE') {
-                const instance = selectedNode as InstanceNode;
-                const component = instance.mainComponent;
-                
-                if (!component) {
-                    console.log('❌ Instance has no main component - it may be detached');
-                    figma.notify('⚠️ This instance has no main component - select the original component from the library');
-                    return;
-                }
-                
-                const componentInfo = {
-                    name: component.name,
-                    key: component.key,
-                    id: component.id,
-                    description: component.description || '',
-                    width: component.width,
-                    height: component.height
-                };
-                
-                figma.ui.postMessage({
-                    type: 'component-key-found',
-                    component: componentInfo
-                });
-                
-                console.log(`✅ COMPONENT Key (from instance): ${component.key}`);
-                console.log(`   Name: ${component.name}`);
-                console.log(`   Instance ID: ${instance.id} (this is NOT the key)`);
-                console.log(`💡 Add this to main.ts line 1101:`);
-                console.log(`   '${component.key}', // ${component.name}`);
-                figma.notify(`✅ Component key: ${component.key} (from main component)`);
-                
-            } else if (selectedNode.type === 'COMPONENT_SET') {
-                const componentSet = selectedNode as ComponentSetNode;
-                console.log(`✅ COMPONENT SET Key: ${componentSet.key}`);
-                console.log(`   Name: ${componentSet.name}`);
-                console.log(`   Variants: ${componentSet.children.length}`);
-                console.log(`💡 Add this to main.ts line 1101:`);
-                console.log(`   '${componentSet.key}', // ${componentSet.name}`);
-                
-                // Log all variant keys
-                console.log('📋 All variant keys:');
-                componentSet.children.forEach((child, index) => {
-                    if (child.type === 'COMPONENT') {
-                        const variant = child as ComponentNode;
-                        console.log(`   ${index + 1}. ${variant.name} - ${variant.key}`);
-                    }
-                });
-                
-                figma.notify(`✅ Component Set key: ${componentSet.key}`);
-                
-            } else {
-                console.log(`❌ Selected node is type: ${selectedNode.type} (not a component)`);
-                figma.notify(`⚠️ Please select a COMPONENT or INSTANCE (you selected: ${selectedNode.type})`);
-                return;
-            }
-            
-        } catch (error) {
-            console.error('❌ Error getting component key:', error);
-            figma.notify(`❌ Error getting component key: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    } else if (msg.type === 'discover-components') {
-        console.log('🔍 Received discover-components message');
-        (async () => {
-            try {
-                const availableComponents = await discoverAvailableComponents();
-                
-                // Calculate breakdown
-                const pageComponents = figma.currentPage.findAll(node => node.type === 'COMPONENT') as ComponentNode[];
-                const pageComponentIds = new Set(pageComponents.map(c => c.id));
-                const libraryComponents = availableComponents.filter(c => !pageComponentIds.has(c.id));
-                
-                // Send the discovered components to UI
-                figma.ui.postMessage({
-                    type: 'components-discovered',
-                    components: availableComponents.map(comp => ({
-                        id: comp.id,
-                        name: comp.name,
-                        description: comp.description || '',
-                        width: comp.width,
-                        height: comp.height,
-                        isFromLibrary: !pageComponentIds.has(comp.id)
-                    })),
-                    pageComponents: pageComponents.length,
-                    libraryComponents: libraryComponents.length
-                });
-                
-                console.log(`✅ Sent ${availableComponents.length} components to UI (${libraryComponents.length} from libraries)`);
-            } catch (error) {
-                console.error('❌ Error in discover-components:', error);
-                figma.ui.postMessage({
-                    type: 'components-discovered',
-                    components: [],
-                    error: error instanceof Error ? error.message : 'Unknown error'
-                });
-            }
         })();
     } else if (msg.type === 'request-component-info') {
         console.log(`[Backend] Received request-component-info, lastScanResult:`, lastScanResult);
@@ -6104,29 +4432,142 @@ figma.ui.onmessage = async (msg: any) => {
             bodyCell = lastScanResult.bodyCell;
         } else {
             // If lastScanResult is not available, try to find the body cell component dynamically
-            bodyCell = await findBodyCellComponent();
-        
-        if (!bodyCell) {
-            // If we can't find the component, we'll create a minimal component info
-            // This allows the UI to still work with the saved properties
-            figma.ui.postMessage({
-                type: 'component-info',
-                component: {
-                    id: 'fallback',
-                    name: 'Fallback Component',
-                    width: 100,
-                    properties: {},
-                    availableProperties: ['Cell text#12234:16', 'Show text#12234:68', 'State', 'Size'],
-                    propertyTypes: {
-                        'Cell text#12234:16': 'TEXT',
-                        'Show text#12234:68': 'BOOLEAN',
-                        'State': 'VARIANT',
-                        'Size': 'VARIANT'
+            console.log(`[Backend] lastScanResult not available, searching for body cell component...`);
+            
+            // First, try to find a "Data table" component and extract the body cell from it
+            console.log(`[Backend] Searching for Data table components...`);
+            
+            // Search for any "Data table" components on the current page
+            const dataTableComponents = figma.currentPage.findAll(node => 
+                node.type === 'INSTANCE' && 
+                node.name.toLowerCase().includes('data table') &&
+                !node.getPluginData('isGeneratedTable') // Exclude generated tables
+            ) as InstanceNode[];
+            
+            console.log(`[Backend] Found ${dataTableComponents.length} Data table components:`, dataTableComponents.map(c => c.name));
+            
+            if (dataTableComponents.length > 0) {
+                // Use the first Data table component to extract the body cell
+                const selectedComponent = dataTableComponents[0];
+                console.log(`[Backend] Using Data table component for scan:`, selectedComponent.name);
+                
+                try {
+                    // Use the existing scan logic to extract components from the Data table
+                    const scanResult = await performTableScan(selectedComponent);
+                    
+                    if (scanResult && scanResult.bodyCell) {
+                        // The scanResult.bodyCell is an InstanceNode, we need to get its main component
+                        try {
+                            bodyCell = await (scanResult.bodyCell as any).getMainComponentAsync();
+                            console.log(`[Backend] Successfully extracted body cell component from Data table:`, bodyCell?.name);
+                        } catch (error) {
+                            console.log(`[Backend] Could not get main component from body cell:`, error);
+                        }
+                    } else {
+                        console.log(`[Backend] Could not extract body cell from Data table`);
+                    }
+                } catch (error) {
+                    console.error(`[Backend] Error scanning Data table:`, error);
+                }
+            }
+            
+            // If we still don't have a body cell, try the broader search
+            if (!bodyCell) {
+                console.log(`[Backend] No Data table found or extraction failed, trying broader search...`);
+            
+            // Search for components that might be the body cell component
+                // Search in all pages, not just the current page
+                const allComponents: ComponentNode[] = [];
+                
+                console.log(`[Backend] Searching for components...`);
+                console.log(`[Backend] Root has ${figma.root.children.length} children`);
+                
+                // Search in all pages
+                figma.root.children.forEach((page, index) => {
+                    console.log(`[Backend] Checking page ${index}: ${page.name} (type: ${page.type})`);
+                    if (page.type === "PAGE") {
+                        const pageComponents = page.findAll(node => 
+                            node.type === "COMPONENT"
+            ) as ComponentNode[];
+                        console.log(`[Backend] Page ${page.name} has ${pageComponents.length} components:`, pageComponents.map(c => c.name));
+                        allComponents.push(...pageComponents);
+                    }
+                });
+                
+                // Also search in the current page specifically
+                const currentPageComponents = figma.currentPage.findAll(node => 
+                    node.type === "COMPONENT"
+                ) as ComponentNode[];
+                console.log(`[Backend] Current page has ${currentPageComponents.length} components:`, currentPageComponents.map(c => c.name));
+                allComponents.push(...currentPageComponents);
+                
+                // Remove duplicates based on ID
+                const uniqueComponents = allComponents.filter((comp, index, self) => 
+                    index === self.findIndex(c => c.id === comp.id)
+                );
+                
+                console.log(`[Backend] Found ${uniqueComponents.length} total components in all pages:`, uniqueComponents.map(c => c.name));
+                
+                // Look for the most likely body cell component with more comprehensive search
+                bodyCell = uniqueComponents.find(comp => 
+                comp.name.includes("row") && comp.name.includes("cell") && comp.name.includes("item")
+                ) || uniqueComponents.find(comp => 
+                comp.name.includes("Data table") && comp.name.includes("cell")
+                ) || uniqueComponents.find(comp => 
+                comp.name.includes("table") && comp.name.includes("cell")
+                ) || uniqueComponents.find(comp => 
+                    comp.name.includes("cell") && !comp.name.includes("header") && !comp.name.includes("footer")
+                ) || uniqueComponents.find(comp => 
+                    comp.name.includes("body") && comp.name.includes("cell")
+            ) || null;
+            
+            if (bodyCell) {
+                console.log(`[Backend] Found body cell component:`, bodyCell.name);
+            } else {
+                    console.log(`[Backend] Could not find body cell component. Available components:`, uniqueComponents.map(c => c.name));
+                    
+                    // Try to find any component that has Slot properties
+                    const componentWithSlot = uniqueComponents.find(comp => {
+                        try {
+                            const tempInstance = comp.createInstance();
+                            const hasSlot = Object.keys(tempInstance.componentProperties).some(prop => 
+                                prop.toLowerCase().includes('slot')
+                            );
+                            tempInstance.remove();
+                            return hasSlot;
+                        } catch (error) {
+                            return false;
+                        }
+                    });
+                    
+                    if (componentWithSlot) {
+                        console.log(`[Backend] Found component with Slot properties:`, componentWithSlot.name);
+                        bodyCell = componentWithSlot;
+                    } else {
+                        console.log(`[Backend] No component with Slot properties found. Creating fallback...`);
+                
+                // If we can't find the component, we'll create a minimal component info
+                // This allows the UI to still work with the saved properties
+                figma.ui.postMessage({
+                    type: 'component-info',
+                    component: {
+                        id: 'fallback',
+                        name: 'Fallback Component',
+                        width: 100,
+                        properties: {},
+                        availableProperties: ['Cell text#12234:16', 'Show text#12234:68', 'State', 'Size'],
+                        propertyTypes: {
+                            'Cell text#12234:16': 'TEXT',
+                            'Show text#12234:68': 'BOOLEAN',
+                            'State': 'VARIANT',
+                            'Size': 'VARIANT'
+                        }
+                    }
+                });
+                return;
                     }
                 }
-            });
-            return;
-        }
+            }
         }
         
         if (bodyCell) {
@@ -6144,25 +4585,6 @@ figma.ui.onmessage = async (msg: any) => {
             tempInstance.remove();
             
             console.log(`[Backend] Sending component-info with ${availableProperties.length} properties`);
-            
-            // Check if this is a generated table and load its cell properties
-            let savedCellProperties = null;
-            if (msg.tableId) {
-                const tableNode = figma.getNodeById(msg.tableId);
-                if (tableNode) {
-                    const tableSettingsData = tableNode.getPluginData('tableSettings');
-                    if (tableSettingsData) {
-                        try {
-                            const tableSettings = JSON.parse(tableSettingsData);
-                            savedCellProperties = tableSettings.cellProperties;
-                            console.log(`[Backend] Loaded ${Object.keys(savedCellProperties || {}).length} cell properties from table metadata`);
-                        } catch (e) {
-                            console.warn('[Backend] Could not parse table settings:', e);
-                        }
-                    }
-                }
-            }
-            
             figma.ui.postMessage({
                 type: 'component-info',
                 component: {
@@ -6172,18 +4594,183 @@ figma.ui.onmessage = async (msg: any) => {
                     properties: properties,
                     availableProperties: availableProperties,
                     propertyTypes: propertyTypes
-                },
-                savedCellProperties: savedCellProperties // Send the saved cell properties to UI
+                }
             });
         }
         })();
     }
 };
 
-import { createComponentInstanceWithProps, ComponentProperty } from './utils/component';
-import { getFakerValue } from './utils/faker';
-import { cleanupExternalComponents } from './utils/cleanup';
-import { findBodyCellComponent } from './utils/componentSearch';
+function createComponentInstanceWithProps(
+  component: ComponentNode,
+  cellData: { [key: string]: any },
+  componentProps: { [key: string]: ComponentProperty },
+  allProps: { [key: string]: any }
+): SceneNode {
+  console.log('🔧 Creating component instance with props:', { component: component.name, cellData, componentProps });
+  
+  // Create instance
+  const instance = component.createInstance();
+  
+  // Map properties from cellData to component properties
+  const mappedProps = mapPropertyNames(cellData, componentProps);
+  console.log('🔧 Mapped properties:', mappedProps);
+  
+  // Apply the mapped properties to the instance
+  for (const [propName, propValue] of Object.entries(mappedProps)) {
+    try {
+      console.log(`🔧 Setting property: ${propName} = ${propValue}`);
+      instance.setProperties({ [propName]: propValue });
+    } catch (error) {
+      console.error(`❌ Error setting property ${propName}:`, error);
+      // Try alternative method for setting properties
+      try {
+        (instance as any)[propName] = propValue;
+        console.log(`🔧 Set property via direct assignment: ${propName} = ${propValue}`);
+      } catch (directError) {
+        console.error(`❌ Error setting property via direct assignment ${propName}:`, directError);
+      }
+    }
+  }
+  
+  // Handle any additional properties that weren't mapped, especially slot properties
+  for (const [originalKey, originalValue] of Object.entries(cellData)) {
+    // Skip already mapped properties
+    if (Object.keys(mappedProps).some(mappedKey => mappedKey.split('#')[0] === originalKey.split('#')[0])) {
+      continue;
+    }
+    
+    // Handle unmapped properties, especially slot properties
+    // Ensure the value is of a valid type before setting
+    if (typeof originalValue === 'string' || typeof originalValue === 'boolean') {
+      try {
+        console.log(`🔧 Setting unmapped property: ${originalKey} = ${originalValue}`);
+        instance.setProperties({ [originalKey]: originalValue });
+      } catch (error) {
+        console.error(`❌ Error setting unmapped property ${originalKey}:`, error);
+      }
+    } else if (originalValue && typeof originalValue === 'object' && 'value' in originalValue) {
+      // Handle case where the value is an object with a value property
+      const valueToSet = originalValue.value;
+      if (typeof valueToSet === 'string' || typeof valueToSet === 'boolean') {
+        try {
+          console.log(`🔧 Setting unmapped property from object: ${originalKey} = ${valueToSet}`);
+          instance.setProperties({ [originalKey]: valueToSet });
+        } catch (error) {
+          console.error(`❌ Error setting unmapped property from object ${originalKey}:`, error);
+        }
+      }
+    }
+  }
+  
+  return instance;
+}
+
+function getFakerValue(type: string) {
+  const t = type.toLowerCase();
+  let result;
+  switch (t) {
+    case 'people name':
+    case 'name':
+      result = faker.name.findName();
+      break;
+    case 'first name':
+      result = faker.name.firstName();
+      break;
+    case 'last name':
+      result = faker.name.lastName();
+      break;
+    case 'brand name':
+    case 'company':
+      result = faker.company.companyName();
+      break;
+    case 'mobile number':
+      result = faker.phone.phoneNumber();
+      break;
+    case 'date':
+      result = faker.date.recent().toLocaleDateString();
+      break;
+    case 'random number':
+    case 'number':
+      result = faker.datatype.number({ min: 1, max: 1000 });
+      break;
+    case 'price':
+      result = faker.commerce.price();
+      break;
+    case 'email':
+      result = faker.internet.email();
+      break;
+    case 'product':
+      result = faker.commerce.productName();
+      break;
+    case 'color':
+      result = faker.commerce.color();
+      break;
+    default:
+      result = faker.lorem.words(2);
+  }
+  return result;
+}
+
+interface ComponentProperty {
+    type: 'BOOLEAN' | 'TEXT' | 'VARIANT' | 'INSTANCE_SWAP';
+    value: any;
+}
+
+// Function to clean up any components created outside the generated table
+function cleanupExternalComponents() {
+    try {
+        // Find and remove any "Simple Divider" components that might be outside the table
+        const simpleDividers = figma.root.findAll(node => 
+            node.type === "COMPONENT" && node.name === "Simple Divider"
+        );
+        
+        simpleDividers.forEach(divider => {
+            // Only remove if it's not inside a generated table
+            let parent = divider.parent;
+            let shouldRemove = true;
+            
+            while (parent) {
+                if (parent.getPluginData('isGeneratedTable') === 'true') {
+                    shouldRemove = false;
+                    break;
+                }
+                parent = parent.parent;
+            }
+            
+            if (shouldRemove) {
+                divider.remove();
+                console.log('🧹 Cleaned up external Simple Divider component');
+            }
+        });
+        
+        // Find and remove any "Data table select cell item" component sets that might be outside the table
+        const checkboxComponents = figma.root.findAll(node => 
+            node.type === "COMPONENT_SET" && node.name === "Data table select cell item"
+        );
+        
+        checkboxComponents.forEach(componentSet => {
+            // Only remove if it's not inside a generated table
+            let parent = componentSet.parent;
+            let shouldRemove = true;
+            
+            while (parent) {
+                if (parent.getPluginData('isGeneratedTable') === 'true') {
+                    shouldRemove = false;
+                    break;
+                }
+                parent = parent.parent;
+            }
+            
+            if (shouldRemove) {
+                componentSet.remove();
+                console.log('🧹 Cleaned up external checkbox component set');
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error cleaning up external components:', error);
+    }
+}
 
 // Call cleanup when the plugin starts
 cleanupExternalComponents();

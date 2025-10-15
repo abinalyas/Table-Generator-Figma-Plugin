@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: http://localhost:3000 https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3000 https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IBM Carbon Table Generator</title>
+</head>
+<body>
+  <div id="propertyEditorOverlay"></div>
+  <div class="cell-tooltip"></div>
+  <div class="container">
+
+    <h2 class="cds-heading-03" style="padding-bottom: var(--cds-spacing-04); font-weight: 700;"><strong>IBM Carbon Table Generator</strong></h2>
+    <div id="landingPage">
+      <div class="empty-state">
+        <div class="empty-state-illustration">
+          <div class="table-icon">
+            <div class="table-grid">
+              <div class="table-cell"></div>
+              <div class="table-cell"></div>
+              <div class="table-cell"></div>
+              <div class="table-cell"></div>
+              <div class="table-cell"></div>
+              <div class="table-cell"></div>
+              <div class="table-cell"></div>
+              <div class="table-cell"></div>
+              <div class="table-cell"></div>
+            </div>
+          </div>
+          <div class="gradient-orb gradient-orb-1"></div>
+          <div class="gradient-orb gradient-orb-2"></div>
+          <div class="gradient-orb gradient-orb-3"></div>
+        </div>
+        <div class="empty-state-content">
+          <h3 class="empty-state-title">Ready to Generate Tables</h3>
+          <p class="empty-state-description">Select a table cell component in Figma to get started with intelligent table generation</p>
+          <div class="empty-state-features">
+            <div class="feature-item">
+              <div class="feature-icon">✨</div>
+              <span>Smart Data Generation</span>
+            </div>
+            <div class="feature-item">
+              <div class="feature-icon">🎨</div>
+              <span>Carbon Design System</span>
+            </div>
+            <div class="feature-item">
+              <div class="feature-icon">⚡</div>
+              <span>Instant Table Creation</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="statusMessage" class="status" style="display: none;">
+      Status messages appear here
+    </div>
+
+    <div id="componentDisplay" style="display: none;">
+      <div class="component-info" id="headerComponent">Header: <span>None</span></div>
+      <div class="component-info" id="bodyComponent">Body: <span>None</span></div>
+      <div class="component-info" id="footerComponent">Footer: <span>None</span></div>
+      <p class="hint">Components are identified by name (e.g., 'header', 'body', 'footer').</p>
+    </div>
+
+    <div id="gridContainer" class="grid-container" style="display:none">
+      <div class="grid-header">
+        <div class="grid-header-content">
+          <h3 class="cds-heading-02">Edit Cell Properties</h3>
+          <button id="reorderColumnsTextBtn" class="reorder-text-btn" title="Reorder columns">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h12v2H2v-2z" fill="currentColor"/>
+              <path d="M13 4l2 2-2 2V4zM13 8l2 2-2 2V8zM13 12l2 2-2 2v-4z" fill="currentColor"/>
+            </svg>
+            Reorder columns
+          </button>
+        </div>
+      </div>
+      <div class="grid-scroll-area">
+        <div class="grid-content-wrapper">
+          <div id="headerGrid" class="header-grid"></div>
+          <div class="grid" id="grid"></div>
+          <div class="grid-highlight" id="gridHighlight"></div>
+        </div>
+      </div>
+      <div id="footerGrid" class="footer-grid"></div>
+
+      <!-- Single-prompt AI section moved to just after footer grid -->
+      <div id="singlePromptMain" class="form-group">
+        <div class="property-field checkbox">
+          <input type="checkbox" id="useSinglePrompt">
+          <label for="useSinglePrompt">Create entire table from a single prompt</label>
+        </div>
+        
+        <div class="property-field checkbox">
+          <input type="checkbox" id="useFileUpload">
+          <label for="useFileUpload">Populate data from file</label>
+        </div>
+        
+        <div id="singlePromptContainer" class="ai-data-section" style="display: none;">
+          <div class="property-field">
+            <label for="singlePromptText">Prompt</label>
+            <textarea id="singlePromptText" class="styled-input" placeholder="e.g., Create a table for user management"></textarea>
+          </div>
+          <div class="property-field" style="display: none;">
+            <label for="spApiKey">IBM Cloud API Key</label>
+            <input type="password" id="spApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
+          </div>
+          <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ AI powered by cloud server - no API key required</p>
+          <button id="generateTableFromPromptBtn" class="btn btn-primary">Generate content with AI</button>
+        </div>
+        
+        <div id="fileUploadContainer" class="ai-data-section" style="display: none;">
+          <div class="property-field">
+            <label for="dataFileInput">Upload Data File</label>
+            <input type="file" id="dataFileInput" class="styled-input" accept=".csv,.xlsx,.xls,.json">
+            <div class="hint">Supported formats: CSV, Excel (.xlsx, .xls), JSON</div>
+            <button id="removeFileBtn" class="remove-file-btn" style="display: none;" title="Remove file">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M6 2V1C6 0.447715 6.44772 0 7 0H9C9.55228 0 10 0.447715 10 1V2H13C13.5523 2 14 2.44772 14 3C14 3.55228 13.5523 4 13 4H12V13C12 14.1046 11.1046 15 10 15H6C4.89543 15 4 14.1046 4 13V4H3C2.44772 4 2 3.55228 2 3C2 2.44772 2.44772 2 3 2H6ZM6 4V13H10V4H6ZM7 6V11H8V6H7ZM9 6V11H10V6H9Z" fill="currentColor"/>
+              </svg>
+              <span>Remove file</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="button-group" style="display:none" id="actionButtons">
+      <button id="clearSelectionBtn" class="btn btn-danger">Reset Table</button>
+      <button id="createTableBtn" class="btn btn-primary" disabled>Create Table</button>
+    </div>
+
+    <div id="propertyEditor">
+      <h3 id="propertyEditorTitle" class="cds-heading-02" style="margin-bottom: var(--cds-spacing-04);">Cell Properties <span id="editingCellCoords"></span></h3>
+
+      <div class="apply-options">
+        <div class="apply-option" data-apply="cell">Apply to cell</div>
+        <div class="apply-option active" data-apply="column">Apply to column</div>
+        <div class="apply-option" data-apply="row">Apply to row</div>
+      </div>
+
+      <div class="property-section" id="staticPropertySection">
+        <div class="property-field" id="makeColumnCheckboxContainer" style="display: none;">
+          <div class="property-field checkbox">
+            <input type="checkbox" id="makeColumnCheckbox">
+            <label for="makeColumnCheckbox" style="margin-bottom: 0px;">Use Checkbox for this Column</label>
+          </div>
+        </div>
+        <div class="property-field" style="display: none;">
+          <label for="state">State</label>
+          <select id="state" class="styled-input">
+            <option value="Enabled">Enabled</option>
+            <option value="Disabled">Disabled</option>
+            <option value="Focus">Focus</option>
+          </select>
+        </div>
+      </div>
+      <div class="property-section" id="bodyOnlyPropertySection">
+        <div class="property-field checkbox">
+          <input type="checkbox" id="customCellTextToggle" checked>
+          <label for="customCellTextToggle" style="margin-bottom: 0px;">Custom cell text</label>
+        </div>
+        <div class="property-field" id="customCellTextContainer">
+          <input type="text" id="customCellText" class="styled-input" placeholder="Enter custom cell text">
+        </div>
+
+        <div class="property-field checkbox">
+          <input type="checkbox" id="generateSampleCheckbox">
+          <label for="generateSampleCheckbox" style="margin-bottom: 0px;">Generate sample data using AI</label>
+        </div>
+        <div class="form-group" id="aiPromptContainer" style="display: none;">
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+            <label for="aiSource">AI Source</label>
+            <select id="aiSource" class="styled-input" style="max-width:180px;">
+              <option value="faker">Faker (local)</option>
+              <option value="watsonx">watsonx.ai</option>
+            </select>
+          </div>
+          <div id="fakerConfig">
+            <div class="search-container">
+              <input type="text" id="fakerMethodInput" style="margin-bottom: 10px;" class="styled-input" autocomplete="off" placeholder="e.g., name.firstName">
+              <div id="fakerDropdown" class="dropdown-content"></div>
+            </div>
+          </div>
+          <div id="watsonxConfig" style="display:none;">
+            <div class="property-field">
+              <label for="watsonxPrompt">Prompt</label>
+              <textarea id="watsonxPrompt" class="styled-input" placeholder="Describe the content to generate, e.g., IBM product names"></textarea>
+            </div>
+            <div class="property-field" style="display: none;">
+              <label for="watsonxApiKey">IBM Cloud API Key</label>
+              <input type="password" id="watsonxApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
+            </div>
+            <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ AI powered by cloud server - no API key required</p>
+          </div>
+        </div>
+        <div class="property-field checkbox" id="secondLineContainer" style="display: none;">
+          <input type="checkbox" id="secondTextLine">
+          <label for="secondTextLine">Second text line</label>
+        </div>
+        <div class="property-field" id="secondCellTextContainer" style="display: none;">
+          <label for="secondCellText">Second cell text</label>
+          <input type="text" id="secondCellText" class="styled-input" placeholder="Secondary cell text">
+        </div>
+        <div class="property-field checkbox">
+          <input type="checkbox" id="slotCheckbox">
+          <label for="slotCheckbox">Slot</label>
+        </div>
+      </div>
+
+      <div id="dynamicPropertyFields"></div>
+      <div class="property-field" id="colWidthContainer" style="display: none;">
+        <label for="colWidthInput">Column width</label>
+        <input type="number" id="colWidthInput" class="styled-input" min="1" placeholder="Enter width">
+      </div>
+
+      <div class="property-actions">
+        <button id="cancelPropsBtn" class="btn btn-danger">Cancel</button>
+        <button id="savePropsBtn" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+
+    <div class="loader" id="loader">
+      <div class="loader-spinner"></div>
+      <div class="loader-text" id="loaderText">Creating table...</div>
+    </div>
+
+    <div class="confirmation-dialog" id="aiConfirmationDialog">
+      <p>This will clear your current selection. Do you want to proceed with AI data generation?</p>
+      <div class="confirmation-actions">
+        <button id="cancelAiBtn" class="btn btn-danger">Cancel</button>
+        <button id="confirmAiBtn" class="btn btn-primary">Continue</button>
+      </div>
+    </div>
+
+    <!-- Column Reorder Modal -->
+    <div id="columnReorderOverlay" class="modal-overlay" style="display: none;">
+      <div id="columnReorderModal" class="modal-content">
+        <div class="modal-header">
+          <h3>Reorder Columns</h3>
+          <button id="closeReorderModal" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="hint">Drag and drop to reorder columns, or click × to delete unwanted columns:</p>
+          <div id="columnList" class="column-list">
+            <!-- Column items will be populated dynamically -->
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="cancelReorderBtn" class="btn btn-secondary">Cancel</button>
+          <button id="applyReorderBtn" class="btn btn-primary">Apply Changes</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="message"></div>
+  </div>
+
+  <!-- Resize corner handle -->
+  <div class="resize-corner" id="resizeCorner">
+    <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M16 0V16H0L16 0Z" fill="var(--cds-text-primary)" />
+      <path d="M6.22577 16H3L16 3V6.22576L6.22577 16Z" fill="var(--cds-text-secondary)" />
+      <path d="M11.8602 16H8.63441L16 8.63441V11.8602L11.8602 16Z" fill="var(--cds-text-secondary)" />
+    </svg>
+  </div>
+  <script>
+    // Connect reorder text button to existing modal functionality
+    document.addEventListener('DOMContentLoaded', function() {
+      const reorderTextBtn = document.getElementById('reorderColumnsTextBtn');
+      
+      if (reorderTextBtn) {
+        reorderTextBtn.addEventListener('click', function() {
+          // Call the existing openColumnReorderModal function from ui.ts
+          if (typeof window.openColumnReorderModal === 'function') {
+            window.openColumnReorderModal();
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>

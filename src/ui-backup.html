@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: https://application-44.21hwt6k1vujm.us-east.codeengine.appdomain.cloud https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://application-44.21hwt6k1vujm.us-east.codeengine.appdomain.cloud https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: http://localhost:3000 https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3000 https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>IBM Carbon Table Generator</title>
   <style>
@@ -2524,11 +2524,11 @@
             <label for="singlePromptText">Prompt</label>
             <textarea id="singlePromptText" class="styled-input" placeholder="e.g., Create a table for user management"></textarea>
           </div>
-          <div class="property-field">
-            <label for="spApiKey">IBM Cloud API Key (Required for Local Server)</label>
-            <input type="password" id="spApiKey" class="styled-input" placeholder="Enter your Watson API key">
+          <div class="property-field" style="display: none;">
+            <label for="spApiKey">IBM Cloud API Key</label>
+            <input type="password" id="spApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
           </div>
-          <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ Using Code Engine proxy server - Enter your Watson API key above</p>
+          <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ AI powered by cloud server - no API key required</p>
           <button id="generateTableFromPromptBtn" class="btn btn-primary">Generate content with AI</button>
         </div>
         
@@ -2550,7 +2550,6 @@
 
     <div class="button-group" style="display:none" id="actionButtons">
       <button id="clearSelectionBtn" class="btn btn-danger">Reset Table</button>
-      <!-- Hidden test button - uncomment to use: <button id="collectCarbonKeysBtn" class="btn btn-secondary">Collect Carbon Keys</button> -->
       <button id="createTableBtn" class="btn btn-primary" disabled>Create Table</button>
     </div>
 
@@ -2611,11 +2610,11 @@
               <label for="watsonxPrompt">Prompt</label>
               <textarea id="watsonxPrompt" class="styled-input" placeholder="Describe the content to generate, e.g., IBM product names"></textarea>
             </div>
-            <div class="property-field">
-              <label for="watsonxApiKey">IBM Cloud API Key (Required for Local Server)</label>
-              <input type="password" id="watsonxApiKey" class="styled-input" placeholder="Enter your Watson API key">
+            <div class="property-field" style="display: none;">
+              <label for="watsonxApiKey">IBM Cloud API Key</label>
+              <input type="password" id="watsonxApiKey" class="styled-input" placeholder="Paste API key (saved locally)">
             </div>
-            <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ Using Code Engine proxy server - Enter your Watson API key above</p>
+            <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ AI powered by cloud server - no API key required</p>
           </div>
         </div>
         <div class="property-field checkbox" id="secondLineContainer" style="display: none;">

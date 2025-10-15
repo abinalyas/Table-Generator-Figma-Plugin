@@ -3,6 +3,7 @@ export type TableSettings = {
   rows: number;
   includeHeader?: boolean;
   includeFooter?: boolean;
+  includeToolbar?: boolean;
   includeSelectable?: boolean;
   includeExpandable?: boolean;
   cellProperties?: any;

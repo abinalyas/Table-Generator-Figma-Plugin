@@ -9,12 +9,14 @@
     "allowedDomains": [
       "https://api.datamuse.com",
       "https://cdn.sheetjs.com",
-      "https://table-generator-server.vercel.app"
+      "https://table-generator-server.vercel.app",
+      "https://application-44.21hwt6k1vujm.us-east.codeengine.appdomain.cloud"
     ],
     "devAllowedDomains": [
       "http://localhost:3000",
-      "https://cdn.sheetjs.com"
+      "https://cdn.sheetjs.com",
+      "https://application-44.21hwt6k1vujm.us-east.codeengine.appdomain.cloud"
     ],
-    "reasoning": "Localhost access is needed for the proxy server that handles watsonx.ai API calls to bypass CORS restrictions in the Figma plugin environment. CDN access is needed for loading the SheetJS library for Excel file parsing."
+    "reasoning": "Code Engine access is needed for the proxy server that handles watsonx.ai API calls to bypass CORS restrictions in the Figma plugin environment. CDN access is needed for loading the SheetJS library for Excel file parsing."
   }
 }

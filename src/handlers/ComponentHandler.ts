@@ -53,4 +53,22 @@ export class ComponentHandler {
         // This is a placeholder for the extraction
         Logger.info('ComponentHandler: Cell clearing logic would be implemented here');
     }
+
+    static async handleComponentRequest(msg: any): Promise<void> {
+        Logger.debug('Handling component request:', msg.type);
+        
+        if (msg.type === 'load-instance-by-id') {
+            await this.handleLoadInstanceById(msg);
+        } else if (msg.type === 'request-component-info') {
+            await this.handleRequestComponentInfo(msg);
+        }
+    }
+
+    static async handleRequestComponentInfoNew(msg: any): Promise<void> {
+        Logger.debug('Handling request component info');
+        
+        // The actual component info request logic would be moved here from main.ts
+        // This is a placeholder for the extraction
+        Logger.info('ComponentHandler: Component info request logic would be implemented here');
+    }
 }

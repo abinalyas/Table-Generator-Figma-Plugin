@@ -41,6 +41,7 @@ interface Elements {
   actionButtons: HTMLElement;
   createTableBtn: HTMLButtonElement;
   clearSelectionBtn: HTMLButtonElement;
+  // collectCarbonKeysBtn: HTMLButtonElement; // Hidden test button - uncomment if needed
   propertyEditor: HTMLElement;
   propertyEditorTitle: HTMLElement;
   editingCellCoords: HTMLElement;
@@ -78,26 +79,26 @@ interface Elements {
 
 // State Management
 const state: State = {
-  selectedCells: new Set<string>(),
-  isDragging: false,
-  startCell: null,
-  endCell: null,
-  componentProps: {},
+        selectedCells: new Set<string>(),
+        isDragging: false,
+        startCell: null,
+        endCell: null,
+        componentProps: {},
   cellProperties: new Map<string, any>(),
-  gridCols: 5,
-  gridRows: 5,
-  hasComponent: false,
-  mode: 'selection',
-  currentEditingCell: null,
+        gridCols: 5,
+        gridRows: 5,
+        hasComponent: false,
+        mode: 'selection',
+        currentEditingCell: null,
   applyMode: 'column',
-  hoverTimeout: null,
-  tooltip: document.createElement('div'),
-  selectedSize: null,
-  selectedComponent: null,
-  sizeConfirmed: false,
-  componentWidth: undefined,
-  headerCellComponent: null,
-  footerComponent: null,
+        hoverTimeout: null,
+        tooltip: document.createElement('div'),
+        selectedSize: null,
+        selectedComponent: null,
+        sizeConfirmed: false,
+        componentWidth: undefined,
+        headerCellComponent: null,
+        footerComponent: null,
   tableFrameId: undefined,
 };
 
@@ -197,6 +198,7 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.actionButtons = document.getElementById('actionButtons')!;
   elements.createTableBtn = document.getElementById('createTableBtn') as HTMLButtonElement;
   elements.clearSelectionBtn = document.getElementById('clearSelectionBtn') as HTMLButtonElement;
+  // elements.collectCarbonKeysBtn = document.getElementById('collectCarbonKeysBtn') as HTMLButtonElement; // Hidden test button
   elements.propertyEditor = document.getElementById('propertyEditor')!;
   elements.propertyEditorTitle = document.getElementById('propertyEditorTitle')!;
   elements.editingCellCoords = document.getElementById('editingCellCoords')!;
@@ -238,38 +240,38 @@ window.addEventListener('DOMContentLoaded', () => {
   // Now safe to call setup functions
   createGrid();
 
-  // Wire main-page single prompt controls
-  const useSinglePrompt = document.getElementById('useSinglePrompt') as HTMLInputElement | null;
-  const singlePromptContainer = document.getElementById('singlePromptContainer') as HTMLElement | null;
-  const generateTableFromPromptBtn = document.getElementById('generateTableFromPromptBtn') as HTMLButtonElement | null;
-  useSinglePrompt?.addEventListener('change', () => {
-    if (singlePromptContainer) {
-      if (useSinglePrompt.checked) {
-        singlePromptContainer.style.display = 'block';
+    // Wire main-page single prompt controls
+    const useSinglePrompt = document.getElementById('useSinglePrompt') as HTMLInputElement | null;
+    const singlePromptContainer = document.getElementById('singlePromptContainer') as HTMLElement | null;
+    const generateTableFromPromptBtn = document.getElementById('generateTableFromPromptBtn') as HTMLButtonElement | null;
+    useSinglePrompt?.addEventListener('change', () => {
+        if (singlePromptContainer) {
+            if (useSinglePrompt.checked) {
+                singlePromptContainer.style.display = 'block';
         requestAnimationFrame(() => {
-          singlePromptContainer.classList.add('show');
+                singlePromptContainer.classList.add('show');
         });
-      } else {
-        singlePromptContainer.classList.remove('show');
+            } else {
+                singlePromptContainer.classList.remove('show');
         setTimeout(() => {
           singlePromptContainer.style.display = 'none';
         }, 250);
-      }
-    }
+            }
+        }
 
-    // If single prompt is selected, deselect file upload
-    const useFileUpload = document.getElementById('useFileUpload') as HTMLInputElement | null;
-    const fileUploadContainer = document.getElementById('fileUploadContainer') as HTMLElement | null;
-    if (useSinglePrompt?.checked && useFileUpload) {
-      useFileUpload.checked = false;
-      if (fileUploadContainer) {
-        fileUploadContainer.classList.remove('show');
+        // If single prompt is selected, deselect file upload
+        const useFileUpload = document.getElementById('useFileUpload') as HTMLInputElement | null;
+        const fileUploadContainer = document.getElementById('fileUploadContainer') as HTMLElement | null;
+        if (useSinglePrompt?.checked && useFileUpload) {
+            useFileUpload.checked = false;
+            if (fileUploadContainer) {
+                fileUploadContainer.classList.remove('show');
         setTimeout(() => {
           fileUploadContainer.style.display = 'none';
         }, 250);
-      }
-    }
-  });
+            }
+        }
+    });
 
   // Enable/disable AI button based on prompt input
   const singlePromptText = document.getElementById('singlePromptText') as HTMLTextAreaElement | null;
@@ -303,39 +305,39 @@ window.addEventListener('DOMContentLoaded', () => {
   singlePromptText?.addEventListener('paste', () => {
     // Use setTimeout to ensure paste content is processed
     setTimeout(updateAIButtonState, 10);
-  });
+    });
 
-  // Wire file upload controls
-  const useFileUpload = document.getElementById('useFileUpload') as HTMLInputElement | null;
-  const fileUploadContainer = document.getElementById('fileUploadContainer') as HTMLElement | null;
-  useFileUpload?.addEventListener('change', () => {
-    if (fileUploadContainer) {
-      if (useFileUpload.checked) {
-        fileUploadContainer.style.display = 'block';
+    // Wire file upload controls
+    const useFileUpload = document.getElementById('useFileUpload') as HTMLInputElement | null;
+    const fileUploadContainer = document.getElementById('fileUploadContainer') as HTMLElement | null;
+    useFileUpload?.addEventListener('change', () => {
+        if (fileUploadContainer) {
+            if (useFileUpload.checked) {
+                fileUploadContainer.style.display = 'block';
         requestAnimationFrame(() => {
-          fileUploadContainer.classList.add('show');
+                fileUploadContainer.classList.add('show');
         });
-      } else {
-        fileUploadContainer.classList.remove('show');
+            } else {
+                fileUploadContainer.classList.remove('show');
         setTimeout(() => {
           fileUploadContainer.style.display = 'none';
         }, 250);
-      }
-    }
+            }
+        }
 
-    // If file upload is selected, deselect single prompt
-    const useSinglePrompt = document.getElementById('useSinglePrompt') as HTMLInputElement | null;
-    const singlePromptContainer = document.getElementById('singlePromptContainer') as HTMLElement | null;
-    if (useFileUpload?.checked && useSinglePrompt) {
-      useSinglePrompt.checked = false;
-      if (singlePromptContainer) {
-        singlePromptContainer.classList.remove('show');
+        // If file upload is selected, deselect single prompt
+        const useSinglePrompt = document.getElementById('useSinglePrompt') as HTMLInputElement | null;
+        const singlePromptContainer = document.getElementById('singlePromptContainer') as HTMLElement | null;
+        if (useFileUpload?.checked && useSinglePrompt) {
+            useSinglePrompt.checked = false;
+            if (singlePromptContainer) {
+                singlePromptContainer.classList.remove('show');
         setTimeout(() => {
           singlePromptContainer.style.display = 'none';
         }, 250);
-      }
-    }
-  });
+            }
+        }
+    });
 
   // Handle file selection
   const dataFileInput = document.getElementById('dataFileInput') as HTMLInputElement | null;
@@ -389,11 +391,11 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  generateTableFromPromptBtn?.addEventListener('click', () => {
-    const rows = parseInt((document.getElementById('scanRowsInput') as HTMLInputElement)?.value || String(state.gridRows), 10);
-    const cols = parseInt((document.getElementById('scanColsInput') as HTMLInputElement)?.value || String(state.gridCols), 10);
-    const includeHeader = (document.getElementById('scanHeaderToggle') as HTMLInputElement)?.checked;
-    const includeFooter = (document.getElementById('scanFooterToggle') as HTMLInputElement)?.checked;
+    generateTableFromPromptBtn?.addEventListener('click', () => {
+        const rows = parseInt((document.getElementById('scanRowsInput') as HTMLInputElement)?.value || String(state.gridRows), 10);
+        const cols = parseInt((document.getElementById('scanColsInput') as HTMLInputElement)?.value || String(state.gridCols), 10);
+        const includeHeader = (document.getElementById('scanHeaderToggle') as HTMLInputElement)?.checked;
+        const includeFooter = (document.getElementById('scanFooterToggle') as HTMLInputElement)?.checked;
     const includeSelectable = (document.getElementById('scanSelectableToggle') as HTMLInputElement)?.checked;
     const includeExpandable = (document.getElementById('scanExpandableToggle') as HTMLInputElement)?.checked;
 
@@ -493,7 +495,7 @@ function renderHeaderFooterGrids() {
   }
   
   const footerGrid = document.getElementById('footerGrid');
-  if (footerGrid) {
+        if (footerGrid) {
     footerGrid.innerHTML = '';
     const cell = document.createElement('div');
     cell.className = 'footer-cell';
@@ -564,10 +566,28 @@ function createGrid() {
           cell.classList.add('slot-enabled');
         }
 
-        const textProp = state.selectedComponent.availableProperties?.find(p =>
-          state.selectedComponent!.propertyTypes[p] === 'TEXT');
-        displayText = (textProp && cellState.properties[textProp]) || 
-                     cellState.properties['Cell text#12234:32'] || '';
+        // Only use slot component data if slot is actually enabled
+        if (hasSlotEnabled && cellState.slotComponentProps) {
+          if (cellState.slotComponentProps.userName) {
+            displayText = cellState.slotComponentProps.userName;
+          } else if (cellState.slotComponentProps.tagText) {
+            displayText = cellState.slotComponentProps.tagText;
+          } else if (cellState.slotComponentProps.overflowActions) {
+            displayText = cellState.slotComponentProps.overflowActions;
+          } else if (cellState.slotComponentProps.editAction) {
+            displayText = cellState.slotComponentProps.editAction;
+          } else if (cellState.slotComponentProps.deleteAction) {
+            displayText = cellState.slotComponentProps.deleteAction;
+          }
+        }
+        
+        // If slot is disabled or no slot component data, use regular text properties
+        if (!displayText) {
+          const textProp = state.selectedComponent.availableProperties?.find(p =>
+            state.selectedComponent!.propertyTypes[p] === 'TEXT');
+          displayText = (textProp && cellState.properties[textProp]) || 
+                       cellState.properties['Cell text#12234:32'] || '';
+        }
       }
 
       if (displayText) {
@@ -706,63 +726,63 @@ function setupFileUploadControls() {
 }
 
 function setupResizeCorner() {
-  const resizeCorner = document.getElementById('resizeCorner') as HTMLElement;
+    const resizeCorner = document.getElementById('resizeCorner') as HTMLElement;
 
-  if (!resizeCorner) {
-    console.warn('Resize corner element not found');
-    return;
-  }
+    if (!resizeCorner) {
+        console.warn('Resize corner element not found');
+        return;
+    }
 
-  let isResizing = false;
+    let isResizing = false;
 
-  const resizeWindow = (e: PointerEvent) => {
-    if (!isResizing) return;
+    const resizeWindow = (e: PointerEvent) => {
+        if (!isResizing) return;
 
     const size = {
       w: Math.max(300, Math.floor(e.clientX + 5)),
       h: Math.max(400, Math.floor(e.clientY + 5))
     };
 
-    // Send resize message to plugin
+        // Send resize message to plugin
     parent.postMessage({
       pluginMessage: {
         type: 'resize',
         size: size
       }
     }, '*');
-  };
+    };
 
-  const handlePointerDown = (e: PointerEvent) => {
-    isResizing = true;
-    resizeCorner.setPointerCapture(e.pointerId);
+    const handlePointerDown = (e: PointerEvent) => {
+        isResizing = true;
+        resizeCorner.setPointerCapture(e.pointerId);
 
-    // Add event listeners for move and up
-    resizeCorner.addEventListener('pointermove', resizeWindow);
+        // Add event listeners for move and up
+        resizeCorner.addEventListener('pointermove', resizeWindow);
 
-    // Prevent default to avoid text selection
-    e.preventDefault();
-  };
+        // Prevent default to avoid text selection
+        e.preventDefault();
+    };
 
-  const handlePointerUp = (e: PointerEvent) => {
-    if (!isResizing) return;
+    const handlePointerUp = (e: PointerEvent) => {
+        if (!isResizing) return;
 
-    isResizing = false;
-    resizeCorner.releasePointerCapture(e.pointerId);
+        isResizing = false;
+        resizeCorner.releasePointerCapture(e.pointerId);
 
-    // Remove event listeners
-    resizeCorner.removeEventListener('pointermove', resizeWindow);
-  };
+        // Remove event listeners
+        resizeCorner.removeEventListener('pointermove', resizeWindow);
+    };
 
-  // Attach event listeners
-  resizeCorner.addEventListener('pointerdown', handlePointerDown);
-  resizeCorner.addEventListener('pointerup', handlePointerUp);
+    // Attach event listeners
+    resizeCorner.addEventListener('pointerdown', handlePointerDown);
+    resizeCorner.addEventListener('pointerup', handlePointerUp);
 
-  // Handle pointer leave to stop resizing if pointer goes outside
-  resizeCorner.addEventListener('pointerleave', (e: PointerEvent) => {
-    if (isResizing) {
-      handlePointerUp(e);
-    }
-  });
+    // Handle pointer leave to stop resizing if pointer goes outside
+    resizeCorner.addEventListener('pointerleave', (e: PointerEvent) => {
+        if (isResizing) {
+            handlePointerUp(e);
+        }
+    });
 
   console.log('Resize corner functionality initialized');
 }
@@ -771,6 +791,7 @@ function setupEventListeners() {
   elements.clearSelectionBtn.addEventListener('click', resetTableProperties);
   // elements.reorderColumnsBtn.addEventListener('click', openColumnReorderModal); // Removed - now handled in HTML
   elements.createTableBtn.addEventListener('click', createTable);
+  // elements.collectCarbonKeysBtn.addEventListener('click', collectCarbonKeys); // Hidden test button
   elements.cancelPropsBtn.addEventListener('click', closePropertyEditor);
   elements.propertyEditorOverlay.addEventListener('click', (e) => {
     if (e.target === elements.propertyEditorOverlay) {
@@ -795,6 +816,8 @@ function setupEventListeners() {
   elements.secondTextLine.addEventListener('change', function (this: HTMLInputElement) {
     elements.secondCellTextContainer.style.display = this.checked ? 'block' : 'none';
   });
+  
+  // Removed duplicate slot checkbox event listener - now handled in renderSlotComponentControls
   document.querySelectorAll('.apply-option').forEach(option => {
     option.addEventListener('click', handleApplyOptionClick);
   });
@@ -973,7 +996,19 @@ function resetTableProperties() {
 
 
 
+// Store original form values when opening property editor
+let originalFormValues: any = null;
+
 function closePropertyEditor() {
+  // If we have original values stored, restore them before closing
+  if (originalFormValues && state.currentEditingCell) {
+    restoreFormValues(originalFormValues);
+    originalFormValues = null; // Clear the stored values
+    
+    // Update the preview grid to reflect the restored values
+    updateCellVisuals();
+  }
+  
   elements.propertyEditor.style.opacity = '0';
   elements.propertyEditorOverlay.style.display = 'none';
   setTimeout(() => {
@@ -982,12 +1017,239 @@ function closePropertyEditor() {
   }, 300);
 }
 
+function captureOriginalFormValues() {
+  const values: any = {};
+  
+  // Capture custom cell text toggle
+  if (elements.customCellTextToggle) {
+    values.customCellTextEnabled = elements.customCellTextToggle.checked;
+  }
+  
+  // Capture custom cell text value
+  if (elements.customCellText) {
+    values.customCellText = elements.customCellText.value;
+  }
+  
+  // Capture second text line toggle and value
+  if (elements.secondTextLine) {
+    values.secondTextLine = elements.secondTextLine.checked;
+  }
+  if (elements.secondCellText) {
+    values.secondCellText = elements.secondCellText.value;
+  }
+  
+  // Capture slot checkbox
+  if (elements.slotCheckbox) {
+    values.slotEnabled = elements.slotCheckbox.checked;
+  }
+  
+  // Capture slot component specific fields
+  const slotProps: any = {};
+  const userNameField = document.getElementById('userName') as HTMLInputElement;
+  if (userNameField) slotProps.userName = userNameField.value;
+  
+  const tagTextField = document.getElementById('tagText') as HTMLInputElement;
+  if (tagTextField) slotProps.tagText = tagTextField.value;
+  
+  const actionsField = document.getElementById('overflowActions') as HTMLInputElement;
+  if (actionsField) slotProps.overflowActions = actionsField.value;
+  
+  const editField = document.getElementById('editAction') as HTMLInputElement;
+  if (editField) slotProps.editAction = editField.value;
+  
+  const deleteField = document.getElementById('deleteAction') as HTMLInputElement;
+  if (deleteField) slotProps.deleteAction = deleteField.value;
+  
+  if (Object.keys(slotProps).length > 0) {
+    values.slotComponentProps = slotProps;
+  }
+  
+  // Capture dynamic property fields
+  const dynamicProps: any = {};
+  document.querySelectorAll('[id^="dynamic-"]').forEach(input => {
+    const element = input as HTMLInputElement | HTMLSelectElement;
+    const propName = element.id.replace('dynamic-', '');
+    if (element.type === 'checkbox') {
+      dynamicProps[propName] = (element as HTMLInputElement).checked;
+    } else {
+      dynamicProps[propName] = element.value;
+    }
+  });
+  
+  if (Object.keys(dynamicProps).length > 0) {
+    values.dynamicProps = dynamicProps;
+  }
+  
+  console.log('[DEBUG] Captured original form values:', values);
+  return values;
+}
+
+function restoreFormValues(originalValues: any) {
+  // Restore custom cell text toggle
+  if (elements.customCellTextToggle && originalValues.customCellTextEnabled !== undefined) {
+    elements.customCellTextToggle.checked = originalValues.customCellTextEnabled;
+  }
+  
+  // Restore custom cell text value
+  if (elements.customCellText && originalValues.customCellText !== undefined) {
+    elements.customCellText.value = originalValues.customCellText;
+  }
+  
+  // Restore second text line toggle and value
+  if (elements.secondTextLine && originalValues.secondTextLine !== undefined) {
+    elements.secondTextLine.checked = originalValues.secondTextLine;
+  }
+  if (elements.secondCellText && originalValues.secondCellText !== undefined) {
+    elements.secondCellText.value = originalValues.secondCellText;
+  }
+  
+  // Restore slot checkbox and slot component properties
+  if (elements.slotCheckbox && originalValues.slotEnabled !== undefined) {
+    elements.slotCheckbox.checked = originalValues.slotEnabled;
+  }
+  
+  // Restore slot component specific fields
+  if (originalValues.slotComponentProps) {
+    const slotProps = originalValues.slotComponentProps;
+    if (slotProps.userName) {
+      const userNameField = document.getElementById('userName') as HTMLInputElement;
+      if (userNameField) userNameField.value = slotProps.userName;
+    }
+    if (slotProps.tagText) {
+      const tagTextField = document.getElementById('tagText') as HTMLInputElement;
+      if (tagTextField) tagTextField.value = slotProps.tagText;
+    }
+    if (slotProps.overflowActions) {
+      const actionsField = document.getElementById('overflowActions') as HTMLInputElement;
+      if (actionsField) actionsField.value = slotProps.overflowActions;
+    }
+    if (slotProps.editAction) {
+      const editField = document.getElementById('editAction') as HTMLInputElement;
+      if (editField) editField.value = slotProps.editAction;
+    }
+    if (slotProps.deleteAction) {
+      const deleteField = document.getElementById('deleteAction') as HTMLInputElement;
+      if (deleteField) deleteField.value = slotProps.deleteAction;
+    }
+  }
+  
+  // Restore dynamic property fields
+  if (originalValues.dynamicProps) {
+    Object.entries(originalValues.dynamicProps).forEach(([propName, value]) => {
+      const input = document.getElementById(`dynamic-${propName}`) as HTMLInputElement | HTMLSelectElement;
+      if (input) {
+        if (input.type === 'checkbox') {
+          (input as HTMLInputElement).checked = !!value;
+        } else {
+          input.value = String(value || '');
+        }
+      }
+    });
+  }
+  
+  console.log('[DEBUG] Form values restored from original state');
+}
+
 function getCellState(key: string) {
   if (!state.cellProperties.has(key)) {
     state.cellProperties.set(key, { properties: {} });
   }
   return state.cellProperties.get(key);
 }
+
+// Removed test functions: discoverComponents, findOverflowComponent, discoverLibraryComponents
+
+function analyzeSmartSlots(autoApply: boolean = false) {
+  console.log('🧠 [UI] Analyzing table data for smart slots...');
+  console.log('🧠 [UI] Current state:', {
+    gridCols: state.gridCols,
+    gridRows: state.gridRows,
+    cellPropertiesSize: state.cellProperties.size
+  });
+  
+  // Get current grid data and headers
+  const headers: string[] = [];
+  const gridData: string[][] = [];
+  
+  // Extract headers - check both old format (0-col) and new format (header-col)
+  for (let col = 1; col <= state.gridCols; col++) {
+    const oldKey = `0-${col - 1}`;
+    const newKey = `header-${col}`;
+    let cellProp = state.cellProperties.get(newKey) || state.cellProperties.get(oldKey);
+    
+    // Try to extract header text from properties
+    let headerText = `Column ${col}`;
+    if (cellProp?.properties) {
+      // Look for Cell text property in properties object
+      const cellTextProp = Object.keys(cellProp.properties).find(k => 
+        k.toLowerCase().includes('text') && !k.toLowerCase().includes('second')
+      );
+      if (cellTextProp && cellProp.properties[cellTextProp]) {
+        headerText = cellProp.properties[cellTextProp];
+      }
+    }
+    headers.push(headerText);
+    console.log(`🧠 [UI] Header ${col}: "${headerText}" (key: ${newKey})`);
+  }
+  
+  // Extract data rows - use row,col format (1,1, 1,2, etc.)
+  for (let row = 1; row <= state.gridRows; row++) {
+    const rowData: string[] = [];
+    for (let col = 1; col <= state.gridCols; col++) {
+      const cellKey = `${row},${col}`;
+      const cellProp = state.cellProperties.get(cellKey);
+      
+      // Try to extract cell text from properties
+      let cellText = '';
+      if (cellProp?.properties) {
+        // Look for Cell text property in properties object - must be TEXT type, not BOOLEAN
+        const cellTextProp = Object.keys(cellProp.properties).find(k => {
+          const propValue = cellProp.properties[k];
+          // Only return text properties (string values), not booleans
+          return typeof propValue === 'string' && 
+                 k.toLowerCase().includes('text') && 
+                 !k.toLowerCase().includes('second') &&
+                 !k.toLowerCase().includes('show');
+        });
+        if (cellTextProp && cellProp.properties[cellTextProp]) {
+          cellText = String(cellProp.properties[cellTextProp]);
+        }
+      }
+      rowData.push(cellText);
+    }
+    gridData.push(rowData);
+    console.log(`🧠 [UI] Row ${row} data:`, rowData);
+  }
+  
+  console.log(`📊 [UI] Analyzing ${state.gridCols} columns x ${state.gridRows} rows`);
+  console.log(`📊 [UI] Headers:`, headers);
+  console.log(`📊 [UI] Grid data:`, gridData);
+  
+  parent.postMessage({ 
+    pluginMessage: { 
+      type: 'analyze-smart-slots',
+      gridData,
+      headers,
+      autoApply  // Pass autoApply flag to backend
+    } 
+  }, '*');
+  
+  console.log('✅ [UI] Message sent to backend');
+  if (!autoApply) {
+    showMessage('Analyzing table data for smart component suggestions...', 'success');
+  }
+}
+
+// Hidden test function - uncomment if needed
+/*
+function collectCarbonKeys() {
+  console.log('🔑 Collecting Carbon component keys...');
+  parent.postMessage({ pluginMessage: { type: 'collect-carbon-keys' } }, '*');
+  showMessage('Collecting Carbon component key...', 'success');
+}
+*/
+
+// Removed test functions: getComponentKeys, testSwapComponent
 
 function createTable() {
   // Add loading state to button
@@ -1034,6 +1296,7 @@ function createTable() {
   const cols = parseInt((document.getElementById('scanColsInput') as HTMLInputElement)?.value || String(state.gridCols), 10);
   const includeHeader = (document.getElementById('scanHeaderToggle') as HTMLInputElement)?.checked;
   const includeFooter = (document.getElementById('scanFooterToggle') as HTMLInputElement)?.checked;
+  const includeToolbar = (document.getElementById('scanToolbarToggle') as HTMLInputElement)?.checked;
   const includeSelectable = (document.getElementById('scanSelectableToggle') as HTMLInputElement)?.checked;
   const includeExpandable = (document.getElementById('scanExpandableToggle') as HTMLInputElement)?.checked;
 
@@ -1045,12 +1308,21 @@ function createTable() {
     cellProps: propsForFigma,
     includeHeader,
     includeFooter,
+    includeToolbar,
     includeSelectable,
     includeExpandable
   };
 
   console.log(`🚀 Sending to Figma (${isUpdate ? 'Update' : 'Create'}):`, message);
   console.log(`🚀 cellProps keys:`, Object.keys(propsForFigma));
+  
+  // Debug: Check if "Show text" is properly set to false for slotted cells
+  Object.keys(propsForFigma).forEach(key => {
+    const cellData = propsForFigma[key];
+    if (cellData.slotComponentProps) {
+      console.log(`  📦 Cell ${key} has slot:`, cellData.properties);
+    }
+  });
 
   parent.postMessage({ pluginMessage: message }, '*');
 }
@@ -1384,6 +1656,283 @@ function renderDynamicPropertyFields(availableProps: string[], propertyTypes: { 
   console.log('[DEBUG] renderDynamicPropertyFields created fields:', fieldCount);
 }
 
+function renderSlotComponentControls(key: string, cellState: any) {
+  const container = document.getElementById('dynamicPropertyFields');
+  if (!container) {
+    console.log(`[renderSlotComponentControls] Container not found`);
+    return;
+  }
+  
+  // Check if slot is enabled
+  // First, try to find the swap slot property in availableProperties
+  let swapSlotProp = state.selectedComponent?.availableProperties?.find((p: string) => 
+    p.toLowerCase().includes('swap') && p.toLowerCase().includes('slot')
+  );
+  
+  // If not found in availableProperties, check if it exists in cellState.properties
+  if (!swapSlotProp && cellState.properties) {
+    swapSlotProp = Object.keys(cellState.properties).find((p: string) => 
+      p.toLowerCase().includes('swap') && p.toLowerCase().includes('slot')
+    );
+  }
+  
+  const hasSwapSlot = swapSlotProp && cellState.properties ? cellState.properties[swapSlotProp] : null;
+  const hasSlot = cellState.slotComponentProps || cellState.statusIconText || hasSwapSlot;
+  
+  console.log(`[renderSlotComponentControls] Checking cell ${key}:`, {
+    hasSlotComponentProps: !!cellState.slotComponentProps,
+    hasStatusIconText: !!cellState.statusIconText,
+    hasSwapSlot: !!hasSwapSlot,
+    swapSlotProp,
+    swapSlotValue: (hasSwapSlot && swapSlotProp) ? cellState.properties[swapSlotProp] : null,
+    cellStateProperties: cellState.properties,
+    hasSlot
+  });
+  
+  if (!hasSlot) {
+    console.log(`[renderSlotComponentControls] No slot detected, not rendering slot controls`);
+    return;
+  }
+  
+  // Determine the slot component type based on slotComponentProps
+  const slotComponentType = cellState.slotComponentProps?.suggestedComponent || 
+                           (cellState.slotComponentProps?.Status ? 'statusIcon' : null) ||
+                           (cellState.slotComponentProps?.userName ? 'slotGroup' : null) ||
+                           (cellState.slotComponentProps?.tagText ? 'tag' : null) ||
+                           'unknown';
+  
+  console.log(`[renderSlotComponentControls] ✅ Rendering ${slotComponentType} controls for cell ${key}`);
+  
+  // Create slot component section
+  const slotSection = document.createElement('div');
+  slotSection.className = 'slot-component-section';
+  slotSection.style.borderTop = '1px solid #e0e0e0';
+  slotSection.style.marginTop = '16px';
+  slotSection.style.paddingTop = '16px';
+  
+  // Section title based on component type
+  const title = document.createElement('div');
+  let sectionTitle = '🎨 Slot Component Properties';
+  let componentName = 'Component';
+  
+  switch (slotComponentType) {
+    case 'statusIcon':
+      sectionTitle = '🎨 Status Icon Properties';
+      componentName = 'Status Icon';
+      break;
+    case 'slotGroup':
+      if (cellState.slotComponentProps?.userName) {
+        sectionTitle = '👤 User Avatar Properties';
+        componentName = 'Avatar + Text';
+      } else if (cellState.slotComponentProps?.editKey) {
+        sectionTitle = '⚡ Action Icons Properties';
+        componentName = 'Edit + Delete Icons';
+      } else {
+        sectionTitle = '🎨 Slot Group Properties';
+        componentName = 'Slot Group';
+      }
+      break;
+    case 'tag':
+      sectionTitle = '🏷️ Tag Properties';
+      componentName = 'Tag Set';
+      break;
+    case 'overflow':
+      sectionTitle = '📋 Overflow Properties';
+      componentName = 'Overflow Menu';
+      break;
+    case 'edit':
+      sectionTitle = '✏️ Edit Icon Properties';
+      componentName = 'Edit Icon';
+      break;
+    case 'delete':
+      sectionTitle = '🗑️ Delete Icon Properties';
+      componentName = 'Delete Icon';
+      break;
+    default:
+      sectionTitle = '🎨 Slot Component Properties';
+      componentName = 'Component';
+  }
+  
+  title.textContent = sectionTitle;
+  title.style.fontWeight = '600';
+  title.style.marginBottom = '12px';
+  title.style.color = '#ffffff';
+  slotSection.appendChild(title);
+  
+  // Component name (read-only - just shows which component is being used)
+  if (swapSlotProp && cellState.properties[swapSlotProp]) {
+    const componentField = document.createElement('div');
+    componentField.className = 'property-field';
+    componentField.innerHTML = `
+      <label>Component</label>
+      <input type="text" class="styled-input component-name-readonly" value="${componentName}" readonly style="background: #1a1a1a; color: #8d8d8d; cursor: not-allowed; border: 1px solid #404040;">
+    `;
+    slotSection.appendChild(componentField);
+  }
+  
+  // Show relevant fields based on component type
+  if (slotComponentType === 'statusIcon') {
+    // Status type dropdown
+    const statusTypeField = document.createElement('div');
+    statusTypeField.className = 'property-field';
+    const statusTypeSelect = document.createElement('select');
+    statusTypeSelect.className = 'styled-input';
+    statusTypeSelect.id = 'status-icon-type';
+    
+    const statusTypes = ['Failed', 'Succeeded', 'Normal', 'In-progress', 'Caution major', 'Caution minor', 'Unknown', 'Undefined'];
+    const currentType = cellState.statusIconType || 'Normal';
+    
+    statusTypes.forEach(type => {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = type;
+      if (type === currentType) option.selected = true;
+      statusTypeSelect.appendChild(option);
+    });
+    
+    statusTypeSelect.addEventListener('change', () => {
+      const newType = statusTypeSelect.value;
+      const textInput = document.getElementById('status-icon-text') as HTMLInputElement;
+      const newText = textInput?.value || cellState.statusIconText || '';
+      
+      // Update cellState
+      cellState.statusIconType = newType;
+      cellState.statusIconText = newText;
+      cellState.slotComponentProps = {
+        'Status': newType,
+        'Label': true,
+        [`${newType} text`]: newText
+      };
+      
+      console.log(`📝 Updated Status Icon: type="${newType}", text="${newText}"`);
+    });
+    
+    const statusTypeLabel = document.createElement('label');
+    statusTypeLabel.textContent = 'Status Type';
+    statusTypeField.appendChild(statusTypeLabel);
+    statusTypeField.appendChild(statusTypeSelect);
+    slotSection.appendChild(statusTypeField);
+    
+    // Label text input
+    const textField = document.createElement('div');
+    textField.className = 'property-field';
+    const textInput = document.createElement('input');
+    textInput.type = 'text';
+    textInput.className = 'styled-input';
+    textInput.id = 'status-icon-text';
+    textInput.value = cellState.statusIconText || '';
+    textInput.placeholder = 'Enter label text...';
+    
+    textInput.addEventListener('input', () => {
+      const newText = textInput.value;
+      const typeSelect = document.getElementById('status-icon-type') as HTMLSelectElement;
+      const newType = typeSelect?.value || cellState.statusIconType || 'Normal';
+      
+      // Update cellState
+      cellState.statusIconText = newText;
+      cellState.slotComponentProps = {
+        'Status': newType,
+        'Label': true,
+        [`${newType} text`]: newText
+      };
+      
+      console.log(`📝 Updated Status Icon text: "${newText}"`);
+    });
+    
+    const textLabel = document.createElement('label');
+    textLabel.textContent = 'Label Text';
+    textField.appendChild(textLabel);
+    textField.appendChild(textInput);
+    slotSection.appendChild(textField);
+    
+  } else if (slotComponentType === 'slotGroup' && cellState.slotComponentProps?.userName) {
+    // User name field (editable - user can change the name)
+    const userNameField = document.createElement('div');
+    userNameField.className = 'property-field';
+    userNameField.innerHTML = `
+      <label>User Name</label>
+      <input type="text" id="slot-user-name" class="styled-input slot-editable-field" value="${cellState.slotComponentProps.userName}" style="background: #2a2a2a; color: #ffffff; border: 1px solid #404040;" placeholder="Enter user name">
+    `;
+    slotSection.appendChild(userNameField);
+    
+  } else if (slotComponentType === 'tag') {
+    // Tag text field (editable - user can change the tags)
+    const tagTextField = document.createElement('div');
+    tagTextField.className = 'property-field';
+    tagTextField.innerHTML = `
+      <label>Tag Values</label>
+      <input type="text" id="slot-tag-values" class="styled-input slot-editable-field" value="${cellState.slotComponentProps.tagText || ''}" style="background: #2a2a2a; color: #ffffff; border: 1px solid #404040;" placeholder="Enter tags (comma-separated)">
+    `;
+    slotSection.appendChild(tagTextField);
+    
+  } else if (slotComponentType === 'overflow') {
+    // Overflow actions field (editable - user can see and edit actions)
+    const overflowField = document.createElement('div');
+    overflowField.className = 'property-field';
+    const overflowActions = cellState.slotComponentProps?.overflowActions || 'View, Edit, Delete';
+    overflowField.innerHTML = `
+      <label>Actions (3+ actions)</label>
+      <input type="text" id="slot-overflow-actions" class="styled-input slot-editable-field" value="${overflowActions}" style="background: #2a2a2a; color: #ffffff; border: 1px solid #404040;" placeholder="Enter actions (comma-separated)">
+    `;
+    slotSection.appendChild(overflowField);
+    
+  } else if (slotComponentType === 'edit' || slotComponentType === 'delete') {
+    // Single action field (editable - user can see and change the action)
+    const actionField = document.createElement('div');
+    actionField.className = 'property-field';
+    const actionValue = slotComponentType === 'edit' ? (cellState.slotComponentProps?.editAction || 'Edit') : (cellState.slotComponentProps?.deleteAction || 'Delete');
+    actionField.innerHTML = `
+      <label>Action</label>
+      <input type="text" id="slot-single-action" class="styled-input slot-editable-field" value="${actionValue}" style="background: #2a2a2a; color: #ffffff; border: 1px solid #404040;" placeholder="Enter action name">
+    `;
+    slotSection.appendChild(actionField);
+  }
+  
+  container.appendChild(slotSection);
+  
+  // Set up slot checkbox event listener and initial display state
+  const slotCheckbox = document.getElementById('slotCheckbox') as HTMLInputElement;
+  console.log(`[renderSlotComponentControls] 🔍 Slot checkbox found:`, !!slotCheckbox);
+  console.log(`[renderSlotComponentControls] 🔍 Slot checkbox checked:`, slotCheckbox?.checked);
+  console.log(`[renderSlotComponentControls] 🔍 Slot section created:`, !!slotSection);
+  
+  if (slotCheckbox) {
+    // Set initial display state based on checkbox
+    slotSection.style.display = slotCheckbox.checked ? 'block' : 'none';
+    console.log(`[renderSlotComponentControls] ✅ Initial display set to: ${slotSection.style.display} (checkbox is ${slotCheckbox.checked ? 'checked' : 'unchecked'})`);
+    
+    // Remove all existing event listeners by cloning and replacing the checkbox
+    const newCheckbox = slotCheckbox.cloneNode(true) as HTMLInputElement;
+    console.log(`[renderSlotComponentControls] 🔄 Cloned checkbox, checked state:`, newCheckbox.checked);
+    
+    slotCheckbox.parentNode?.replaceChild(newCheckbox, slotCheckbox);
+    console.log(`[renderSlotComponentControls] 🔄 Replaced old checkbox with new one`);
+    
+    // Add event listener for toggling to the new checkbox
+    newCheckbox.addEventListener('change', function(this: HTMLInputElement) {
+      console.log(`[Slot Checkbox Event] 🎯 Change event fired! Checkbox is now: ${this.checked ? 'CHECKED' : 'UNCHECKED'}`);
+      console.log(`[Slot Checkbox Event] 🎯 Current slotSection display:`, slotSection.style.display);
+      slotSection.style.display = this.checked ? 'block' : 'none';
+      console.log(`[Slot Checkbox Event] ✅ Set slotSection display to: ${slotSection.style.display}`);
+    });
+    console.log(`[renderSlotComponentControls] ✅ Event listener attached to new checkbox`);
+  } else {
+    console.error(`[renderSlotComponentControls] ❌ Slot checkbox not found!`);
+  }
+  
+  // Add change event listeners to editable slot fields (exclude read-only component name)
+  const editableInputs = slotSection.querySelectorAll('.slot-editable-field');
+  console.log(`[renderSlotComponentControls] 🔍 Found ${editableInputs.length} editable slot fields`);
+  
+  editableInputs.forEach((input: Element) => {
+    const inputElement = input as HTMLInputElement;
+    console.log(`[renderSlotComponentControls] 🔗 Adding listener to field:`, inputElement.id);
+    
+    // Remove immediate change listener - changes should only be applied on Save
+    // This prevents changes from being saved when user types but doesn't click Save
+  });
+}
+
 function renderDynamicPropertyFieldsFromModel(model: any[], props: any) {
   const container = document.getElementById('dynamicPropertyFields');
   if (!container) return;
@@ -1435,48 +1984,8 @@ function renderDynamicPropertyFieldsFromModel(model: any[], props: any) {
       field.appendChild(labelEl);
       field.appendChild(select);
 
-      // Add change event listener for all fields to handle dependencies
-      select.addEventListener('change', () => {
-        // Update the props object with the new value
-        props[name] = select.value;
-        console.log(`[DEBUG] Field ${name} changed to: ${select.value}`);
-
-        // Special logic: When Sortable is True and Sorted is None, set State to Hover
-        if (name === 'Sorted' && select.value === 'None') {
-          const sortableInput = document.getElementById('dynamic-Sortable') as HTMLSelectElement;
-          if (sortableInput && sortableInput.value === 'True') {
-            const stateInput = document.getElementById('dynamic-State') as HTMLSelectElement;
-            if (stateInput) {
-              stateInput.value = 'Hover';
-              props['State'] = 'Hover';
-            }
-          }
-        }
-
-        // Check if this field is a dependency for other fields
-        const hasDependentFields = model.some(field => field.dependsOn === name);
-        if (hasDependentFields) {
-          console.log(`[DEBUG] Field ${name} has dependent fields, re-rendering form`);
-
-          // Collect all current field values before re-rendering
-          const currentValues = { ...props };
-          for (const fieldDef of model) {
-            const input = document.getElementById(`dynamic-${fieldDef.name}`) as HTMLInputElement | HTMLSelectElement;
-            if (input) {
-              if (fieldDef.type === 'BOOLEAN') {
-                currentValues[fieldDef.name] = (input as HTMLInputElement).checked;
-              } else {
-                currentValues[fieldDef.name] = input.value;
-              }
-            }
-          }
-
-          console.log(`[DEBUG] Collected current values before re-render:`, currentValues);
-
-          // Re-render the form to show/hide dependent fields with preserved values
-          renderDynamicPropertyFieldsFromModel(model, currentValues);
-        }
-      });
+      // Remove immediate change listener - changes should only be applied on Save
+      // This prevents changes from being saved when user types but doesn't click Save
 
     } else if (type === 'BOOLEAN') {
       field = document.createElement('div');
@@ -1601,13 +2110,16 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
     const showTextField = elements.showText.parentElement;
     if (showTextField) showTextField.style.display = 'none'; // Always hide show text checkbox
   }
-  // Set custom cell text toggle to checked by default and show the input
+  // Set custom cell text toggle based on saved state
   if (elements.customCellTextToggle) {
-    elements.customCellTextToggle.checked = true;
-    // Ensure the input is shown when toggle is checked by default
+    // Restore the custom cell text toggle state from cell properties
+    const cellState = state.cellProperties.get(state.currentEditingCell || '');
+    const savedToggleState = cellState?.customCellTextEnabled;
+    elements.customCellTextToggle.checked = savedToggleState !== undefined ? savedToggleState : true; // Default to true if not set
+    // Ensure the input is shown when toggle is checked
     if (elements.customCellTextContainer) {
-      elements.customCellTextContainer.style.display = cellTextPropKey ? 'none' : 'block';
-      console.log('[DEBUG] Setting customCellTextContainer display to', cellTextPropKey ? 'none' : 'block', 'in updateStaticFieldsVisibilityAndValues');
+      elements.customCellTextContainer.style.display = cellTextPropKey ? 'none' : (elements.customCellTextToggle.checked ? 'block' : 'none');
+      console.log('[DEBUG] Setting customCellTextContainer display to', cellTextPropKey ? 'none' : (elements.customCellTextToggle.checked ? 'block' : 'none'), 'in updateStaticFieldsVisibilityAndValues');
     }
   }
   console.log('[DEBUG] updateStaticFieldsVisibilityAndValues elements presence', {
@@ -1634,7 +2146,11 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
     elements.showText.checked = showTextPropKey ? (props[showTextPropKey] || false) : true; // Always default to true since checkbox is hidden
   }
   if (elements.customCellTextToggle) {
-    elements.customCellTextToggle.checked = true; // Always default to true for custom cell text
+    // Restore the custom cell text toggle state from cell properties
+    const cellState = state.cellProperties.get(state.currentEditingCell || '');
+    const savedToggleState = cellState?.customCellTextEnabled;
+    elements.customCellTextToggle.checked = savedToggleState !== undefined ? savedToggleState : true; // Default to true if not set
+    console.log('[DEBUG] Restored customCellTextToggle state:', elements.customCellTextToggle.checked, 'for cell:', state.currentEditingCell);
   }
   // Set custom cell text value - show existing cell text if available
   if (elements.customCellText) {
@@ -1663,8 +2179,34 @@ function updateStaticFieldsVisibilityAndValues(availableProps: string[], propert
   if (elements.secondCellText) elements.secondCellText.value = secondTextValue;
   if (elements.secondTextLine) elements.secondTextLine.checked = !!secondTextValue;
   if (elements.slotCheckbox) {
-    const slotValue = slotPropKey ? (props[slotPropKey] === true || props[slotPropKey] === 'true') : false;
+    let slotValue = false;
+    
+    // First, check the actual slot property value (this is the source of truth)
+    if (slotPropKey) {
+      // Use the dynamic property if it exists
+      slotValue = props[slotPropKey] === true || props[slotPropKey] === 'true';
+      console.log('[DEBUG] Slot checkbox set from property:', slotPropKey, '=', slotValue);
+    } else {
+      // Check for any slot-related property in the saved properties
+      const slotProps = Object.keys(props).filter(prop => 
+        prop.toLowerCase().includes('slot') && 
+        (props[prop] === true || props[prop] === false || props[prop] === 'true' || props[prop] === 'false')
+      );
+      if (slotProps.length > 0) {
+        slotValue = props[slotProps[0]] === true || props[slotProps[0]] === 'true';
+        console.log('[DEBUG] Slot checkbox set from property:', slotProps[0], '=', slotValue);
+      } else {
+        // If no slot property found, check if this cell has slotComponentProps
+        // This handles the case where slot was auto-applied but property not yet saved
+        const cellState = getCellState(state.currentEditingCell || '');
+        if (cellState?.slotComponentProps) {
+          slotValue = true;
+          console.log('[DEBUG] Slot checkbox enabled because slotComponentProps exists (no property yet):', cellState.slotComponentProps);
+        }
+      }
+    }
     elements.slotCheckbox.checked = slotValue;
+    console.log('[DEBUG] Restored slot checkbox:', slotValue, 'slotPropKey:', slotPropKey);
   }
   if (elements.state) elements.state.value = props['State'] || 'Enabled';
 
@@ -1882,6 +2424,9 @@ function openPropertyEditorInternal(key: string) {
       label = `(${row},${col})`;
       console.log('[DEBUG] openPropertyEditor body', { availableProps, propertyTypes, props });
       renderDynamicPropertyFields(availableProps, propertyTypes, props);
+      
+      // Add slot component controls if slot is enabled
+      renderSlotComponentControls(key, cellState);
     }
 
     // Show col width for all cells (body, header, footer)
@@ -1933,6 +2478,9 @@ function openPropertyEditorInternal(key: string) {
       console.log(`[DEBUG] Body cell ${key} - colWidth: ${width}, container display: ${elements.colWidthContainer.style.display}`);
     }
 
+    // Capture original form values before showing the editor
+    originalFormValues = captureOriginalFormValues();
+    
     // Set title and show editor
     elements.propertyEditorTitle.innerHTML = `Cell Properties <span>${label}</span>`;
     elements.editingCellCoords.textContent = label;
@@ -2049,6 +2597,10 @@ async function saveCellProperties() {
       // Save custom cell text if provided (regardless of dynamic properties)
       const showText = elements.customCellTextToggle.checked;
       const generateSampleData = elements.generateSampleCheckbox.checked;
+      
+      // Save the custom cell text toggle state in cell properties
+      const cellState = getCellState(key);
+      cellState.customCellTextEnabled = showText;
 
       // Find the Show text property
       const showTextProp = availableProps.find(p => {
@@ -2091,10 +2643,31 @@ async function saveCellProperties() {
       }
 
       // Save dynamic properties
+      console.log(`[saveCellProperties] Processing ${availableProps.length} available properties for ${key}`);
       for (const propName of availableProps) {
         const type = propertyTypes[propName];
         const input = document.getElementById(`dynamic-${propName}`) as HTMLInputElement | HTMLSelectElement;
-        if (!input) continue;
+        
+        if (!input) {
+          // If no input exists, check if we already set this property above
+          // (e.g., custom cell text was already saved from elements.customCellText)
+          if (props[propName] !== undefined) {
+            console.log(`✅ UI: Property already set: ${propName} = ${props[propName]}`);
+            continue;
+          }
+          
+          // Otherwise, preserve the existing value from cellState
+          // This is important for properties that don't have UI inputs (like swap slot)
+          const cellState = getCellState(key);
+          if (cellState.properties && cellState.properties[propName] !== undefined) {
+            props[propName] = cellState.properties[propName];
+            console.log(`🔄 UI: Preserving existing property (no input): ${propName} = ${props[propName]}`);
+          } else {
+            console.log(`⚠️ UI: No input and no existing value for: ${propName}`);
+          }
+          continue;
+        }
+        
         if (type === 'BOOLEAN') {
           props[propName] = (input as HTMLInputElement).checked;
         } else {
@@ -2106,6 +2679,59 @@ async function saveCellProperties() {
           console.log(`🔍 UI: Saving Slot property: ${propName} = ${props[propName]} (type: ${type})`);
         }
       }
+      console.log(`[saveCellProperties] Final props to save for ${key}:`, Object.keys(props));
+
+      // Collect and save slot component properties from form fields
+      const currentCellState = getCellState(key);
+      
+      // Check if slot is enabled from the props we just saved (NOT from DOM element which may be stale)
+      const slotPropName = availableProps.find(p => p.toLowerCase().includes('slot') && propertyTypes[p] === 'BOOLEAN');
+      const isSlotEnabled = slotPropName ? (props[slotPropName] === true || props[slotPropName] === 'true') : false;
+      console.log(`[saveCellProperties] Slot enabled check: ${slotPropName || 'none'} = ${slotPropName ? props[slotPropName] : 'N/A'} → isSlotEnabled = ${isSlotEnabled}`);
+      
+      if (isSlotEnabled && currentCellState.slotComponentProps) {
+        console.log(`[saveCellProperties] Slot is enabled, collecting slot properties for ${key}`);
+        
+        // Collect current values from slot form fields
+        const userNameField = document.getElementById('slot-user-name') as HTMLInputElement;
+        const tagTextField = document.getElementById('slot-tag-values') as HTMLInputElement;
+        const actionsField = document.getElementById('slot-overflow-actions') as HTMLInputElement;
+        const editField = document.getElementById('slot-single-action') as HTMLInputElement;
+        
+        // Update slotComponentProps with current form values
+        if (userNameField && userNameField.value) {
+          currentCellState.slotComponentProps.userName = userNameField.value;
+          console.log(`[saveCellProperties] Updated userName: "${userNameField.value}"`);
+        }
+        
+        if (tagTextField && tagTextField.value) {
+          currentCellState.slotComponentProps.tagText = tagTextField.value;
+          console.log(`[saveCellProperties] Updated tagText: "${tagTextField.value}"`);
+        }
+        
+        if (actionsField && actionsField.value) {
+          currentCellState.slotComponentProps.overflowActions = actionsField.value;
+          console.log(`[saveCellProperties] Updated overflowActions: "${actionsField.value}"`);
+        }
+        
+        if (editField && editField.value) {
+          // Determine if this is edit or delete action based on the slot component type
+          const slotComponentType = currentCellState.slotComponentProps?.suggestedComponent || 'unknown';
+          if (slotComponentType === 'edit') {
+            currentCellState.slotComponentProps.editAction = editField.value;
+            console.log(`[saveCellProperties] Updated editAction: "${editField.value}"`);
+          } else if (slotComponentType === 'delete') {
+            currentCellState.slotComponentProps.deleteAction = editField.value;
+            console.log(`[saveCellProperties] Updated deleteAction: "${editField.value}"`);
+          }
+        }
+        
+        console.log(`[saveCellProperties] Final slotComponentProps for ${key}:`, currentCellState.slotComponentProps);
+      } else if (!isSlotEnabled && currentCellState.slotComponentProps) {
+        // If slot is disabled but slotComponentProps exists, we keep it for future use
+        // but don't display it (handled by hasSlotEnabled check in display logic)
+        console.log(`[saveCellProperties] Slot is disabled for ${key}, slotComponentProps preserved but not displayed`);
+      }
 
       // Col width logic: always set colWidth as a top-level property on first row of column
       let colWidth: number | undefined = undefined;
@@ -2116,11 +2742,56 @@ async function saveCellProperties() {
       }
       const applyProps = (key: string, props: any, colWidthTopLevel?: number) => {
         const cellState = getCellState(key);
-        const existingProps = { ...cellState };
+        
+        // Check if this is the cell currently being edited
+        const isCurrentEditingCell = (key === state.currentEditingCell);
+        
+        // Save special properties BEFORE overwriting cellState.properties
+        const savedIsCheckbox = cellState.isCheckbox;
+        const savedSlotComponentProps = cellState.slotComponentProps;
+        const savedStatusIconText = cellState.statusIconText;
+        const savedStatusIconType = cellState.statusIconType;
+        
+        // Also save slot-related properties from the old properties
+        // BUT only for cells that are NOT the current editing cell
+        const oldSlotProp = availableProps.find(p => 
+          p.toLowerCase().includes('slot') && propertyTypes[p] === 'BOOLEAN');
+        const savedSlotValue = (!isCurrentEditingCell && oldSlotProp && cellState.properties) ? cellState.properties[oldSlotProp] : undefined;
+        
+        // Now update the properties
         cellState.properties = props;
-        if (existingProps.isCheckbox !== undefined) {
-          cellState.isCheckbox = existingProps.isCheckbox;
+        
+        // Restore special properties that should not be overwritten
+        // For the current editing cell, we want to use the NEW values from props
+        if (savedIsCheckbox !== undefined && !isCurrentEditingCell) {
+          cellState.isCheckbox = savedIsCheckbox;
         }
+        if (savedSlotComponentProps !== undefined && !isCurrentEditingCell) {
+          cellState.slotComponentProps = savedSlotComponentProps;
+          console.log(`  ✅ Preserved slotComponentProps for ${key}:`, savedSlotComponentProps);
+          
+          // Also restore the slot boolean property if it existed
+          if (oldSlotProp && savedSlotValue !== undefined) {
+            cellState.properties[oldSlotProp] = savedSlotValue;
+            console.log(`  ✅ Preserved slot boolean property ${oldSlotProp} = ${savedSlotValue} for ${key}`);
+          }
+        } else if (isCurrentEditingCell) {
+          // For the current editing cell, preserve slotComponentProps but NOT the slot boolean
+          // The slot boolean value in props is the new value the user just set
+          if (savedSlotComponentProps !== undefined) {
+            cellState.slotComponentProps = savedSlotComponentProps;
+            console.log(`  🔄 Current editing cell ${key}: preserved slotComponentProps but using new slot boolean from props`);
+          }
+        }
+        if (savedStatusIconText !== undefined && !isCurrentEditingCell) {
+          cellState.statusIconText = savedStatusIconText;
+          console.log(`  ✅ Preserved statusIconText for ${key}:`, savedStatusIconText);
+        }
+        if (savedStatusIconType !== undefined && !isCurrentEditingCell) {
+          cellState.statusIconType = savedStatusIconType;
+          console.log(`  ✅ Preserved statusIconType for ${key}:`, savedStatusIconType);
+        }
+        
         // Set colWidth as a top-level property if provided
         if (colWidthTopLevel !== undefined) {
           cellState.colWidth = colWidthTopLevel;
@@ -2208,7 +2879,7 @@ async function saveCellProperties() {
         }
         const remember = true;
         const useProxy = true;
-        const proxyUrl = 'https://table-generator-server.vercel.app';
+        const proxyUrl = 'https://application-44.21hwt6k1vujm.us-east.codeengine.appdomain.cloud';
         pendingFakerContext = { mode, key, fakerMethod: 'watsonx' };
         parent.postMessage({ pluginMessage: { type: 'generate-watsonx-data', prompt, endpoint, apiKey, accessToken, useAccessToken, useProxy, proxyUrl, count, remember } }, '*');
         return;
@@ -2245,6 +2916,18 @@ async function saveCellProperties() {
 }
 
 function updateCellVisuals() {
+  // If we don't have component info yet, request it and return
+  if (!state.selectedComponent && state.tableFrameId) {
+    console.log(`[updateCellVisuals] No component info available, requesting...`);
+    parent.postMessage({
+      pluginMessage: {
+        type: 'request-component-info',
+        tableId: state.tableFrameId
+      }
+    }, '*');
+    return;
+  }
+  
   const availableProps: string[] = state.selectedComponent?.availableProperties || [];
   console.log(`[updateCellVisuals] availableProps:`, availableProps);
   console.log(`[updateCellVisuals] selectedComponent:`, state.selectedComponent);
@@ -2268,14 +2951,48 @@ function updateCellVisuals() {
         if (slotProp && (props.properties[slotProp] === true || props.properties[slotProp] === 'true')) {
           hasSlotEnabled = true;
         }
+        
+        // Check if "Show text" is disabled
+        const showTextProp = availableProps.find(p =>
+          state.selectedComponent!.propertyTypes[p] === 'BOOLEAN' && 
+          p.toLowerCase().includes('show') && 
+          p.toLowerCase().includes('text'));
+        const showTextEnabled = !showTextProp || props.properties[showTextProp] !== false;
 
-        // Find any TEXT property to display as cell text
+        // Always show cell text in preview grid (even when Show text is disabled for smart slots)
+        // This helps users see the actual data values while smart slots are applied
+        if (true) { // Always show text in preview grid
+        
+        // Only use slot component data if slot is actually enabled
+        if (hasSlotEnabled && props.slotComponentProps) {
+          console.log(`[updateCellVisuals] Cell ${key} has slot enabled and slotComponentProps:`, props.slotComponentProps);
+          if (props.slotComponentProps.userName) {
+            displayText = props.slotComponentProps.userName;
+            console.log(`[updateCellVisuals] ✅ Using userName for display: "${displayText}"`);
+          } else if (props.slotComponentProps.tagText) {
+            displayText = props.slotComponentProps.tagText;
+            console.log(`[updateCellVisuals] ✅ Using tagText for display: "${displayText}"`);
+          } else if (props.slotComponentProps.overflowActions) {
+            displayText = props.slotComponentProps.overflowActions;
+            console.log(`[updateCellVisuals] ✅ Using overflowActions for display: "${displayText}"`);
+          } else if (props.slotComponentProps.editAction) {
+            displayText = props.slotComponentProps.editAction;
+            console.log(`[updateCellVisuals] ✅ Using editAction for display: "${displayText}"`);
+          } else if (props.slotComponentProps.deleteAction) {
+            displayText = props.slotComponentProps.deleteAction;
+            console.log(`[updateCellVisuals] ✅ Using deleteAction for display: "${displayText}"`);
+          }
+        }
+        
+        // If slot is disabled or no slot component data, use regular text properties
+        if (!displayText) {
         for (const propName of availableProps) {
           const type = state.selectedComponent.propertyTypes[propName];
           if (type === 'TEXT' && typeof props.properties[propName] === 'string' && props.properties[propName].toString().trim() !== '') {
             displayText = props.properties[propName].toString();
             break; // Use the first TEXT property found
           }
+        }
         }
         // Fallbacks when the detected TEXT key doesn't exist in props
         if (!displayText) {
@@ -2305,6 +3022,7 @@ function updateCellVisuals() {
             }
           }
         }
+        } // End of showTextEnabled check
         // If no text and slot is checked, show empty
         if (!displayText && hasSlotEnabled) {
           displayText = '';
@@ -2452,10 +3170,38 @@ function updateCellVisuals() {
 }
 
 function updateCreateButtonState() {
-  elements.createTableBtn.disabled = !state.sizeConfirmed;
-  elements.createTableBtn.style.opacity = state.sizeConfirmed ? '1' : '0.5';
-  elements.createTableBtn.style.cursor = state.sizeConfirmed ? 'pointer' : 'not-allowed';
-  elements.createTableBtn.title = state.sizeConfirmed ? 'Create table in Figma' : 'Select a component first';
+  // Button should be enabled when:
+  // 1. sizeConfirmed is true (user has confirmed table size)
+  // 2. OR hasComponent is true AND grid has cells with data
+  const hasGridData = state.gridCols > 0 && state.gridRows > 0;
+  const shouldEnable = state.sizeConfirmed || (state.hasComponent && hasGridData);
+  
+  elements.createTableBtn.disabled = !shouldEnable;
+  elements.createTableBtn.style.opacity = shouldEnable ? '1' : '0.5';
+  elements.createTableBtn.style.cursor = shouldEnable ? 'pointer' : 'not-allowed';
+  
+  // Remove loading class if button is enabled (safeguard against stuck loading state)
+  if (shouldEnable && elements.createTableBtn.classList.contains('loading')) {
+    elements.createTableBtn.classList.remove('loading');
+    console.log(`[updateCreateButtonState] Removed stuck loading class from button`);
+  }
+  
+  // Ensure button always has text - prevent empty button
+  if (!elements.createTableBtn.textContent || elements.createTableBtn.textContent.trim() === '') {
+    elements.createTableBtn.textContent = state.tableFrameId ? 'Update Table' : 'Create Table';
+    console.log(`[updateCreateButtonState] Button text was empty, set to: ${elements.createTableBtn.textContent}`);
+  }
+  
+  // Update title based on state
+  if (!state.hasComponent) {
+    elements.createTableBtn.title = 'Select a component first';
+  } else if (!hasGridData) {
+    elements.createTableBtn.title = 'Configure table size and properties';
+  } else {
+    elements.createTableBtn.title = state.tableFrameId ? 'Update table in Figma' : 'Create table in Figma';
+  }
+  
+  console.log(`[updateCreateButtonState] shouldEnable=${shouldEnable}, hasComponent=${state.hasComponent}, sizeConfirmed=${state.sizeConfirmed}, hasGridData=${hasGridData}, buttonText=${elements.createTableBtn.textContent}`);
 }
 
 
@@ -2580,9 +3326,17 @@ window.onmessage = (event) => {
       }
 
       updateCellVisuals();
+      state.sizeConfirmed = true; // Mark table as ready to create
       if (elements.createTableBtn) elements.createTableBtn.disabled = false;
+      updateCreateButtonState(); // Update button state based on new data
       markChangesForReset(); // Enable reset button after AI content is applied
       showMessage(`AI content applied (clamped to ${desiredRows} rows x ${desiredCols} cols). Review/edit then click Create Table.`, 'success');
+      
+      // Auto-analyze smart slots after main Watson AI table generation
+      console.log('🤖 [UI] Auto-analyzing smart slots after main Watson AI table generation...');
+      setTimeout(() => {
+        analyzeSmartSlots(true);  // Pass true for auto-apply
+      }, 500);
       break;
     }
     case "table-selected":
@@ -2742,6 +3496,16 @@ window.onmessage = (event) => {
             divCell.classList.add('selected');
           }
         });
+        // Ensure button is enabled after data generation
+        state.sizeConfirmed = true;
+        updateCreateButtonState();
+        markChangesForReset();
+        
+        // Auto-analyze smart slots after Faker data is generated
+        console.log('🤖 [UI] Auto-analyzing smart slots after Faker data generation...');
+        setTimeout(() => {
+          analyzeSmartSlots(true);  // Pass true for auto-apply
+        }, 500);
       }
       break;
 
@@ -2789,6 +3553,16 @@ window.onmessage = (event) => {
           const k = `${divCell.dataset.row},${divCell.dataset.col}`;
           if (state.selectedCells.has(k)) divCell.classList.add('selected');
         });
+        // Ensure button is enabled after data generation
+        state.sizeConfirmed = true;
+        updateCreateButtonState();
+        markChangesForReset();
+        
+        // Auto-analyze smart slots after Watson data is generated
+        console.log('🤖 [UI] Auto-analyzing smart slots after Watson data generation...');
+        setTimeout(() => {
+          analyzeSmartSlots(true);  // Pass true for auto-apply
+        }, 500);
       }
       break;
 
@@ -2913,6 +3687,10 @@ window.onmessage = (event) => {
               <div class="property-field checkbox">
                 <input type="checkbox" id="scanFooterToggle" ${details.footer ? 'checked' : ''}>
                 <label for="scanFooterToggle">Footer</label>
+              </div>
+              <div class="property-field checkbox">
+                <input type="checkbox" id="scanToolbarToggle" ${details.toolbar ? 'checked' : ''}>
+                <label for="scanToolbarToggle">Toolbar</label>
               </div>
               <div class="property-field checkbox">
                 <input type="checkbox" id="scanSelectableToggle">
@@ -3112,6 +3890,10 @@ window.onmessage = (event) => {
                   <input type="checkbox" id="scanFooterToggle" ${settings.includeFooter ? 'checked' : ''}>
                   <label for="scanFooterToggle">Footer</label>
                 </div>
+                <div class="property-field checkbox">
+                  <input type="checkbox" id="scanToolbarToggle" ${settings.includeToolbar ? 'checked' : ''}>
+                  <label for="scanToolbarToggle">Toolbar</label>
+                </div>
             </div>
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
                 <input type="checkbox" id="scanSelectableToggle" ${settings.includeSelectable ? 'checked' : ''}> <label for="scanSelectableToggle" style="margin-right: 16px;">Selectable</label>
@@ -3215,10 +3997,109 @@ window.onmessage = (event) => {
       elements.createTableBtn.textContent = 'Update Table';
       break;
 
+    case "components-discovered":
+      hideMessage();
+      console.log('📦 Components discovered:', msg.components);
+      
+      if (msg.error) {
+        showMessage(`Error discovering components: ${msg.error}`, 'error');
+      } else {
+        const componentCount = msg.components ? msg.components.length : 0;
+        const pageComponentCount = msg.pageComponents || 0;
+        const libraryComponentCount = msg.libraryComponents || 0;
+        
+        showMessage(`✅ Discovered ${componentCount} components (${libraryComponentCount} from libraries, ${pageComponentCount} on page)`, 'success');
+        
+        // Log some examples to console
+        if (msg.components && msg.components.length > 0) {
+          console.log('📋 Sample components:');
+          msg.components.slice(0, 10).forEach((comp: any, index: number) => {
+            console.log(`  ${index + 1}. ${comp.name} (${comp.width}x${comp.height})`);
+          });
+        }
+      }
+      break;
+
+    case "component-key-found":
+      hideMessage();
+      console.log('🔑 Component key found:', msg.component);
+      showMessage(`Component key: ${msg.component.key}`, 'success');
+      break;
+
+    case "carbon-keys-collected":
+      hideMessage();
+      console.log('🔑 Carbon keys collected:', msg.keys);
+      if (msg.newKey) {
+        showMessage(`✅ Collected: ${msg.newKey.name} (${msg.keys.length} total)`, 'success');
+      } else {
+        showMessage(`ℹ️ Already collected: ${msg.newKey?.name || 'component'} (${msg.keys.length} total)`, 'success');
+      }
+      break;
+
     case "component-info":
       console.log(`[UI] Received component info:`, msg.component);
       if (msg.component) {
         state.selectedComponent = msg.component;
+        
+        // Update visuals now that we have component info
+        updateCellVisuals();
+        
+        // If we have saved cell properties from a generated table, restore them
+        if (msg.savedCellProperties) {
+          console.log(`[UI] ✅ Restoring ${Object.keys(msg.savedCellProperties).length} saved cell properties`);
+          console.log(`[UI] savedCellProperties keys:`, Object.keys(msg.savedCellProperties));
+          
+          // Restore cell properties including slotComponentProps, statusIconText, statusIconType
+          for (const [key, value] of Object.entries(msg.savedCellProperties)) {
+            const cellData = value as any;
+            const cellState = getCellState(key);
+            
+            console.log(`  🔍 Processing cell ${key}:`, {
+              hasProperties: !!cellData.properties,
+              hasSlotComponentProps: !!cellData.slotComponentProps,
+              hasStatusIconText: !!cellData.statusIconText,
+              hasStatusIconType: !!cellData.statusIconType
+            });
+            
+            // Restore basic properties
+            if (cellData.properties) {
+              cellState.properties = { ...cellData.properties };
+              
+              // Log swap slot specifically
+              const swapSlotProp = Object.keys(cellData.properties).find((p: string) => 
+                p.toLowerCase().includes('swap') && p.toLowerCase().includes('slot')
+              );
+              if (swapSlotProp) {
+                console.log(`  🔄 Restored Swap slot for ${key}: ${swapSlotProp} = ${cellData.properties[swapSlotProp]}`);
+              }
+            }
+            
+            // Restore Status Icon specific properties
+            if (cellData.slotComponentProps) {
+              cellState.slotComponentProps = cellData.slotComponentProps;
+              console.log(`  ✅ Restored slotComponentProps for ${key}:`, cellData.slotComponentProps);
+            }
+            if (cellData.statusIconText) {
+              cellState.statusIconText = cellData.statusIconText;
+              console.log(`  ✅ Restored statusIconText for ${key}: "${cellData.statusIconText}"`);
+            }
+            if (cellData.statusIconType) {
+              cellState.statusIconType = cellData.statusIconType;
+              console.log(`  ✅ Restored statusIconType for ${key}: "${cellData.statusIconType}"`);
+            }
+            if (cellData.customCellTextEnabled !== undefined) {
+              cellState.customCellTextEnabled = cellData.customCellTextEnabled;
+            }
+            if (cellData.colWidth !== undefined) {
+              cellState.colWidth = cellData.colWidth;
+            }
+          }
+          
+          console.log(`[UI] ✅ Finished restoring all cell properties`);
+        } else {
+          console.log(`[UI] ⚠️ No savedCellProperties received from backend`);
+        }
+        
         // Now update the visuals with the component information
         updateCellVisuals();
       } else {
@@ -3246,6 +4127,192 @@ window.onmessage = (event) => {
           if (watsonxApiKeyInput) watsonxApiKeyInput.placeholder = apiKeyMasked;
           if (spApiKeyInput) spApiKeyInput.placeholder = apiKeyMasked;
         }
+      }
+      break;
+
+    case 'smart-slot-suggestions':
+      console.log('💡 [UI] Received smart slot suggestions:', msg.suggestions);
+      if (msg.suggestions && msg.suggestions.length > 0) {
+        console.log('📊 [UI] Smart Slot Suggestions:');
+        msg.suggestions.forEach((suggestion: any, index: number) => {
+          console.log(`  ${index + 1}. Column "${suggestion.columnName}" (${suggestion.columnIndex})`);
+          console.log(`     Type: ${suggestion.contentType} → Suggested Component: ${suggestion.suggestedComponent}`);
+          console.log(`     Samples: ${suggestion.samples.join(', ')}`);
+          console.log(`     Confidence: ${(suggestion.confidence * 100).toFixed(0)}%`);
+        });
+        showMessage(`💡 Found ${msg.suggestions.length} smart slot suggestions! Check console.`, 'success');
+      } else {
+        console.log('ℹ️ [UI] No smart slot suggestions found');
+        showMessage('No smart slot suggestions found for this data', 'success');
+      }
+      break;
+    
+    case 'auto-apply-smart-slots':
+      console.log('🤖 [UI] Auto-applying smart slot suggestions:', msg.suggestions);
+      if (msg.suggestions && msg.suggestions.length > 0) {
+        // Apply each suggestion to the corresponding column
+        msg.suggestions.forEach((suggestion: any) => {
+          const colIndex = suggestion.columnIndex;  // 0-based from backend
+          const colNumber = colIndex + 1;  // Convert to 1-based for UI
+          
+          console.log(`🎯 [UI] Applying ${suggestion.suggestedComponent} to column ${colNumber} (${suggestion.columnName})`);
+          
+          if (suggestion.componentId) {
+            console.log(`  📦 Component imported: ${suggestion.componentName} (ID: ${suggestion.componentId})`);
+          }
+          
+          // Enable slot and set swap slot component for all cells in this column
+          for (let row = 1; row <= state.gridRows; row++) {
+            const cellKey = `${row},${colNumber}`;
+            const cellState = getCellState(cellKey);
+            
+            // Get the current cell text to pass to the slotted component
+            let cellText = '';
+            if (cellState.properties) {
+              const cellTextProp = Object.keys(cellState.properties).find(k => {
+                const propValue = cellState.properties[k];
+                return typeof propValue === 'string' && 
+                       k.toLowerCase().includes('text') && 
+                       !k.toLowerCase().includes('second') &&
+                       !k.toLowerCase().includes('show');
+              });
+              if (cellTextProp) {
+                cellText = String(cellState.properties[cellTextProp]);
+              }
+            }
+            
+            // Find the Slot and Swap slot properties
+            if (state.selectedComponent?.availableProperties) {
+              const slotProp = state.selectedComponent.availableProperties.find((p: string) => 
+                p.toLowerCase().includes('slot') && !p.toLowerCase().includes('swap')
+              );
+              const swapSlotProp = state.selectedComponent.availableProperties.find((p: string) => 
+                p.toLowerCase().includes('swap') && p.toLowerCase().includes('slot')
+              );
+              
+              if (slotProp) {
+                cellState.properties[slotProp] = true;
+                console.log(`  ✅ Enabled slot for cell ${cellKey}`);
+              }
+              
+              // Disable "Show text" to hide cell text (Status Icon shows it)
+              const showTextProp = state.selectedComponent.availableProperties.find((p: string) => 
+                p.toLowerCase().includes('show') && p.toLowerCase().includes('text')
+              );
+              if (showTextProp) {
+                cellState.properties[showTextProp] = false;
+                cellState.customCellTextEnabled = false; // Also disable the toggle state
+                console.log(`  🔇 Disabled "Show text" for cell ${cellKey}`);
+              }
+              
+              // If we have a component ID, set the Swap slot property
+              if (swapSlotProp && suggestion.componentId) {
+                cellState.properties[swapSlotProp] = suggestion.componentId;
+                console.log(`  🔄 Set swap slot to ${suggestion.componentName} for cell ${cellKey}`);
+                
+                // For Status Icon: map cell text to the appropriate status type text property
+                if (suggestion.suggestedComponent === 'statusIcon' && cellText) {
+                  // Map common status values to Carbon status types
+                  const statusMap: Record<string, string> = {
+                    'failed': 'Failed',
+                    'succeeded': 'Succeeded',
+                    'success': 'Succeeded',
+                    'pending': 'In-progress',
+                    'in-progress': 'In-progress',
+                    'in progress': 'In-progress',
+                    'active': 'Normal',
+                    'normal': 'Normal',
+                    'completed': 'Succeeded',
+                    'incomplete': 'Caution major',
+                    'not started': 'Unknown',
+                    'unknown': 'Unknown',
+                    'warning': 'Caution minor',
+                    'probation': 'Caution major',
+                    'undefined': 'Undefined'
+                  };
+                  
+                  // Find the matching status type (case-insensitive)
+                  const cellTextLower = cellText.toLowerCase();
+                  const statusType = statusMap[cellTextLower] || 'Normal'; // Default to Normal
+                  
+                  // Store the properties for the slotted Status Icon
+                  // We need to set BOTH the Status property AND the text property for that status
+                  cellState.slotComponentProps = {
+                    'Status': statusType,           // Set the status type (Failed, Normal, In-progress, etc.)
+                    'Label': true,                   // Enable label toggle
+                    [`${statusType} text`]: cellText // Set the text for the specific status type
+                  };
+                  
+                  // Store the original text and type for editing
+                  cellState.statusIconText = cellText;
+                  cellState.statusIconType = statusType;
+                  
+                  console.log(`  📝 Set Status Icon: status="${statusType}", text="${cellText}"`);
+                  console.log(`  📦 [UI] slotComponentProps stored:`, cellState.slotComponentProps);
+                }
+                
+                // For Edit/Delete actions (2 actions): store slot group information
+                // CHECK THIS FIRST before general slotGroup to avoid mixing with user names
+                else if (suggestion.contentType === 'editDelete') {
+                  // Store the information needed for nested slot swapping with Edit + Delete icons
+                  cellState.slotComponentProps = {
+                    'nestedSlots': true,  // Flag to indicate this needs nested slot handling
+                    'editKey': 'a4ba4c4aa1f2b0f0a5206341aafbb7d7eafa47e6',  // Edit component key
+                    'deleteKey': '84a7c6755b83b8e88ca803851c280d1e06255b93'  // Delete component key
+                  };
+                  
+                  console.log(`  ⚡ Set Edit/Delete actions (2 actions) for cell ${cellKey}`);
+                  console.log(`  📦 [UI] slotComponentProps stored:`, cellState.slotComponentProps);
+                }
+                
+                // For Slot Group (Avatar + Text for user names): store nested slot information
+                else if (suggestion.suggestedComponent === 'slotGroup' && cellText) {
+                  // Store the information needed for nested slot swapping
+                  // The backend will handle swapping the nested slots
+                  cellState.slotComponentProps = {
+                    'nestedSlots': true,  // Flag to indicate this needs nested slot handling
+                    'userName': cellText,  // The name to display
+                    'avatarKey': 'd80f0d175851756c4601e87e6e0abeb5539b24e8',  // Avatar component key
+                    'textKey': 'e73c62eb16dcb7f54df1384f176fc7a3c0f64df5'     // Text component key
+                  };
+                  
+                  console.log(`  👤 Set Slot Group: userName="${cellText}"`);
+                  console.log(`  📦 [UI] slotComponentProps stored:`, cellState.slotComponentProps);
+                }
+                
+                // For Tag: store tag information for configuration
+                else if (suggestion.suggestedComponent === 'tag' && cellText) {
+                  // Store the information needed for tag configuration
+                  // The backend will handle configuring the tag text and colors
+                  cellState.slotComponentProps = {
+                    'suggestedComponent': 'tag',  // Flag to indicate this is a tag component
+                    'tagText': cellText  // The text to display in tags
+                  };
+                  
+                  console.log(`  🏷️ Set Tag: tagText="${cellText}"`);
+                  console.log(`  📦 [UI] slotComponentProps stored:`, cellState.slotComponentProps);
+                }
+                
+                // For single Edit action: simple icon swap (no slot group needed)
+                else if (suggestion.suggestedComponent === 'edit') {
+                  // No special configuration needed - just the swap
+                  console.log(`  ✏️ Set single Edit icon for cell ${cellKey}`);
+                }
+                
+                // For single Delete action: simple icon swap (no slot group needed)
+                else if (suggestion.suggestedComponent === 'delete') {
+                  // No special configuration needed - just the swap
+                  console.log(`  🗑️ Set single Delete icon for cell ${cellKey}`);
+                }
+              }
+            }
+          }
+          
+          // Update cell visuals to show the changes
+          updateCellVisuals();
+        });
+        
+        console.log(`✨ [UI] Auto-applied ${msg.suggestions.length} smart slot suggestion(s)`);
       }
       break;
   }
@@ -3624,6 +4691,12 @@ function updateMainGridWithData(data: any[][]) {
 
   markChangesForReset(); // Enable reset button after file data is loaded
   showMessage('File data loaded successfully', 'success');
+  
+  // Auto-analyze smart slots after data is loaded
+  console.log('🤖 [UI] Auto-analyzing smart slots after data load...');
+  setTimeout(() => {
+    analyzeSmartSlots(true);  // Pass true for auto-apply
+  }, 500);  // Small delay to ensure grid is fully rendered
 }
 
 function sortColumnData(cellProperties: Map<string, any>, cols: number, rows: number): Map<string, any> {

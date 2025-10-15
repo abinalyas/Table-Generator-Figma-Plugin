@@ -1,8 +1,11 @@
 // Function to clean up any components created outside the generated table
 export function cleanupExternalComponents() {
     try {
+        // Only work with the current page to avoid loading all pages
+        console.log('🧹 Cleaning up external components on current page only');
+        
         // Find and remove any "Simple Divider" components that might be outside the table
-        const simpleDividers = figma.root.findAll(node => 
+        const simpleDividers = figma.currentPage.findAll(node => 
             node.type === "COMPONENT" && node.name === "Simple Divider"
         );
         
@@ -26,7 +29,7 @@ export function cleanupExternalComponents() {
         });
         
         // Find and remove any "Data table select cell item" component sets that might be outside the table
-        const checkboxComponents = figma.root.findAll(node => 
+        const checkboxComponents = figma.currentPage.findAll(node => 
             node.type === "COMPONENT_SET" && node.name === "Data table select cell item"
         );
         

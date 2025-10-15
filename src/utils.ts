@@ -241,7 +241,7 @@ export function createComponentInstanceWithProps(
 
 export function cleanupExternalComponents() {
     try {
-        const simpleDividers = figma.root.findAll(node => 
+        const simpleDividers = figma.currentPage.findAll(node => 
             node.type === "COMPONENT" && node.name === "Simple Divider"
         );
         
@@ -263,7 +263,7 @@ export function cleanupExternalComponents() {
             }
         });
         
-        const checkboxComponents = figma.root.findAll(node => 
+        const checkboxComponents = figma.currentPage.findAll(node => 
             node.type === "COMPONENT_SET" && node.name === "Data table select cell item"
         );
         
