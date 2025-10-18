@@ -964,6 +964,26 @@ function isValidVariantCombination(componentSet: ComponentSetNode, properties: {
 // SMART SLOT DETECTION - Automatically detect content type and suggest slot components
 // ============================================================
 
+// Helper function to extract proper initials from a name
+function extractInitials(name: string): string {
+    if (!name || name.trim().length === 0) return '';
+    
+    const trimmedName = name.trim();
+    const nameParts = trimmedName.split(/\s+/); // Split by whitespace
+    
+    if (nameParts.length === 1) {
+        // Only first name - use first letter only
+        return nameParts[0].charAt(0).toUpperCase();
+    } else if (nameParts.length >= 2) {
+        // First name + last name - use first letter of each
+        const firstInitial = nameParts[0].charAt(0).toUpperCase();
+        const lastInitial = nameParts[nameParts.length - 1].charAt(0).toUpperCase();
+        return firstInitial + lastInitial;
+    }
+    
+    return '';
+}
+
 interface SmartSlotSuggestion {
     columnIndex: number;
     columnName: string;
@@ -1061,12 +1081,34 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     ).length;
     if (statusMatch / nonEmptyData.length > 0.5) return 'status';
     
-    // User detection - names, emails
+    // Name detection - only for actual name columns (not emails, usernames, etc.)
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const namePattern = /^[A-Z][a-z]+ [A-Z][a-z]+$/; // First Last
+    const usernamePattern = /^[a-zA-Z0-9_]+$/; // Username pattern
+    
+    // Check if this is actually a name column (not email, username, etc.)
+    const isNameColumn = columnName.toLowerCase().includes('name') && 
+                        !columnName.toLowerCase().includes('user') && 
+                        !columnName.toLowerCase().includes('email');
+    
     const emailMatch = nonEmptyData.filter(val => emailPattern.test(val)).length;
     const nameMatch = nonEmptyData.filter(val => namePattern.test(val)).length;
-    if (emailMatch / nonEmptyData.length > 0.5 || nameMatch / nonEmptyData.length > 0.5) return 'user';
+    const usernameMatch = nonEmptyData.filter(val => usernamePattern.test(val) && val.length <= 20).length;
+    
+    // Only suggest slotGroup for actual name columns with proper name patterns
+    if (isNameColumn && nameMatch / nonEmptyData.length > 0.6) {
+        return 'user';
+    }
+    
+    // If it's an email column, don't suggest slotGroup
+    if (emailMatch / nonEmptyData.length > 0.5) {
+        return 'text'; // Treat emails as regular text
+    }
+    
+    // If it's a username column, don't suggest slotGroup
+    if (usernameMatch / nonEmptyData.length > 0.7) {
+        return 'text'; // Treat usernames as regular text
+    }
     
     // Boolean detection
     const booleanValues = ['true', 'false', 'yes', 'no', '0', '1'];
@@ -1090,18 +1132,52 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     const numberMatch = nonEmptyData.filter(val => numberPattern.test(val)).length;
     if (numberMatch / nonEmptyData.length > 0.7) return 'number';
     
-    // Label/Tag detection - comma-separated values or role/type columns
+    // Tag detection - strict criteria for multiple categories that need differentiation
     const hasCommas = nonEmptyData.filter(val => val.includes(',')).length;
-    const labelKeywords = ['role', 'type', 'category', 'tag', 'label', 'department', 'team', 'skill'];
-    const isLabelColumn = labelKeywords.some(keyword => columnName.toLowerCase().includes(keyword));
+    const hasMultipleSeparators = nonEmptyData.filter(val => /[,;|&\/]/.test(val)).length;
     
-    // Short values (1-2 words) that could be labels
-    const shortValues = nonEmptyData.filter(val => {
-        const words = val.trim().split(/\s+/);
-        return words.length <= 2 && val.length <= 20;
+    // Strong tag indicators - column names that clearly indicate categorization
+    const strongTagKeywords = ['tag', 'category', 'type', 'label', 'status', 'priority', 'level', 'grade', 'class', 'role', 'tier', 'rank', 'group', 'department', 'team'];
+    const isStrongTagColumn = strongTagKeywords.some(keyword => columnName.toLowerCase().includes(keyword));
+    
+    // Check for multiple distinct values that represent categories
+    const uniqueValues = new Set(nonEmptyData.map(val => val.trim().toLowerCase()));
+    const hasMultipleCategories = uniqueValues.size >= 3 && uniqueValues.size <= 10; // 3-10 distinct categories
+    
+    // Check for comma-separated values (multiple tags in one cell)
+    const hasCommaSeparatedTags = hasCommas / nonEmptyData.length > 0.4; // Higher threshold: 40% of values have commas
+    
+    // Check for phone numbers - exclude from tag detection
+    const phonePattern = /^[\d\s()+\-\.]+$/; // Matches phone number patterns
+    const phoneMatch = nonEmptyData.filter(val => {
+        const trimmed = val.trim();
+        // Check if it looks like a phone number (mostly digits with some formatting)
+        const digitCount = (trimmed.match(/\d/g) || []).length;
+        return phonePattern.test(trimmed) && digitCount >= 7; // At least 7 digits for a phone number
     }).length;
     
-    if (hasCommas / nonEmptyData.length > 0.3 || isLabelColumn || shortValues / nonEmptyData.length > 0.7) {
+    // If majority are phone numbers, don't suggest tags
+    if (phoneMatch / nonEmptyData.length > 0.5) {
+        return 'text';
+    }
+    
+    // Check for values that look like categories (short, distinct, non-numeric)
+    const categoryLikeValues = nonEmptyData.filter(val => {
+        const trimmed = val.trim();
+        const words = trimmed.split(/\s+/);
+        return words.length <= 2 && 
+               trimmed.length <= 15 && 
+               !/^\d+$/.test(trimmed) && // Not just numbers
+               !/^[a-z]+@/.test(trimmed.toLowerCase()) && // Not email-like
+               !phonePattern.test(trimmed); // Not phone-number-like
+    }).length;
+    
+    const hasCategoryLikeValues = categoryLikeValues / nonEmptyData.length > 0.6; // 60% of values look like categories
+    
+    // Only suggest tags if we have strong indicators of categorization
+    if ((isStrongTagColumn && hasMultipleCategories) || 
+        (hasCommaSeparatedTags && hasMultipleCategories) ||
+        (hasCategoryLikeValues && hasMultipleCategories && uniqueValues.size >= 4)) {
         return 'label';
     }
     
@@ -1613,7 +1689,7 @@ figma.ui.onmessage = async (msg: any) => {
     } else if (msg.type === 'generate-table-with-ai') {
         try {
             const { prompt, rows, cols } = msg as { prompt: string, rows: number, cols: number };
-            const proxyUrl = 'https://application-44.21hwt6k1vujm.us-east.codeengine.appdomain.cloud';
+            const proxyUrl = 'https://application-e9.21hwt6k1vujm.us-east.codeengine.appdomain.cloud';
             const endpoint = 'https://us-south.ml.cloud.ibm.com';
 
             const tokenRes = await fetch(`${proxyUrl}/token`, {
@@ -1840,10 +1916,14 @@ figma.ui.onmessage = async (msg: any) => {
                 const bodyCellInstance = tableNode.findOne(n => 
                     n.type === 'INSTANCE' && 
                     n.mainComponent !== null &&
+                    (n.mainComponent.name.toLowerCase().includes('data table row cell') ||
+                     n.mainComponent.name.toLowerCase().includes('body cell') ||
+                     n.mainComponent.name.toLowerCase().includes('table cell')) &&
                     !n.name.toLowerCase().includes('header') &&
                     !n.name.toLowerCase().includes('footer') &&
                     !n.name.toLowerCase().includes('select') &&
-                    !n.name.toLowerCase().includes('expand')
+                    !n.name.toLowerCase().includes('expand') &&
+                    !n.name.toLowerCase().includes('resizer')
                 ) as InstanceNode | null;
                 
                 if (bodyCellInstance && bodyCellInstance.mainComponent) {
@@ -1862,6 +1942,7 @@ figma.ui.onmessage = async (msg: any) => {
                     
                     // Load saved cell properties from table metadata
                     let savedCellProperties = null;
+                    let actualTableData = null;
                     if (tableId) {
                         const tableSettingsData = tableNode.getPluginData('tableSettings');
                         if (tableSettingsData) {
@@ -1873,6 +1954,10 @@ figma.ui.onmessage = async (msg: any) => {
                                 console.warn('[Backend] Could not parse table settings:', e);
                             }
                         }
+                        
+                        // Use saved properties as the primary data source
+                        console.log(`[Backend] Using saved properties as primary data source`);
+                        actualTableData = null; // Force use of saved properties
                     }
                     
                     figma.ui.postMessage({
@@ -1885,7 +1970,8 @@ figma.ui.onmessage = async (msg: any) => {
                             availableProperties,
                             propertyTypes,
                         },
-                        savedCellProperties: savedCellProperties // Send the saved cell properties to UI
+                        savedCellProperties: savedCellProperties, // Send the saved cell properties to UI
+                        actualTableData: actualTableData // Send the actual current table data
                     });
                     return;
                 }
@@ -1936,6 +2022,7 @@ figma.ui.onmessage = async (msg: any) => {
         
     } else if (msg.type === "clear-cell-instances") {
         cellInstanceMap.forEach(instance => instance.remove());
+
 
     } else if (msg.type === 'scan-table') {
         const now = Date.now();
@@ -2723,6 +2810,10 @@ figma.ui.onmessage = async (msg: any) => {
                 console.log('⚠️ Could not store scan result in plugin data:', error);
             }
        
+            // Use saved properties instead of extracting from table
+            console.log(`[scan-table] Using saved properties for table: ${tableFrame.name}`);
+            const actualTableData = null; // Force use of saved properties
+            
             // Send summary to UI with updated body row component
             figma.ui.postMessage({
                 type: 'scan-table-result',
@@ -2736,7 +2827,8 @@ figma.ui.onmessage = async (msg: any) => {
                     footerComponent,
                     expandCellComponent,
                     selectCellComponent,
-                    bodyRowComponent: bodyRowComponent
+                    bodyRowComponent: bodyRowComponent,
+                    actualTableData: actualTableData
                 }
             });
         }
@@ -2945,6 +3037,7 @@ figma.ui.onmessage = async (msg: any) => {
             headerRowFrame.layoutMode = "HORIZONTAL";
             headerRowFrame.primaryAxisSizingMode = "AUTO";
             headerRowFrame.counterAxisSizingMode = "AUTO";
+            headerRowFrame.counterAxisAlignItems = "CENTER"; // Vertically center header content
             headerRowFrame.itemSpacing = 0;
                     headerRowFrame.paddingLeft = 0;
                     headerRowFrame.paddingRight = 0;
@@ -3084,6 +3177,7 @@ figma.ui.onmessage = async (msg: any) => {
                 rowFrame.layoutMode = "HORIZONTAL";
                 rowFrame.primaryAxisSizingMode = "AUTO";
                 rowFrame.counterAxisSizingMode = "AUTO";
+                rowFrame.counterAxisAlignItems = "CENTER"; // Vertically center cell content
                 rowFrame.itemSpacing = 0;
                         rowFrame.paddingLeft = 0;
                         rowFrame.paddingRight = 0;
@@ -3116,7 +3210,25 @@ figma.ui.onmessage = async (msg: any) => {
                             const cellData = cellProps[key];
                             if (cellData && cellData.properties) {
                                 try {
-                                    const validProps = mapPropertyNames(cellData.properties, cell.componentProperties);
+                                    // Check if slot is enabled using the dedicated slot variable
+                                    const isSlotEnabled = cellData.slot === true;
+                                    console.log(`🔄 Cell ${key} slot state: ${isSlotEnabled} (from cellData.slot)`);
+                                    
+                                    // Filter out slot properties if slot is disabled
+                                    let propertiesToApply = { ...cellData.properties };
+                                    if (!isSlotEnabled) {
+                                        // Remove slot-related properties if slot is disabled
+                                        const slotProps = Object.keys(propertiesToApply).filter(prop => 
+                                            prop.toLowerCase().includes('slot') || 
+                                            prop.toLowerCase().includes('swap')
+                                        );
+                                        slotProps.forEach(prop => {
+                                            delete propertiesToApply[prop];
+                                            console.log(`🔄 Removed slot property ${prop} for cell ${key} (slot disabled)`);
+                                        });
+                                    }
+                                    
+                                    const validProps = mapPropertyNames(propertiesToApply, cell.componentProperties);
                                     
                                     // Log if this cell has a Swap slot property
                                     const swapSlotKey = Object.keys(validProps).find(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
@@ -3127,11 +3239,11 @@ figma.ui.onmessage = async (msg: any) => {
                                     cell.setProperties(validProps);
                                     
                                     // If this cell has slot component properties (e.g., for Status Icon label)
-                                    // Check if any Swap slot property was set (the hash might vary)
+                                    // Only apply slot component properties if slot is enabled
                                     const hasSwapSlot = Object.keys(validProps).some(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
                                     const swapComponentId = swapSlotKey ? validProps[swapSlotKey] : null;
                                     
-                                    if (cellData.slotComponentProps && hasSwapSlot && swapComponentId) {
+                                    if (cellData.slotComponentProps && isSlotEnabled && hasSwapSlot && swapComponentId) {
                                         // Store the cell reference and config for the async operation
                                         const cellRef = cell;
                                         const slotPropsConfig = cellData.slotComponentProps;
@@ -3236,9 +3348,9 @@ figma.ui.onmessage = async (msg: any) => {
                                                                     console.log(`  👤 Found Avatar instance, configuring...`);
                                                                     console.log(`  📋 Avatar properties:`, Object.keys(avatarInstance.componentProperties));
                                                                     
-                                                                    // Extract first 2 letters of the name for initials
+                                                                    // Extract proper initials from the name
                                                                     const userName = slotPropsConfig.userName || '';
-                                                                    const initials = userName.substring(0, 2).toUpperCase();
+                                                                    const initials = extractInitials(userName);
                                                                     
                                                                     // Find the properties
                                                                     const typeProp = Object.keys(avatarInstance.componentProperties).find(prop => 
@@ -3342,6 +3454,19 @@ figma.ui.onmessage = async (msg: any) => {
                                                         const tagSet = tagSetComponents[0];
                                                         console.log(`  🏷️ Found Tag set component: ${tagSet.name}`);
                                                         
+                                                        // Disable Tag overflow property if it exists
+                                                        const tagSetProps = tagSet.componentProperties || {};
+                                                        const overflowProp = Object.keys(tagSetProps).find(prop => 
+                                                            prop.toLowerCase().includes('overflow') || 
+                                                            prop.toLowerCase().includes('tag overflow')
+                                                        );
+                                                        if (overflowProp) {
+                                                            const overflowProps: any = {};
+                                                            overflowProps[overflowProp] = false;
+                                                            tagSet.setProperties(overflowProps);
+                                                            console.log(`  🚫 Disabled Tag overflow property: ${overflowProp}`);
+                                                        }
+                                                        
                                                         // Debug: Log all children of the tag set
                                                         console.log(`  🔍 Tag set children:`, tagSet.children.map(child => ({
                                                             name: child.name,
@@ -3428,6 +3553,12 @@ figma.ui.onmessage = async (msg: any) => {
                                                         try {
                                                             const slotProps = mapPropertyNames(slotPropsConfig, slottedComponent.componentProperties);
                                                             console.log(`  🔍 Mapped properties (after mapPropertyNames):`, slotProps);
+                                                            
+                                                            // Debug status property specifically
+                                                            if (slotPropsConfig.Status) {
+                                                                console.log(`🔍 [STATUS DEBUG] Original Status property: "${slotPropsConfig.Status}"`);
+                                                                console.log(`🔍 [STATUS DEBUG] Mapped Status property: "${slotProps.Status || 'NOT MAPPED'}"`);
+                                                            }
                                                             
                                                             if (Object.keys(slotProps).length > 0) {
                                                                 console.log(`  🚀 Applying properties to Status Icon...`);
@@ -4008,6 +4139,62 @@ figma.ui.onmessage = async (msg: any) => {
             figma.notify('❌ An unexpected error occurred. Please check the console for details.');
         } finally {
             isCreatingTable = false;
+        }
+    } else if (msg.type === 'update-table-metadata') {
+        console.log('[Backend] Received update-table-metadata request');
+        
+        const tableId = msg.tableId;
+        const cellProperties = msg.cellProperties;
+        
+        if (!tableId || !cellProperties) {
+            figma.notify('Missing table ID or cell properties for metadata update');
+            return;
+        }
+        
+        const tableNode = figma.getNodeById(tableId);
+        if (!tableNode || (tableNode.type !== 'FRAME' && tableNode.type !== 'COMPONENT')) {
+            figma.notify('Table not found for metadata update');
+            return;
+        }
+        
+        try {
+            // Get existing table settings
+            const tableSettingsData = tableNode.getPluginData('tableSettings');
+            let tableSettings: any = {};
+            
+            if (tableSettingsData) {
+                try {
+                    tableSettings = JSON.parse(tableSettingsData);
+                } catch (e) {
+                    console.warn('[Backend] Could not parse existing table settings:', e);
+                }
+            }
+            
+            // Update cell properties with the new data
+            tableSettings.cellProperties = cellProperties;
+            
+            // Save updated settings back to table
+            tableNode.setPluginData('tableSettings', JSON.stringify(tableSettings));
+            
+            console.log('[Backend] Successfully updated table metadata with new cell properties');
+            console.log('[Backend] Updated cell properties keys:', Object.keys(cellProperties));
+            
+            // Send confirmation back to UI
+            figma.ui.postMessage({
+                type: 'metadata-updated',
+                success: true,
+                message: 'Table metadata updated successfully'
+            });
+            
+        } catch (error) {
+            console.error('[Backend] Error updating table metadata:', error);
+            figma.notify('❌ Error updating table metadata');
+            
+            figma.ui.postMessage({
+                type: 'metadata-updated',
+                success: false,
+                message: (error as Error).message
+            });
         }
     } else if (msg.type === 'update-table') {
         if (isCreatingTable) {
@@ -4778,6 +4965,7 @@ figma.ui.onmessage = async (msg: any) => {
                     headerRowFrame.layoutMode = "HORIZONTAL";
                     headerRowFrame.primaryAxisSizingMode = "AUTO";
                     headerRowFrame.counterAxisSizingMode = "AUTO";
+                    headerRowFrame.counterAxisAlignItems = "CENTER"; // Vertically center header content
                     headerRowFrame.itemSpacing = 0;
                     headerRowFrame.paddingLeft = 0;
                     headerRowFrame.paddingRight = 0;
@@ -4916,6 +5104,7 @@ figma.ui.onmessage = async (msg: any) => {
                         rowFrame.name = `Row ${r + 1}`;
                         rowFrame.layoutMode = "HORIZONTAL";
                         rowFrame.primaryAxisSizingMode = "AUTO";
+                        rowFrame.counterAxisAlignItems = "CENTER"; // Vertically center cell content
                         rowFrame.counterAxisSizingMode = "AUTO";
                         rowFrame.itemSpacing = 0;
                         rowFrame.paddingLeft = 0;
@@ -4949,7 +5138,25 @@ figma.ui.onmessage = async (msg: any) => {
                     const cellData = cellProps[key];
                     if (cellData && cellData.properties) {
                         try {
-                            const validProps = mapPropertyNames(cellData.properties, cell.componentProperties);
+                            // Check if slot is enabled using the dedicated slot variable (same logic as create table)
+                            const isSlotEnabled = cellData.slot === true;
+                            console.log(`🔄 [UPDATE] Cell ${key} slot state: ${isSlotEnabled} (from cellData.slot)`);
+                            
+                            // Filter out slot properties if slot is disabled
+                            let propertiesToApply = { ...cellData.properties };
+                            if (!isSlotEnabled) {
+                                // Remove slot-related properties if slot is disabled
+                                const slotProps = Object.keys(propertiesToApply).filter(prop => 
+                                    prop.toLowerCase().includes('slot') || 
+                                    prop.toLowerCase().includes('swap')
+                                );
+                                slotProps.forEach(prop => {
+                                    delete propertiesToApply[prop];
+                                    console.log(`🔄 [UPDATE] Removed slot property ${prop} for cell ${key} (slot disabled)`);
+                                });
+                            }
+                            
+                            const validProps = mapPropertyNames(propertiesToApply, cell.componentProperties);
                             cell.setProperties(validProps);
                             
                             // Apply smart slot configuration if present (UPDATE)
@@ -4957,7 +5164,7 @@ figma.ui.onmessage = async (msg: any) => {
                             const hasSwapSlot = Object.keys(validProps).some(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
                             const swapComponentId = swapSlotKey ? validProps[swapSlotKey] : null;
                             
-                            if (cellData.slotComponentProps && hasSwapSlot && swapComponentId) {
+                            if (cellData.slotComponentProps && isSlotEnabled && hasSwapSlot && swapComponentId) {
                                 // Store the cell reference and config for the async operation
                                 const cellRef = cell;
                                 const slotPropsConfig = cellData.slotComponentProps;
@@ -5041,7 +5248,9 @@ figma.ui.onmessage = async (msg: any) => {
                                                             
                                                             if (avatarInstances.length > 0) {
                                                                 const avatarInstance = avatarInstances[0];
-                                                                console.log(`  🔧 [UPDATE] Configuring Avatar: Type=Initials, Size=Medium, Initial text=${slotPropsConfig.userName.substring(0, 2)}`);
+                                                                // Extract proper initials from the name
+                                                                const initials = extractInitials(slotPropsConfig.userName);
+                                                                console.log(`  🔧 [UPDATE] Configuring Avatar: Type=Initials, Size=Medium, Initial text=${initials}`);
                                                                 
                                                                 // Set Avatar properties
                                                                 const avatarProps: any = {
@@ -5054,7 +5263,7 @@ figma.ui.onmessage = async (msg: any) => {
                                                                     prop.toLowerCase().includes('initial') && prop.toLowerCase().includes('text')
                                                                 );
                                                                 if (initialTextProp) {
-                                                                    avatarProps[initialTextProp] = slotPropsConfig.userName.substring(0, 2);
+                                                                    avatarProps[initialTextProp] = initials;
                                                                 }
                                                                 
                                                                 avatarInstance.setProperties(avatarProps);
@@ -5156,6 +5365,19 @@ figma.ui.onmessage = async (msg: any) => {
                                                 const tagSet = tagSetComponents[0];
                                                 console.log(`  🏷️ [UPDATE] Found Tag set component: ${tagSet.name}`);
                                                 
+                                                // Disable Tag overflow property if it exists
+                                                const tagSetProps = tagSet.componentProperties || {};
+                                                const overflowProp = Object.keys(tagSetProps).find(prop => 
+                                                    prop.toLowerCase().includes('overflow') || 
+                                                    prop.toLowerCase().includes('tag overflow')
+                                                );
+                                                if (overflowProp) {
+                                                    const overflowProps: any = {};
+                                                    overflowProps[overflowProp] = false;
+                                                    tagSet.setProperties(overflowProps);
+                                                    console.log(`  🚫 [UPDATE] Disabled Tag overflow property: ${overflowProp}`);
+                                                }
+                                                
                                                 // Find all Tag - Read-only instances within the Tag set
                                                 const tagInstances = tagSet.findAll(node => 
                                                     node.name === 'Tag - Read-only'
@@ -5219,29 +5441,21 @@ figma.ui.onmessage = async (msg: any) => {
                                                 const slottedComponent = slottedComponents[0];
                                                 console.log(`  🔧 [UPDATE] Found slotted component: ${slottedComponent.name}`);
                                                 console.log(`  🔧 [UPDATE] Available properties:`, Object.keys(slottedComponent.componentProperties));
+                                                console.log(`  🔧 [UPDATE] slotPropsConfig received:`, slotPropsConfig);
                                                 
-                                                // Apply slot component properties
-                                                if (slotPropsConfig.Status) {
-                                                    slottedComponent.setProperties({
-                                                        'Status': slotPropsConfig.Status
-                                                    });
-                                                    console.log(`  ✅ [UPDATE] Set Status: ${slotPropsConfig.Status}`);
-                                                }
-                                                
-                                                if (slotPropsConfig.Label !== undefined) {
-                                                    slottedComponent.setProperties({
-                                                        'Label': slotPropsConfig.Label
-                                                    });
-                                                    console.log(`  ✅ [UPDATE] Set Label: ${slotPropsConfig.Label}`);
-                                                }
-                                                
-                                                // Set specific text properties based on status
-                                                if (slotPropsConfig.Status && slotPropsConfig[`${slotPropsConfig.Status} text`]) {
-                                                    const textPropName = `${slotPropsConfig.Status} text`;
-                                                    slottedComponent.setProperties({
-                                                        [textPropName]: slotPropsConfig[textPropName]
-                                                    });
-                                                    console.log(`  ✅ [UPDATE] Set ${textPropName}: ${slotPropsConfig[textPropName]}`);
+                                                // Use mapPropertyNames to handle property name variations
+                                                try {
+                                                    const mappedProps = mapPropertyNames(slotPropsConfig, slottedComponent.componentProperties);
+                                                    console.log(`  🔍 [UPDATE] Mapped properties:`, mappedProps);
+                                                    
+                                                    if (Object.keys(mappedProps).length > 0) {
+                                                        slottedComponent.setProperties(mappedProps);
+                                                        console.log(`  ✅ [UPDATE] Applied slot component properties successfully`);
+                                                    } else {
+                                                        console.warn(`  ⚠️ [UPDATE] No properties mapped for slot component`);
+                                                    }
+                                                } catch (error) {
+                                                    console.error(`  ❌ [UPDATE] Error applying slot properties:`, error);
                                                 }
                                                 
                                                 console.log(`  ✅ [UPDATE] Slot component configuration complete!`);
@@ -6144,12 +6358,36 @@ figma.ui.onmessage = async (msg: any) => {
             tempInstance.remove();
             
             console.log(`[Backend] Sending component-info with ${availableProperties.length} properties`);
+            console.log(`[Backend] component-info msg.tableId:`, msg.tableId);
+            console.log(`[Backend] component-info msg keys:`, Object.keys(msg));
             
             // Check if this is a generated table and load its cell properties
             let savedCellProperties = null;
-            if (msg.tableId) {
-                const tableNode = figma.getNodeById(msg.tableId);
+            let actualTableData = null;
+            
+            // Try to get table ID from msg.tableId or current selection
+            let tableId = msg.tableId;
+            if (!tableId) {
+                const selection = figma.currentPage.selection;
+                if (selection.length === 1) {
+                    tableId = selection[0].id;
+                    console.log(`[Backend] No tableId in msg, using current selection: ${tableId}`);
+                }
+            }
+            
+            if (tableId) {
+                const tableNode = figma.getNodeById(tableId);
                 if (tableNode) {
+                    // Check if this is a generated table
+                    const isGeneratedTable = tableNode.getPluginData('isGeneratedTable') === 'true';
+                    console.log(`[Backend] Table ${tableId} is generated table: ${isGeneratedTable}`);
+                    
+                    if (isGeneratedTable) {
+                        // Use saved properties instead of extracting from table
+                        console.log(`[Backend] Using saved properties for generated table`);
+                        actualTableData = null; // Force use of saved properties
+                    }
+                    
                     const tableSettingsData = tableNode.getPluginData('tableSettings');
                     if (tableSettingsData) {
                         try {
@@ -6161,6 +6399,8 @@ figma.ui.onmessage = async (msg: any) => {
                         }
                     }
                 }
+            } else {
+                console.log(`[Backend] No tableId available for component-info`);
             }
             
             figma.ui.postMessage({
@@ -6173,7 +6413,8 @@ figma.ui.onmessage = async (msg: any) => {
                     availableProperties: availableProperties,
                     propertyTypes: propertyTypes
                 },
-                savedCellProperties: savedCellProperties // Send the saved cell properties to UI
+                savedCellProperties: savedCellProperties, // Send the saved cell properties to UI
+                actualTableData: actualTableData // Send the actual current table data
             });
         }
         })();

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: https://application-44.21hwt6k1vujm.us-east.codeengine.appdomain.cloud https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://application-44.21hwt6k1vujm.us-east.codeengine.appdomain.cloud https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: https://application-e9.21hwt6k1vujm.us-east.codeengine.appdomain.cloud https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://application-e9.21hwt6k1vujm.us-east.codeengine.appdomain.cloud https://cdn.sheetjs.com https://api.datamuse.com https://table-generator-server.vercel.app;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>IBM Carbon Table Generator</title>
   <style>
@@ -433,10 +433,10 @@
 
     .cell.slot-enabled {
       font-weight: 600;
-      background: linear-gradient(135deg, #42be65 0%, #24a148 100%);
-      color: var(--cds-text-on-color);
-      border-color: var(--cds-support-success);
-      box-shadow: 0 0 0 2px rgba(66, 190, 101, 0.3), var(--shadow-02);
+      background: linear-gradient(135deg, #ee5396 0%, #d02670 100%);
+      color: #ffffff;
+      border-color: #ee5396;
+      box-shadow: 0 0 0 2px rgba(238, 83, 150, 0.3), var(--shadow-02);
       position: relative;
     }
 
@@ -446,14 +446,14 @@
       top: 2px;
       right: 2px;
       font-size: 10px;
-      opacity: 0.8;
+      opacity: 0.9;
       pointer-events: none;
     }
 
     .cell.slot-enabled:hover {
-      background: linear-gradient(135deg, #24a148 0%, #198038 100%);
+      background: linear-gradient(135deg, #d02670 0%, #a91850 100%);
       transform: translateY(-1px);
-      box-shadow: 0 0 0 2px rgba(66, 190, 101, 0.4), var(--shadow-03);
+      box-shadow: 0 0 0 2px rgba(238, 83, 150, 0.5), var(--shadow-03);
     }
 
     @keyframes pulse {
@@ -549,6 +549,8 @@
       cursor: not-allowed;
       transform: none;
       box-shadow: none;
+    }
+
       opacity: 0.5;
     }
 
@@ -597,6 +599,36 @@
       border-color: var(--cds-button-tertiary-active);
       transform: translateY(0);
       box-shadow: var(--shadow-01);
+    }
+
+    .btn-success {
+      background: linear-gradient(135deg, #42be65 0%, #24a148 100%);
+      color: var(--cds-text-on-color);
+      border-color: #42be65;
+      box-shadow: 0 4px 12px rgba(66, 190, 101, 0.2);
+    }
+
+    .btn-success:hover {
+      background: #24a148;
+      border-color: #24a148;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(66, 190, 101, 0.3);
+    }
+
+    .btn-success:active {
+      background: #198038;
+      border-color: #198038;
+      transform: translateY(0);
+      box-shadow: 0 2px 8px rgba(66, 190, 101, 0.2);
+    }
+
+    .btn-success:disabled {
+      background: var(--cds-button-disabled);
+      border-color: var(--cds-button-disabled);
+      color: var(--cds-text-disabled);
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
     }
 
     .btn-danger {
@@ -1701,20 +1733,55 @@
     /* Carbon Tooltip styles */
     .cell-tooltip {
       position: absolute;
-      background: var(--cds-background-inverse);
-      color: var(--cds-text-inverse);
-      border: none;
-      border-radius: 0;
-      padding: var(--cds-spacing-03) var(--cds-spacing-04);
-      font-size: var(--cds-helper-text-01-font-size);
-      font-weight: var(--cds-helper-text-01-font-weight);
-      line-height: var(--cds-helper-text-01-line-height);
-      letter-spacing: var(--cds-helper-text-01-letter-spacing);
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-      z-index: 1000;
+      background: #262626;  /* Explicit dark gray background */
+      color: #ffffff;  /* Explicit white text */
+      border: 1px solid #393939;  /* Subtle border for definition */
+      border-radius: 2px;
+      padding: 12px 16px;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      z-index: 10000;  /* Very high z-index to ensure visibility */
       pointer-events: none;
-      max-width: 12.5rem;
+      max-width: 350px;
       display: none;
+    }
+
+    .tooltip-content {
+      display: flex;
+      flex-direction: column;
+      gap: var(--cds-spacing-03);
+    }
+
+    .tooltip-row {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+      min-height: 24px;  /* Ensure rows have minimum height */
+    }
+
+    .tooltip-row:last-child {
+      border-bottom: none;
+    }
+
+    .tooltip-key {
+      font-weight: 600;
+      color: #78a9ff; /* IBM Blue 40 - for better visibility on dark background */
+      min-width: 110px;
+      flex-shrink: 0;
+      font-size: 0.75rem;
+      text-align: left;
+    }
+
+    .tooltip-value {
+      font-weight: 400;
+      color: #ffffff;  /* Explicit white color for maximum visibility */
+      word-break: break-word;
+      font-size: 0.875rem;  /* Slightly larger for better readability */
+      opacity: 1;  /* Full opacity */
+      flex: 1;  /* Take remaining space */
     }
 
     /* Carbon Progress Indicator styles */
@@ -2425,6 +2492,91 @@
       gap: var(--cds-spacing-03);
       width: 100%;
     }
+
+    /* Total Width Section Styles */
+    .total-width-section {
+      background: var(--gradient-02);
+      border: 2px solid var(--cds-border-interactive);
+      border-radius: var(--border-radius-md);
+      padding: var(--cds-spacing-05);
+      margin-bottom: var(--cds-spacing-04);
+    }
+
+    .total-width-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--cds-spacing-04);
+    }
+
+    .total-width-label {
+      font-size: var(--cds-body-01-font-size);
+      font-weight: 600;
+      color: var(--cds-text-primary);
+    }
+
+    .total-width-input-wrapper {
+      display: flex;
+      align-items: center;
+      gap: var(--cds-spacing-02);
+    }
+
+    .total-width-input {
+      width: 120px;
+      text-align: center;
+      font-weight: 600;
+      font-size: 1rem;
+      border: 2px solid var(--cds-border-interactive);
+    }
+
+    .total-width-input:focus {
+      border-color: var(--cds-focus);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2);
+    }
+
+    .width-unit {
+      font-size: var(--cds-body-01-font-size);
+      color: var(--cds-text-secondary);
+      font-weight: 600;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--cds-border-subtle);
+      margin: var(--cds-spacing-05) 0;
+    }
+
+    /* Column Width Input Styles */
+    .column-width-input {
+      width: 80px;
+      text-align: center;
+      font-size: 0.9rem;
+      padding: var(--cds-spacing-02) var(--cds-spacing-03);
+      border: 1px solid var(--cds-border-subtle);
+      border-radius: var(--border-radius-sm);
+      background: var(--cds-field);
+      color: var(--cds-text-primary);
+      transition: all var(--animation-fast);
+    }
+
+    .column-width-input:hover {
+      border-color: var(--cds-border-interactive);
+      background: var(--cds-field-hover);
+    }
+
+    .column-width-input:focus {
+      border-color: var(--cds-focus);
+      background: var(--cds-field);
+      box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.2);
+      outline: none;
+    }
+
+    .column-width-wrapper {
+      display: flex;
+      align-items: center;
+      gap: var(--cds-spacing-02);
+      margin-left: auto;
+    }
   </style>
 </head>
 <body>
@@ -2489,12 +2641,12 @@
       <div class="grid-header">
         <div class="grid-header-content">
           <h3 class="cds-heading-02">Edit Cell Properties</h3>
-          <button id="reorderColumnsTextBtn" class="reorder-text-btn" title="Reorder columns">
+          <button id="reorderColumnsTextBtn" class="reorder-text-btn" title="Resize/Reorder columns">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h12v2H2v-2z" fill="currentColor"/>
               <path d="M13 4l2 2-2 2V4zM13 8l2 2-2 2V8zM13 12l2 2-2 2v-4z" fill="currentColor"/>
             </svg>
-            Reorder columns
+            Resize/Reorder columns
           </button>
         </div>
       </div>
@@ -2524,12 +2676,7 @@
             <label for="singlePromptText">Prompt</label>
             <textarea id="singlePromptText" class="styled-input" placeholder="e.g., Create a table for user management"></textarea>
           </div>
-          <div class="property-field">
-            <label for="spApiKey">IBM Cloud API Key (Required for Local Server)</label>
-            <input type="password" id="spApiKey" class="styled-input" placeholder="Enter your Watson API key">
-          </div>
-          <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ Using Code Engine proxy server - Enter your Watson API key above</p>
-          <button id="generateTableFromPromptBtn" class="btn btn-primary">Generate content with AI</button>
+          <button id="generateTableFromPromptBtn" class="btn btn-success">Generate content with AI</button>
         </div>
         
         <div id="fileUploadContainer" class="ai-data-section" style="display: none;">
@@ -2597,7 +2744,7 @@
             <label for="aiSource">AI Source</label>
             <select id="aiSource" class="styled-input" style="max-width:180px;">
               <option value="faker">Faker (local)</option>
-              <option value="watsonx">watsonx.ai</option>
+              <option value="watsonx" selected>watsonx.ai</option>
             </select>
           </div>
           <div id="fakerConfig">
@@ -2611,11 +2758,6 @@
               <label for="watsonxPrompt">Prompt</label>
               <textarea id="watsonxPrompt" class="styled-input" placeholder="Describe the content to generate, e.g., IBM product names"></textarea>
             </div>
-            <div class="property-field">
-              <label for="watsonxApiKey">IBM Cloud API Key (Required for Local Server)</label>
-              <input type="password" id="watsonxApiKey" class="styled-input" placeholder="Enter your Watson API key">
-            </div>
-            <p class="hint" style="color: #42be65; font-size: 12px; margin: 8px 0;">✓ Using Code Engine proxy server - Enter your Watson API key above</p>
           </div>
         </div>
         <div class="property-field checkbox" id="secondLineContainer" style="display: none;">
@@ -2625,10 +2767,6 @@
         <div class="property-field" id="secondCellTextContainer" style="display: none;">
           <label for="secondCellText">Second cell text</label>
           <input type="text" id="secondCellText" class="styled-input" placeholder="Secondary cell text">
-        </div>
-        <div class="property-field checkbox">
-          <input type="checkbox" id="slotCheckbox">
-          <label for="slotCheckbox">Slot</label>
         </div>
       </div>
 
@@ -2661,18 +2799,32 @@
     <div id="columnReorderOverlay" class="modal-overlay" style="display: none;">
       <div id="columnReorderModal" class="modal-content">
         <div class="modal-header">
-          <h3>Reorder Columns</h3>
+          <h3>🎯 Reorder & Resize Columns</h3>
           <button id="closeReorderModal" class="close-btn">&times;</button>
         </div>
         <div class="modal-body">
           <p class="hint">Drag and drop to reorder columns, or click × to delete unwanted columns:</p>
+          
+          <!-- Total Table Width Section -->
+          <div class="total-width-section">
+            <div class="total-width-header">
+              <span class="total-width-label">Total Table Width:</span>
+              <div class="total-width-input-wrapper">
+                <input type="number" id="totalTableWidthInput" class="styled-input total-width-input" step="10" placeholder="960">
+                <span class="width-unit">px</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="divider"></div>
+          
           <div id="columnList" class="column-list">
             <!-- Column items will be populated dynamically -->
           </div>
         </div>
         <div class="modal-footer">
           <button id="cancelReorderBtn" class="btn btn-secondary">Cancel</button>
-          <button id="applyReorderBtn" class="btn btn-primary">Apply Changes</button>
+          <button id="applyReorderBtn" class="btn btn-primary">Save</button>
         </div>
       </div>
     </div>
@@ -2682,10 +2834,8 @@
 
   <!-- Resize corner handle -->
   <div class="resize-corner" id="resizeCorner">
-    <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M16 0V16H0L16 0Z" fill="var(--cds-text-primary)" />
-      <path d="M6.22577 16H3L16 3V6.22576L6.22577 16Z" fill="var(--cds-text-secondary)" />
-      <path d="M11.8602 16H8.63441L16 8.63441V11.8602L11.8602 16Z" fill="var(--cds-text-secondary)" />
+    <svg width="24" height="24" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+      <path fill="var(--cds-text-primary)" d="M14.228 16.227a1 1 0 0 1-.707-1.707l1-1a1 1 0 0 1 1.416 1.414l-1 1a1 1 0 0 1-.707.293zm-5.638 0a1 1 0 0 1-.707-1.707l6.638-6.638a1 1 0 0 1 1.416 1.414l-6.638 6.638a1 1 0 0 1-.707.293zm-5.84 0a1 1 0 0 1-.707-1.707L14.52 2.043a1 1 0 1 1 1.415 1.414L3.457 15.934a1 1 0 0 1-.707.293z"/>
     </svg>
   </div>
   <script>
