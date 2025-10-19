@@ -1075,7 +1075,19 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     
     // Status detection - Carbon Design System status icon values + common status keywords
     const carbonStatusValues = ['failed', 'succeeded', 'pending', 'in-progress', 'not started', 'incomplete', 'unknown', 'normal', 'informative'];
-    const statusKeywords = [...carbonStatusValues, 'active', 'inactive', 'approved', 'rejected', 'completed', 'cancelled', 'draft', 'published', 'archived', 'enabled', 'disabled', 'success', 'error', 'warning'];
+    const statusKeywords = [
+        ...carbonStatusValues, 
+        'active', 'inactive', 
+        'approved', 'rejected', 
+        'accepted', 'declined',  // Added: Common approval/rejection status
+        'completed', 'cancelled', 
+        'draft', 'published', 
+        'archived', 'enabled', 'disabled', 
+        'success', 'error', 'warning',
+        'open', 'closed',  // Added: Common ticket/issue status
+        'confirmed', 'denied',  // Added: Common confirmation status
+        'resolved', 'unresolved'  // Added: Common resolution status
+    ];
     const statusMatch = nonEmptyData.filter(val => 
         statusKeywords.some(keyword => val.toLowerCase().includes(keyword.toLowerCase()))
     ).length;
@@ -1906,72 +1918,69 @@ figma.ui.onmessage = async (msg: any) => {
             }
         }
         
-        // If we have a table ID, scan it directly to find body cell instances
+        // If we have a table ID, try to load metadata and body cell component
         if (tableId) {
             const tableNode = figma.getNodeById(tableId);
-            if (tableNode && 'findOne' in tableNode) {
-                console.log('[Backend] Scanning generated table for body cell instances');
+            if (tableNode) {
+                // Load saved metadata
+                const tableSettingsData = tableNode.getPluginData('tableSettings');
+                let savedCellProperties = null;
+                let actualRows: number | undefined;
+                let actualCols: number | undefined;
+                let bodyCellComponentId: string | null = null;
                 
-                // Find any body cell instance in the generated table
-                const bodyCellInstance = tableNode.findOne(n => 
-                    n.type === 'INSTANCE' && 
-                    n.mainComponent !== null &&
-                    (n.mainComponent.name.toLowerCase().includes('data table row cell') ||
-                     n.mainComponent.name.toLowerCase().includes('body cell') ||
-                     n.mainComponent.name.toLowerCase().includes('table cell')) &&
-                    !n.name.toLowerCase().includes('header') &&
-                    !n.name.toLowerCase().includes('footer') &&
-                    !n.name.toLowerCase().includes('select') &&
-                    !n.name.toLowerCase().includes('expand') &&
-                    !n.name.toLowerCase().includes('resizer')
-                ) as InstanceNode | null;
+                if (tableSettingsData) {
+                    try {
+                        const tableSettings = JSON.parse(tableSettingsData);
+                        savedCellProperties = tableSettings.cellProperties;
+                        actualRows = tableSettings.rows;
+                        actualCols = tableSettings.columns;
+                        bodyCellComponentId = tableSettings.bodyCellComponentId;
+                        console.log('[Backend] Loaded metadata: bodyCellComponentId =', bodyCellComponentId);
+                    } catch (e) {
+                        console.warn('[Backend] Could not parse table settings:', e);
+                    }
+                }
                 
-                if (bodyCellInstance && bodyCellInstance.mainComponent) {
-                    console.log('[Backend] Found body cell instance in table:', bodyCellInstance.mainComponent.name);
-                    
-                    const bodyCell = bodyCellInstance.mainComponent;
+                // Try to get body cell component from saved ID
+                let bodyCell: ComponentNode | null = null;
+                if (bodyCellComponentId) {
+                    const node = figma.getNodeById(bodyCellComponentId);
+                    if (node && node.type === 'COMPONENT') {
+                        bodyCell = node as ComponentNode;
+                        console.log('[Backend] Found body cell component from saved ID:', bodyCell.name);
+                    }
+                }
+                
+                // If we have the body cell component, create a temp instance to get properties
+                if (bodyCell) {
+                    const tempInstance = bodyCell.createInstance();
                     const propertyValues: { [key: string]: any } = {};
                     const propertyTypes: { [key: string]: "TEXT" | "BOOLEAN" | "INSTANCE_SWAP" | "VARIANT" } = {};
-                    const availableProperties = Object.keys(bodyCellInstance.componentProperties);
+                    const availableProperties = Object.keys(tempInstance.componentProperties);
                     
                     for (const propName of availableProperties) {
-                        const prop = bodyCellInstance.componentProperties[propName];
+                        const prop = tempInstance.componentProperties[propName];
                         propertyValues[propName] = prop.value;
                         propertyTypes[propName] = prop.type;
                     }
                     
-                    // Load saved cell properties from table metadata
-                    let savedCellProperties = null;
-                    let actualTableData = null;
-                    if (tableId) {
-                        const tableSettingsData = tableNode.getPluginData('tableSettings');
-                        if (tableSettingsData) {
-                            try {
-                                const tableSettings = JSON.parse(tableSettingsData);
-                                savedCellProperties = tableSettings.cellProperties;
-                                console.log(`[Backend] Loaded ${Object.keys(savedCellProperties || {}).length} cell properties from table metadata`);
-                            } catch (e) {
-                                console.warn('[Backend] Could not parse table settings:', e);
-                            }
-                        }
-                        
-                        // Use saved properties as the primary data source
-                        console.log(`[Backend] Using saved properties as primary data source`);
-                        actualTableData = null; // Force use of saved properties
-                    }
+                    const instanceWidth = tempInstance.width;
+                    tempInstance.remove();
                     
                     figma.ui.postMessage({
                         type: "component-info",
                         component: {
                             id: bodyCell.id,
                             name: bodyCell.name,
-                            width: bodyCellInstance.width,
+                            width: instanceWidth,
                             properties: propertyValues,
                             availableProperties,
                             propertyTypes,
                         },
-                        savedCellProperties: savedCellProperties, // Send the saved cell properties to UI
-                        actualTableData: actualTableData // Send the actual current table data
+                        savedCellProperties: savedCellProperties,
+                        actualRows: actualRows,
+                        actualCols: actualCols
                     });
                     return;
                 }
@@ -2007,17 +2016,11 @@ figma.ui.onmessage = async (msg: any) => {
             return;
         }
         
-        // Final fallback
+        // No component info available - send error message
+        console.error('[Backend] ❌ No component info available - neither table body cell instance nor lastScanResult found');
         figma.ui.postMessage({
-            type: "component-info",
-            component: {
-                id: 'fallback',
-                name: 'Fallback Component',
-                width: 100,
-                properties: { 'Cell text#12234:16': 'Sample Text' },
-                availableProperties: ['Cell text#12234:16'],
-                propertyTypes: { 'Cell text#12234:16': 'TEXT' as const }
-            }
+            type: "component-info-unavailable",
+            message: "No component information available. Please scan a Carbon Data Table component first."
         });
         
     } else if (msg.type === "clear-cell-instances") {
@@ -4037,6 +4040,7 @@ figma.ui.onmessage = async (msg: any) => {
                 includeSelectable: msg.includeSelectable,
                 includeExpandable: msg.includeExpandable,
                 cellProperties: msg.cellProps,
+                bodyCellComponentId: lastScanResult?.bodyCell?.id || null, // Store body cell component ID for plugin reopen
             };
             console.log('[Backend] Saving table settings:', tableSettings);
             console.log('[Backend] cellProperties keys:', Object.keys(msg.cellProps || {}));
@@ -6375,6 +6379,9 @@ figma.ui.onmessage = async (msg: any) => {
                 }
             }
             
+            let actualRows: number | undefined;
+            let actualCols: number | undefined;
+            
             if (tableId) {
                 const tableNode = figma.getNodeById(tableId);
                 if (tableNode) {
@@ -6393,7 +6400,10 @@ figma.ui.onmessage = async (msg: any) => {
                         try {
                             const tableSettings = JSON.parse(tableSettingsData);
                             savedCellProperties = tableSettings.cellProperties;
+                            actualRows = tableSettings.rows;
+                            actualCols = tableSettings.columns;
                             console.log(`[Backend] Loaded ${Object.keys(savedCellProperties || {}).length} cell properties from table metadata`);
+                            console.log(`[Backend] Actual table dimensions: ${actualRows} rows × ${actualCols} columns`);
                         } catch (e) {
                             console.warn('[Backend] Could not parse table settings:', e);
                         }
@@ -6402,6 +6412,10 @@ figma.ui.onmessage = async (msg: any) => {
             } else {
                 console.log(`[Backend] No tableId available for component-info`);
             }
+            
+            console.log(`[Backend] ========================================`);
+            console.log(`[Backend] Sending component-info to UI`);
+            console.log(`[Backend] ========================================`);
             
             figma.ui.postMessage({
                 type: 'component-info',
@@ -6414,7 +6428,9 @@ figma.ui.onmessage = async (msg: any) => {
                     propertyTypes: propertyTypes
                 },
                 savedCellProperties: savedCellProperties, // Send the saved cell properties to UI
-                actualTableData: actualTableData // Send the actual current table data
+                actualTableData: actualTableData, // Send the actual current table data
+                actualRows: actualRows, // Send actual row count from metadata
+                actualCols: actualCols  // Send actual column count from metadata
             });
         }
         })();

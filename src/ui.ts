@@ -3013,13 +3013,19 @@ async function saveCellProperties() {
           cellState.slotComponentProps = savedSlotComponentProps;
           console.log(`  ✅ Preserved slotComponentProps for ${key}:`, savedSlotComponentProps);
           
-          // Also restore the slot boolean property if it existed
-          if (oldSlotProp && savedSlotValue !== undefined) {
+          // ✅ FIX: When applying structural properties (which includes slot boolean),
+          // DO NOT restore the old slot boolean value - use the NEW value from props instead
+          // This allows unchecking slot in "apply to column" mode to work correctly
+          if (oldSlotProp && savedSlotValue !== undefined && structuralOnly === false) {
+            // structuralOnly === false means we're NOT applying structural props,
+            // so we should preserve the old slot value
             cellState.properties[oldSlotProp] = savedSlotValue;
             // Re-sync cellState.slot after restoring the property
             cellState.slot = savedSlotValue === true || savedSlotValue === 'true';
             console.log(`  ✅ Preserved slot boolean property ${oldSlotProp} = ${savedSlotValue} for ${key} (cellState.slot = ${cellState.slot})`);
           }
+          // If structuralOnly === true, the slot boolean was already applied from props,
+          // so we don't need to restore the old value
         } else if (isCurrentEditingCell) {
           // For the current editing cell, preserve slotComponentProps but NOT the slot boolean
           // The slot boolean value in props is the new value the user just set
@@ -4084,20 +4090,20 @@ window.onmessage = (event) => {
       break;
 
     case "generated-table-selected-no-settings":
-      console.log(`[UI] Generated table selected but no settings available`);
-      state.tableFrameId = msg.tableId;
-      state.hasComponent = true;
-
-      // Show UI without error message
-      elements.landingPage.style.display = 'none';
-      elements.gridContainer.style.display = 'flex';
-      elements.actionButtons.style.display = 'flex';
-
-      // Reset to default state
-      state.gridRows = 5;
-      state.gridCols = 5;
-      state.cellProperties.clear();
-      createGrid();
+      console.log(`[UI] Generated table selected but no settings available - metadata missing`);
+      
+      // Show error message and prompt to scan Carbon table first
+      elements.landingPage.style.display = 'flex';
+      elements.gridContainer.style.display = 'none';
+      elements.actionButtons.style.display = 'none';
+      
+      showMessage(
+        "⚠️ Table metadata not found. Please scan a Carbon Data Table component first to load the table structure, then select your generated table again.",
+        "error"
+      );
+      
+      state.hasComponent = false;
+      state.tableFrameId = undefined;
       
       // Initialize slot variables for all cells
       initializeSlotVariables();
@@ -4135,6 +4141,13 @@ window.onmessage = (event) => {
       // Update state from settings
       state.gridRows = settings.rows || 5;
       state.gridCols = settings.columns || 5;
+      
+      // ✅ Update input fields immediately with correct dimensions
+      console.log(`[UI] Updating input fields from edit-existing-table: ${settings.rows} rows × ${settings.columns} columns`);
+      const rowsInput = document.getElementById('scanRowsInput') as HTMLInputElement;
+      const colsInput = document.getElementById('scanColsInput') as HTMLInputElement;
+      if (rowsInput) rowsInput.value = String(settings.rows || 5);
+      if (colsInput) colsInput.value = String(settings.columns || 5);
 
       // Convert backend cell property keys (0-0, 0-1) to UI format (1,1, 1,2)
       const convertedCellProperties = new Map();
@@ -4343,48 +4356,98 @@ window.onmessage = (event) => {
       }
       break;
 
+    case "component-info-unavailable":
+      console.log(`[UI] Component info unavailable:`, msg.message);
+      // Show error message
+      elements.landingPage.style.display = 'flex';
+      elements.gridContainer.style.display = 'none';
+      elements.actionButtons.style.display = 'none';
+      
+      showMessage(
+        msg.message || "⚠️ Component information unavailable. Please scan a Carbon Data Table component first to load the table structure.",
+        "error"
+      );
+      
+      state.hasComponent = false;
+      state.tableFrameId = undefined;
+      break;
+
     case "component-info":
       console.log(`[UI] Received component info:`, msg.component);
       if (msg.component) {
         state.selectedComponent = msg.component;
+        
+        // If actual dimensions are provided (from generated table metadata), use them
+        if (msg.actualRows !== undefined && msg.actualCols !== undefined) {
+          console.log(`[UI] Updating grid dimensions from generated table metadata: ${msg.actualRows} rows × ${msg.actualCols} columns`);
+          state.gridRows = msg.actualRows;
+          state.gridCols = msg.actualCols;
+          
+          // Update input fields
+          const rowsInput = document.getElementById('scanRowsInput') as HTMLInputElement;
+          const colsInput = document.getElementById('scanColsInput') as HTMLInputElement;
+          if (rowsInput) rowsInput.value = String(msg.actualRows);
+          if (colsInput) colsInput.value = String(msg.actualCols);
+          
+          // Recreate grid with correct dimensions
+          createGrid();
+        }
         
         // Update visuals now that we have component info
         updateCellVisuals();
         
         // If we have saved cell properties from a generated table, restore them
         if (msg.savedCellProperties) {
-          console.log(`[UI] ✅ Restoring ${Object.keys(msg.savedCellProperties).length} saved cell properties`);
-          console.log(`[UI] savedCellProperties keys:`, Object.keys(msg.savedCellProperties));
+          console.log(`[UI] Restoring ${Object.keys(msg.savedCellProperties).length} saved cell properties`);
+          
+          // Calculate actual dimensions from savedCellProperties if not provided by backend
+          if (msg.actualRows === undefined || msg.actualCols === undefined) {
+            let maxRow = 0;
+            let maxCol = 0;
+            
+            for (const key of Object.keys(msg.savedCellProperties)) {
+              // Parse body cell keys in format "row-col" (0-indexed in backend)
+              if (key.includes('-') && !key.startsWith('header-')) {
+                const [row, col] = key.split('-').map(Number);
+                maxRow = Math.max(maxRow, row + 1);
+                maxCol = Math.max(maxCol, col + 1);
+              }
+              // Parse header keys in format "header-N"
+              if (key.startsWith('header-')) {
+                const col = parseInt(key.split('-')[1]);
+                maxCol = Math.max(maxCol, col);
+              }
+            }
+            
+            if (maxRow > 0 && maxCol > 0) {
+              console.log(`[UI] Calculated dimensions from savedCellProperties: ${maxRow} rows × ${maxCol} columns`);
+              state.gridRows = maxRow;
+              state.gridCols = maxCol;
+              
+              // Update input fields
+              const rowsInput = document.getElementById('scanRowsInput') as HTMLInputElement;
+              const colsInput = document.getElementById('scanColsInput') as HTMLInputElement;
+              if (rowsInput) rowsInput.value = String(maxRow);
+              if (colsInput) colsInput.value = String(maxCol);
+              
+              // Recreate grid with correct dimensions
+              createGrid();
+            }
+          }
           
           // Restore cell properties including slotComponentProps, statusIconText, statusIconType
           for (const [key, value] of Object.entries(msg.savedCellProperties)) {
             const cellData = value as any;
             const cellState = getCellState(key);
             
-            console.log(`  🔍 Processing cell ${key}:`, {
-              hasProperties: !!cellData.properties,
-              hasSlotComponentProps: !!cellData.slotComponentProps,
-              hasStatusIconText: !!cellData.statusIconText,
-              hasStatusIconType: !!cellData.statusIconType
-            });
-            
             // Restore basic properties
             if (cellData.properties) {
               cellState.properties = { ...cellData.properties };
-              
-              // Log swap slot specifically
-              const swapSlotProp = Object.keys(cellData.properties).find((p: string) => 
-                p.toLowerCase().includes('swap') && p.toLowerCase().includes('slot')
-              );
-              if (swapSlotProp) {
-                console.log(`  🔄 Restored Swap slot for ${key}: ${swapSlotProp} = ${cellData.properties[swapSlotProp]}`);
-              }
             }
             
             // Restore Status Icon specific properties
             if (cellData.slotComponentProps) {
               cellState.slotComponentProps = cellData.slotComponentProps;
-              console.log(`  ✅ Restored slotComponentProps for ${key}:`, cellData.slotComponentProps);
               
               // Infer and set slotComponentName from slotComponentProps for tooltip display
               if (!cellState.slotComponentName) {
@@ -4403,7 +4466,6 @@ window.onmessage = (event) => {
                 } else if (cellData.slotComponentProps.deleteAction) {
                   cellState.slotComponentName = 'Delete Icon';
                 }
-                console.log(`  🏷️ Inferred slotComponentName for ${key}: "${cellState.slotComponentName}"`);
               }
             }
             if (cellData.statusIconText) {
@@ -4411,16 +4473,13 @@ window.onmessage = (event) => {
               if (!cellState.slotComponentName) {
                 cellState.slotComponentName = 'Status Icon';
               }
-              console.log(`  ✅ Restored statusIconText for ${key}: "${cellData.statusIconText}"`);
             }
             if (cellData.statusIconType) {
               cellState.statusIconType = cellData.statusIconType;
-              console.log(`  ✅ Restored statusIconType for ${key}: "${cellData.statusIconType}"`);
             }
             // Restore slotComponentName if it was saved (this ensures persistence across saves)
             if (cellData.slotComponentName) {
               cellState.slotComponentName = cellData.slotComponentName;
-              console.log(`  🏷️ Restored slotComponentName for ${key}: "${cellData.slotComponentName}"`);
             }
             if (cellData.customCellTextEnabled !== undefined) {
               cellState.customCellTextEnabled = cellData.customCellTextEnabled;
@@ -4430,9 +4489,9 @@ window.onmessage = (event) => {
             }
           }
           
-          console.log(`[UI] ✅ Finished restoring all cell properties`);
+          console.log(`[UI] Finished restoring all cell properties`);
         } else {
-          console.log(`[UI] ⚠️ No savedCellProperties received from backend`);
+          console.log(`[UI] No savedCellProperties received from backend`);
         }
         
         // Now update the visuals with the component information
@@ -4592,12 +4651,20 @@ window.onmessage = (event) => {
                     'undefined': 'Undefined',
                     'approved': 'Succeeded',
                     'rejected': 'Failed',
+                    'accepted': 'Succeeded',      // ✅ Added: Accepted = Success
+                    'declined': 'Failed',         // ✅ Added: Declined = Failed
                     'cancelled': 'Failed',
                     'draft': 'Caution minor',
                     'published': 'Succeeded',
                     'archived': 'Caution minor',
                     'enabled': 'Succeeded',
-                    'disabled': 'Caution major'
+                    'disabled': 'Caution major',
+                    'open': 'In-progress',        // ✅ Added: Open tickets/issues
+                    'closed': 'Succeeded',        // ✅ Added: Closed = Complete
+                    'confirmed': 'Succeeded',     // ✅ Added: Confirmed = Success
+                    'denied': 'Failed',           // ✅ Added: Denied = Failed
+                    'resolved': 'Succeeded',      // ✅ Added: Resolved = Success
+                    'unresolved': 'Caution major' // ✅ Added: Unresolved = Warning
                   };
                   
                   // Find the matching status type (case-insensitive)
