@@ -144,6 +144,7 @@ let isCreatingTable = false;
 
 
 import { initSelectionHandlers } from './core/selection';
+import { isGeneratedTable, readTableSettings } from './core/metadata';
 
 // Initialize core listeners
 initSelectionHandlers();
@@ -1001,7 +1002,15 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     
     // Remove empty values for analysis
     const nonEmptyData = columnData.filter(val => val && val.trim() !== '');
-    if (nonEmptyData.length === 0) return 'text';
+    if (nonEmptyData.length === 0) {
+        console.log(`  ⚠️ [analyzeColumnContent] No data for column "${columnName}" - returning 'text'`);
+        return 'text';
+    }
+    console.log(`  📊 [analyzeColumnContent] Column "${columnName}" has ${nonEmptyData.length} non-empty values`);
+    
+    // Define strong tag keywords at the top to use in multiple checks
+    const strongTagKeywords = ['tag', 'category', 'type', 'label', 'priority', 'level', 'grade', 'class', 'role', 'tier', 'rank', 'group', 'department', 'team'];
+    const hasStrongTagKeyword = strongTagKeywords.some(keyword => columnName.toLowerCase().includes(keyword));
     
     // Action column detection - MUST come first to prevent misclassification
     // Check for column names with "action", "option", "menu", etc.
@@ -1091,7 +1100,11 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     const statusMatch = nonEmptyData.filter(val => 
         statusKeywords.some(keyword => val.toLowerCase().includes(keyword.toLowerCase()))
     ).length;
-    if (statusMatch / nonEmptyData.length > 0.5) return 'status';
+    console.log(`  🔍 [Status Check] Column "${columnName}" - statusMatch: ${statusMatch}/${nonEmptyData.length} (${(statusMatch / nonEmptyData.length * 100).toFixed(0)}%)`);
+    if (statusMatch / nonEmptyData.length > 0.5) {
+        console.log(`  ✅ [Status Check] Column "${columnName}" detected as status - returning early`);
+        return 'status';
+    }
     
     // Name detection - only for actual name columns (not emails, usernames, etc.)
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1107,19 +1120,27 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     const nameMatch = nonEmptyData.filter(val => namePattern.test(val)).length;
     const usernameMatch = nonEmptyData.filter(val => usernamePattern.test(val) && val.length <= 20).length;
     
+    console.log(`  🔍 [Name Check] Column "${columnName}" - nameMatch: ${nameMatch}/${nonEmptyData.length}, isNameColumn: ${isNameColumn}`);
+    
     // Only suggest slotGroup for actual name columns with proper name patterns
     if (isNameColumn && nameMatch / nonEmptyData.length > 0.6) {
+        console.log(`  ✅ [Name Check] Detected as user name column - returning 'user'`);
         return 'user';
     }
     
     // If it's an email column, don't suggest slotGroup
     if (emailMatch / nonEmptyData.length > 0.5) {
+        console.log(`  ✅ [Email Check] Detected as email column - returning 'text'`);
         return 'text'; // Treat emails as regular text
     }
     
     // If it's a username column, don't suggest slotGroup
-    if (usernameMatch / nonEmptyData.length > 0.7) {
+    // BUT: Exclude columns with strong tag keywords (like "role", "tier", etc.) from username detection
+    if (usernameMatch / nonEmptyData.length > 0.7 && !hasStrongTagKeyword) {
+        console.log(`  ✅ [Username Check] Detected as username column - returning 'text'`);
         return 'text'; // Treat usernames as regular text
+    } else if (usernameMatch / nonEmptyData.length > 0.7 && hasStrongTagKeyword) {
+        console.log(`  ⏭️ [Username Check] Skipping username detection - column "${columnName}" has strong tag keyword, will check tag detection`);
     }
     
     // Boolean detection
@@ -1127,7 +1148,11 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     const booleanMatch = nonEmptyData.filter(val => 
         booleanValues.includes(val.toLowerCase())
     ).length;
-    if (booleanMatch / nonEmptyData.length > 0.7) return 'boolean';
+    console.log(`  🔍 [Boolean Check] Column "${columnName}" - booleanMatch: ${booleanMatch}/${nonEmptyData.length}`);
+    if (booleanMatch / nonEmptyData.length > 0.7) {
+        console.log(`  ✅ [Boolean Check] Detected as boolean - returning 'boolean'`);
+        return 'boolean';
+    }
     
     // Link detection - URLs, email addresses, and clickable text
     const urlPattern = /^(https?:\/\/|\/\/)/;  // Match http://, https://, and protocol-relative //
@@ -1146,32 +1171,48 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     
     // If majority are URLs, emails, or other link patterns, suggest link component
     const totalLinkMatches = urlMatch + linkEmailMatch + linkMatch + domainMatch + ipMatch;
+    console.log(`  🔍 [Link Check] Column "${columnName}" - totalLinkMatches: ${totalLinkMatches}/${nonEmptyData.length} (${(totalLinkMatches / nonEmptyData.length * 100).toFixed(0)}%)`);
     if (totalLinkMatches / nonEmptyData.length > 0.5) {
-        console.log(`  🔗 Detected link content: ${urlMatch} URLs, ${linkEmailMatch} emails, ${linkMatch} other links, ${domainMatch} domains, ${ipMatch} IPs`);
+        console.log(`  ✅ [Link Check] Detected link content - returning 'link'`);
+        console.log(`  🔗 Details: ${urlMatch} URLs, ${linkEmailMatch} emails, ${linkMatch} other links, ${domainMatch} domains, ${ipMatch} IPs`);
         return 'link';
     }
     
     // Date detection
     const datePattern = /^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$/;
     const dateMatch = nonEmptyData.filter(val => datePattern.test(val)).length;
-    if (dateMatch / nonEmptyData.length > 0.5) return 'date';
+    console.log(`  🔍 [Date Check] Column "${columnName}" - dateMatch: ${dateMatch}/${nonEmptyData.length} (${(dateMatch / nonEmptyData.length * 100).toFixed(0)}%)`);
+    if (dateMatch / nonEmptyData.length > 0.5) {
+        console.log(`  ✅ [Date Check] Detected as date - returning 'date'`);
+        return 'date';
+    }
     
     // Number detection
     const numberPattern = /^\d+(\.\d+)?$/;
     const numberMatch = nonEmptyData.filter(val => numberPattern.test(val)).length;
-    if (numberMatch / nonEmptyData.length > 0.7) return 'number';
+    console.log(`  🔍 [Number Check] Column "${columnName}" - numberMatch: ${numberMatch}/${nonEmptyData.length} (${(numberMatch / nonEmptyData.length * 100).toFixed(0)}%)`);
+    if (numberMatch / nonEmptyData.length > 0.7) {
+        console.log(`  ✅ [Number Check] Detected as number - returning 'number'`);
+        return 'number';
+    }
     
     // Tag detection - strict criteria for multiple categories that need differentiation
+    console.log(`  🔍 [Tag Detection] Starting tag detection for column: "${columnName}"`);
     const hasCommas = nonEmptyData.filter(val => val.includes(',')).length;
     const hasMultipleSeparators = nonEmptyData.filter(val => /[,;|&\/]/.test(val)).length;
     
-    // Strong tag indicators - column names that clearly indicate categorization
-    const strongTagKeywords = ['tag', 'category', 'type', 'label', 'status', 'priority', 'level', 'grade', 'class', 'role', 'tier', 'rank', 'group', 'department', 'team'];
-    const isStrongTagColumn = strongTagKeywords.some(keyword => columnName.toLowerCase().includes(keyword));
+    // Use the already-defined hasStrongTagKeyword (defined at the top of the function)
+    const isStrongTagColumn = hasStrongTagKeyword;
+    console.log(`  🔍 [Tag Detection] Column name "${columnName}" toLowerCase: "${columnName.toLowerCase()}", isStrongTagColumn: ${isStrongTagColumn}`);
     
     // Check for multiple distinct values that represent categories
     const uniqueValues = new Set(nonEmptyData.map(val => val.trim().toLowerCase()));
     const hasMultipleCategories = uniqueValues.size >= 3 && uniqueValues.size <= 10; // 3-10 distinct categories
+    
+    // Debug logging for tag detection
+    if (isStrongTagColumn) {
+        console.log(`  🏷️ [Tag Check] "${columnName}" is a strong tag column (unique values: ${uniqueValues.size})`);
+    }
     
     // Check for comma-separated values (multiple tags in one cell)
     const hasCommaSeparatedTags = hasCommas / nonEmptyData.length > 0.4; // Higher threshold: 40% of values have commas
@@ -1203,13 +1244,26 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     
     const hasCategoryLikeValues = categoryLikeValues / nonEmptyData.length > 0.6; // 60% of values look like categories
     
+    // Debug logging for tag detection conditions
+    if (isStrongTagColumn) {
+        console.log(`  🔍 [Tag Debug] Strong tag column checks:`);
+        console.log(`    - uniqueValues.size: ${uniqueValues.size} (need 2-15)`);
+        console.log(`    - hasMultipleCategories: ${hasMultipleCategories} (need 3-10 unique)`);
+        console.log(`    - Condition 1: ${isStrongTagColumn && uniqueValues.size >= 2 && uniqueValues.size <= 15}`);
+        console.log(`    - Condition 2: ${isStrongTagColumn && hasMultipleCategories}`);
+    }
+    
     // Only suggest tags if we have strong indicators of categorization
-    if ((isStrongTagColumn && hasMultipleCategories) || 
+    // For strong tag columns (role, tier, rank, etc.), require at least 2 unique values
+    if ((isStrongTagColumn && uniqueValues.size >= 2 && uniqueValues.size <= 15) || 
+        (isStrongTagColumn && hasMultipleCategories) || 
         (hasCommaSeparatedTags && hasMultipleCategories) ||
         (hasCategoryLikeValues && hasMultipleCategories && uniqueValues.size >= 4)) {
+        console.log(`  🏷️ Detected tag column: ${columnName} (${uniqueValues.size} unique values)`);
         return 'label';
     }
     
+    console.log(`  ❌ [Tag Debug] No tag conditions met for "${columnName}"`);
     return 'text';
 }
 
@@ -1962,12 +2016,27 @@ figma.ui.onmessage = async (msg: any) => {
                 
                 // Try to get body cell component from saved ID
                 let bodyCell: ComponentNode | null = null;
+                console.log('[Backend] 🔍 Attempting to find body cell component...');
+                console.log(`[Backend]   - bodyCellComponentId from metadata: ${bodyCellComponentId || 'MISSING'}`);
+                
                 if (bodyCellComponentId) {
+                    console.log(`[Backend]   - Searching for component with ID: ${bodyCellComponentId}`);
                     const node = figma.getNodeById(bodyCellComponentId);
+                    console.log(`[Backend]   - Node found: ${node ? 'YES' : 'NO'}`);
+                    if (node) {
+                        console.log(`[Backend]   - Node type: ${node.type} (need: COMPONENT)`);
+                        console.log(`[Backend]   - Node name: ${node.name}`);
+                    }
                     if (node && node.type === 'COMPONENT') {
                         bodyCell = node as ComponentNode;
-                        console.log('[Backend] Found body cell component from saved ID:', bodyCell.name);
+                        console.log('[Backend] ✅ Found body cell component from saved ID:', bodyCell.name);
+                    } else if (node) {
+                        console.error(`[Backend] ❌ Node found but wrong type: ${node.type} (expected COMPONENT)`);
+                    } else {
+                        console.error(`[Backend] ❌ No node found with ID: ${bodyCellComponentId}`);
                     }
+                } else {
+                    console.error('[Backend] ❌ No bodyCellComponentId in metadata - cannot find body cell');
                 }
                 
                 // If we have the body cell component, create a temp instance to get properties
@@ -2043,6 +2112,56 @@ figma.ui.onmessage = async (msg: any) => {
         
     } else if (msg.type === "clear-cell-instances") {
         cellInstanceMap.forEach(instance => instance.remove());
+
+    } else if (msg.type === 'check-current-selection') {
+        // Handle selection check on plugin load
+        console.log('========================================');
+        console.log('🔍 [check-current-selection] CHECKING CURRENT SELECTION');
+        console.log('========================================');
+        const selection = figma.currentPage.selection;
+        console.log(`[check-current-selection] Selection count: ${selection.length}`);
+        
+        if (selection.length === 1) {
+            const selectedNode = selection[0];
+            console.log(`[check-current-selection] Selected: ${selectedNode.name} (type: ${selectedNode.type})`);
+            
+            // Check if it's a generated table
+            if ((selectedNode.type === 'FRAME' || selectedNode.type === 'COMPONENT') && 
+                isGeneratedTable(selectedNode as any) && 
+                (selectedNode.name === 'Generated Table' || selectedNode.name.startsWith('Generated Table ('))) {
+                console.log('[check-current-selection] Found generated table, sending edit-existing-table...');
+                console.log(`[check-current-selection] Node type: ${selectedNode.type}`);
+                
+                const tableFrame = selectedNode as FrameNode | ComponentNode;
+                
+                // Debug: Check if plugin data exists
+                const rawSettings = tableFrame.getPluginData('tableSettings');
+                const rawIsGen = tableFrame.getPluginData('isGeneratedTable');
+                const rawScan = tableFrame.getPluginData('tableGeneratorScan');
+                console.log('[check-current-selection] 🔍 Plugin data check:');
+                console.log(`  - isGeneratedTable: ${rawIsGen ? 'exists' : 'missing'} (value: "${rawIsGen}")`);
+                console.log(`  - tableSettings: ${rawSettings ? 'exists' : 'missing'} (length: ${rawSettings?.length || 0})`);
+                console.log(`  - tableGeneratorScan: ${rawScan ? 'exists' : 'missing'} (length: ${rawScan?.length || 0})`);
+                
+                const parsedSettings = readTableSettings(tableFrame as any);
+                console.log(`[check-current-selection] Parsed settings: ${parsedSettings ? 'success' : 'failed'}`);
+                if (parsedSettings) {
+                    figma.ui.postMessage({
+                        type: 'edit-existing-table',
+                        settings: parsedSettings,
+                        tableId: tableFrame.id
+                    });
+                } else {
+                    console.log('[check-current-selection] No settings found, sending generated-table-selected-no-settings');
+                    figma.ui.postMessage({ type: 'generated-table-selected-no-settings', tableId: tableFrame.id });
+                }
+                return;
+            }
+        }
+        
+        // No valid selection found, send selection-cleared
+        console.log('[check-current-selection] No valid table selection, sending selection-cleared');
+        figma.ui.postMessage({ type: 'selection-cleared', isValidComponent: false, clearUI: true });
 
 
     } else if (msg.type === 'scan-table') {
@@ -2788,13 +2907,19 @@ figma.ui.onmessage = async (msg: any) => {
             (lastScanResult as any).dividerProperties = dividerProperties;
             
             // Store scan result in table frame's plugin data for persistence
+            // BUT: Don't overwrite existing scan data for generated tables
             try {
                 if (tableFrame && 'setPluginData' in tableFrame) {
+                    const existingScanData = tableFrame.getPluginData('tableGeneratorScan');
+                    const isGeneratedTable = tableFrame.getPluginData('isGeneratedTable') === 'true';
+                    
+                    // Only save scan data if this is NOT a generated table or if no scan data exists
+                    if (!isGeneratedTable || !existingScanData) {
                     const scanData = {
                         headerCellId: headerCell ? headerCell.id : null,
                         bodyCellId: bodyCell ? bodyCell.id : null,
                         footerId: footer ? footer.id : null,
-                        toolbarId: toolbarComponent ? (toolbarComponent as any).id : null,
+                            toolbarId: toolbarComponent ? (toolbarComponent as any).id : null,
                         selectCellId: selectCellComponent?.id || null,
                         expandCellId: expandCellComponent?.id || null,
                         dividerId: dividerComponent?.id || null,
@@ -2803,6 +2928,9 @@ figma.ui.onmessage = async (msg: any) => {
                     };
                     tableFrame.setPluginData('tableGeneratorScan', JSON.stringify(scanData));
                     console.log('✅ Stored scan result in table frame plugin data');
+                    } else {
+                        console.log('ℹ️ Skipped storing scan data - generated table already has saved scan data');
+                    }
             console.log('📊 Scan result summary:', {
                 headerCell: (headerCell as any)?.name || 'Not found',
                 bodyCell: (bodyCell as any)?.name || 'Not found', 
@@ -2835,6 +2963,11 @@ figma.ui.onmessage = async (msg: any) => {
             console.log(`[scan-table] Using saved properties for table: ${tableFrame.name}`);
             const actualTableData = null; // Force use of saved properties
             
+            // Check if this is a generated table (has saved metadata)
+            const tableSettingsData = tableFrame.getPluginData('tableSettings');
+            const hasGeneratedMetadata = tableSettingsData && tableSettingsData.length > 0;
+            console.log(`[scan-table] Has generated metadata: ${hasGeneratedMetadata}`);
+       
             // Send summary to UI with updated body row component
             figma.ui.postMessage({
                 type: 'scan-table-result',
@@ -2849,7 +2982,8 @@ figma.ui.onmessage = async (msg: any) => {
                     expandCellComponent,
                     selectCellComponent,
                     bodyRowComponent: bodyRowComponent,
-                    actualTableData: actualTableData
+                    actualTableData: actualTableData,
+                    tableFrameId: hasGeneratedMetadata ? tableFrame.id : undefined  // Include ID for generated tables
                 }
             });
         }
@@ -4195,7 +4329,11 @@ figma.ui.onmessage = async (msg: any) => {
                 cellProperties: msg.cellProps,
                 bodyCellComponentId: lastScanResult?.bodyCell?.id || null, // Store body cell component ID for plugin reopen
             };
-            console.log('[Backend] Saving table settings:', tableSettings);
+            console.log('[Backend] 💾 Saving table settings to frame...');
+            console.log(`[Backend]   - bodyCellComponentId: ${tableSettings.bodyCellComponentId || 'NULL'}`);
+            console.log(`[Backend]   - lastScanResult.bodyCell: ${lastScanResult?.bodyCell ? 'exists' : 'missing'}`);
+            console.log(`[Backend]   - lastScanResult.bodyCell.id: ${lastScanResult?.bodyCell?.id || 'missing'}`);
+            console.log(`[Backend]   - lastScanResult.bodyCell.name: ${lastScanResult?.bodyCell?.name || 'missing'}`);
             console.log('[Backend] cellProperties keys:', Object.keys(msg.cellProps || {}));
             tableFrame.setPluginData('tableSettings', JSON.stringify(tableSettings));
             
@@ -4231,6 +4369,9 @@ figma.ui.onmessage = async (msg: any) => {
                             divider: lastScanResult.dividerComponent?.name || null
                         }
                     };
+                    console.log('[Backend] 💾 Saving tableGeneratorScan to FRAME...');
+                    console.log(`[Backend]   - bodyCellId: ${scanData.bodyCellId || 'NULL'}`);
+                    console.log(`[Backend]   - headerCellId: ${scanData.headerCellId || 'NULL'}`);
                     tableFrame.setPluginData('tableGeneratorScan', JSON.stringify(scanData));
                     console.log('✅ Stored scan result in generated table for future updates');
                     console.log('Stored scan data:', scanData);
@@ -4267,9 +4408,39 @@ figma.ui.onmessage = async (msg: any) => {
                 tableComponent.effects = tableComponent.effects;
                 
                 // Copy plugin data
-                tableComponent.setPluginData('isGeneratedTable', tableFrame.getPluginData('isGeneratedTable'));
-                tableComponent.setPluginData('tableSettings', tableFrame.getPluginData('tableSettings'));
-                tableComponent.setPluginData('tableGeneratorScan', tableFrame.getPluginData('tableGeneratorScan'));
+                const isGeneratedData = tableFrame.getPluginData('isGeneratedTable');
+                const tableSettingsData = tableFrame.getPluginData('tableSettings');
+                const scanData = tableFrame.getPluginData('tableGeneratorScan');
+                
+                console.log('[Backend] 📋 Copying plugin data from frame to component...');
+                console.log(`  - isGeneratedTable: ${isGeneratedData ? 'exists' : 'missing'} (length: ${isGeneratedData?.length || 0})`);
+                console.log(`  - tableSettings: ${tableSettingsData ? 'exists' : 'missing'} (length: ${tableSettingsData?.length || 0})`);
+                console.log(`  - tableGeneratorScan: ${scanData ? 'exists' : 'missing'} (length: ${scanData?.length || 0})`);
+                
+                // Parse and log tableSettings to verify bodyCellComponentId
+                if (tableSettingsData) {
+                    try {
+                        const parsedSettings = JSON.parse(tableSettingsData);
+                        console.log(`  - tableSettings.bodyCellComponentId: ${parsedSettings.bodyCellComponentId || 'MISSING'}`);
+                        console.log(`  - tableSettings.rows: ${parsedSettings.rows}`);
+                        console.log(`  - tableSettings.columns: ${parsedSettings.columns}`);
+                    } catch (e) {
+                        console.error('  ❌ Failed to parse tableSettings:', e);
+                    }
+                }
+                
+                tableComponent.setPluginData('isGeneratedTable', isGeneratedData);
+                tableComponent.setPluginData('tableSettings', tableSettingsData);
+                tableComponent.setPluginData('tableGeneratorScan', scanData);
+                
+                // Verify the data was set correctly
+                const verifyIsGen = tableComponent.getPluginData('isGeneratedTable');
+                const verifySettings = tableComponent.getPluginData('tableSettings');
+                const verifyScan = tableComponent.getPluginData('tableGeneratorScan');
+                console.log('[Backend] ✅ Verified plugin data on component:');
+                console.log(`  - isGeneratedTable: ${verifyIsGen ? 'exists' : 'missing'} (length: ${verifyIsGen?.length || 0})`);
+                console.log(`  - tableSettings: ${verifySettings ? 'exists' : 'missing'} (length: ${verifySettings?.length || 0})`);
+                console.log(`  - tableGeneratorScan: ${verifyScan ? 'exists' : 'missing'} (length: ${verifyScan?.length || 0})`);
                 
                 // Remove the original frame
                 tableFrame.remove();
@@ -4328,12 +4499,19 @@ figma.ui.onmessage = async (msg: any) => {
             }
             
             // Update cell properties with the new data
+            // IMPORTANT: Preserve all existing fields (bodyCellComponentId, rows, columns, etc.)
             tableSettings.cellProperties = cellProperties;
+            
+            console.log('[Backend] 💾 Updating table metadata...');
+            console.log(`[Backend]   - Preserving bodyCellComponentId: ${tableSettings.bodyCellComponentId || 'MISSING'}`);
+            console.log(`[Backend]   - Preserving rows: ${tableSettings.rows}`);
+            console.log(`[Backend]   - Preserving columns: ${tableSettings.columns}`);
+            console.log(`[Backend]   - Updating cellProperties: ${Object.keys(cellProperties).length} keys`);
             
             // Save updated settings back to table
             tableNode.setPluginData('tableSettings', JSON.stringify(tableSettings));
             
-            console.log('[Backend] Successfully updated table metadata with new cell properties');
+            console.log('[Backend] ✅ Successfully updated table metadata with new cell properties');
             console.log('[Backend] Updated cell properties keys:', Object.keys(cellProperties));
             
             // Send confirmation back to UI
@@ -6116,7 +6294,20 @@ figma.ui.onmessage = async (msg: any) => {
 
         tableFrame.resize(totalTableWidth, tableFrame.height);
 
-            // Update plugin data
+            // Update plugin data - PRESERVE existing bodyCellComponentId
+            // Load existing settings first to preserve bodyCellComponentId
+            let existingBodyCellComponentId = null;
+            const existingSettingsData = tableFrame.getPluginData('tableSettings');
+            if (existingSettingsData) {
+                try {
+                    const existingSettings = JSON.parse(existingSettingsData);
+                    existingBodyCellComponentId = existingSettings.bodyCellComponentId;
+                    console.log('[Backend] 🔍 Loaded existing bodyCellComponentId:', existingBodyCellComponentId);
+                } catch (e) {
+                    console.warn('[Backend] Could not parse existing settings:', e);
+                }
+            }
+            
             const tableSettings = {
                 columns: msg.cols,
                 rows: msg.rows,
@@ -6126,7 +6317,13 @@ figma.ui.onmessage = async (msg: any) => {
                 includeSelectable: originalIncludeSelectable,
                 includeExpandable: originalIncludeExpandable,
                 cellProperties: cellProps, // Use the sorted cellProps instead of msg.cellProps
+                bodyCellComponentId: existingBodyCellComponentId || lastScanResult?.bodyCell?.id || null, // ✅ Preserve existing ID
             };
+            
+            console.log('[Backend] 💾 Updating table settings...');
+            console.log(`[Backend]   - bodyCellComponentId: ${tableSettings.bodyCellComponentId || 'NULL'}`);
+            console.log(`[Backend]   - rows: ${tableSettings.rows}, columns: ${tableSettings.columns}`);
+            
             tableFrame.setPluginData('tableSettings', JSON.stringify(tableSettings));
 
 
@@ -6252,7 +6449,7 @@ figma.ui.onmessage = async (msg: any) => {
                     const appliedCount = suggestionsWithComponents.filter(s => s.componentId).length;
                     if (appliedCount > 0) {
                         figma.notify(`✨ Auto-applied ${appliedCount} smart component${appliedCount > 1 ? 's' : ''}`);
-                    } else {
+        } else {
                         figma.notify('⚠️ Could not import components for auto-apply');
                     }
                 } else {
@@ -6510,8 +6707,8 @@ figma.ui.onmessage = async (msg: any) => {
                 if (!component) {
                     console.log('❌ Instance has no main component - it may be detached');
                     figma.notify('⚠️ This instance has no main component - select the original component from the library');
-                    return;
-                }
+            return;
+        }
                 
                 const componentInfo = {
                     name: component.name,
@@ -6575,7 +6772,7 @@ figma.ui.onmessage = async (msg: any) => {
                 const libraryComponents = availableComponents.filter(c => !pageComponentIds.has(c.id));
                 
                 // Send the discovered components to UI
-                figma.ui.postMessage({
+            figma.ui.postMessage({
                     type: 'components-discovered',
                     components: availableComponents.map(comp => ({
                         id: comp.id,
@@ -6596,134 +6793,12 @@ figma.ui.onmessage = async (msg: any) => {
                     type: 'components-discovered',
                     components: [],
                     error: error instanceof Error ? error.message : 'Unknown error'
-                });
-            }
-        })();
-    } else if (msg.type === 'request-component-info') {
-        console.log(`[Backend] Received request-component-info, lastScanResult:`, lastScanResult);
-        console.log('[Backend] Request includes tableId:', msg.tableId);
-        
-        // Make this async to support performTableScan
-        (async () => {
-        let bodyCell: ComponentNode | null = null;
-        
-        if (lastScanResult && lastScanResult.bodyCell) {
-            bodyCell = lastScanResult.bodyCell;
-        } else {
-            // If lastScanResult is not available, try to find the body cell component dynamically
-            bodyCell = await findBodyCellComponent();
-        
-        if (!bodyCell) {
-            // If we can't find the component, we'll create a minimal component info
-            // This allows the UI to still work with the saved properties
-            figma.ui.postMessage({
-                type: 'component-info',
-                component: {
-                    id: 'fallback',
-                    name: 'Fallback Component',
-                    width: 100,
-                    properties: {},
-                    availableProperties: ['Cell text#12234:16', 'Show text#12234:68', 'State', 'Size'],
-                    propertyTypes: {
-                        'Cell text#12234:16': 'TEXT',
-                        'Show text#12234:68': 'BOOLEAN',
-                        'State': 'VARIANT',
-                        'Size': 'VARIANT'
-                    }
-                }
-            });
-            return;
-        }
-        }
-        
-        if (bodyCell) {
-            // Create a temporary instance to get component properties
-            const tempInstance = bodyCell.createInstance();
-            const properties = tempInstance.componentProperties;
-            const availableProperties = Object.keys(properties);
-            const propertyTypes: { [key: string]: any } = {};
-            
-            for (const propName of availableProperties) {
-                propertyTypes[propName] = properties[propName].type;
-            }
-            
-            // Remove the temporary instance
-            tempInstance.remove();
-            
-            console.log(`[Backend] Sending component-info with ${availableProperties.length} properties`);
-            console.log(`[Backend] component-info msg.tableId:`, msg.tableId);
-            console.log(`[Backend] component-info msg keys:`, Object.keys(msg));
-            
-            // Check if this is a generated table and load its cell properties
-            let savedCellProperties = null;
-            let actualTableData = null;
-            
-            // Try to get table ID from msg.tableId or current selection
-            let tableId = msg.tableId;
-            if (!tableId) {
-                const selection = figma.currentPage.selection;
-                if (selection.length === 1) {
-                    tableId = selection[0].id;
-                    console.log(`[Backend] No tableId in msg, using current selection: ${tableId}`);
-                }
-            }
-            
-            let actualRows: number | undefined;
-            let actualCols: number | undefined;
-            
-            if (tableId) {
-                const tableNode = figma.getNodeById(tableId);
-                if (tableNode) {
-                    // Check if this is a generated table
-                    const isGeneratedTable = tableNode.getPluginData('isGeneratedTable') === 'true';
-                    console.log(`[Backend] Table ${tableId} is generated table: ${isGeneratedTable}`);
-                    
-                    if (isGeneratedTable) {
-                        // Use saved properties instead of extracting from table
-                        console.log(`[Backend] Using saved properties for generated table`);
-                        actualTableData = null; // Force use of saved properties
-                    }
-                    
-                    const tableSettingsData = tableNode.getPluginData('tableSettings');
-                    if (tableSettingsData) {
-                        try {
-                            const tableSettings = JSON.parse(tableSettingsData);
-                            savedCellProperties = tableSettings.cellProperties;
-                            actualRows = tableSettings.rows;
-                            actualCols = tableSettings.columns;
-                            console.log(`[Backend] Loaded ${Object.keys(savedCellProperties || {}).length} cell properties from table metadata`);
-                            console.log(`[Backend] Actual table dimensions: ${actualRows} rows × ${actualCols} columns`);
-                        } catch (e) {
-                            console.warn('[Backend] Could not parse table settings:', e);
-                        }
-                    }
-                }
-            } else {
-                console.log(`[Backend] No tableId available for component-info`);
-            }
-            
-            console.log(`[Backend] ========================================`);
-            console.log(`[Backend] Sending component-info to UI`);
-            console.log(`[Backend] ========================================`);
-            
-            figma.ui.postMessage({
-                type: 'component-info',
-                component: {
-                    id: bodyCell.id,
-                    name: bodyCell.name,
-                    width: bodyCell.width,
-                    properties: properties,
-                    availableProperties: availableProperties,
-                    propertyTypes: propertyTypes
-                },
-                savedCellProperties: savedCellProperties, // Send the saved cell properties to UI
-                actualTableData: actualTableData, // Send the actual current table data
-                actualRows: actualRows, // Send actual row count from metadata
-                actualCols: actualCols  // Send actual column count from metadata
             });
         }
         })();
     }
+    // REMOVED DUPLICATE: Second 'request-component-info' handler was here and was overriding the first one (line 1982)
+    // The first handler has better metadata loading logic, so we're keeping that one only
 };
 
 import { createComponentInstanceWithProps, ComponentProperty } from './utils/component';

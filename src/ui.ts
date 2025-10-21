@@ -200,6 +200,11 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.clearSelectionBtn = document.getElementById('clearSelectionBtn') as HTMLButtonElement;
   // elements.collectCarbonKeysBtn = document.getElementById('collectCarbonKeysBtn') as HTMLButtonElement;
   elements.propertyEditor = document.getElementById('propertyEditor')!;
+  
+  // Request current selection check on plugin load
+  // This handles the case where a table is already selected when the plugin opens
+  console.log('[UI] Plugin UI loaded, requesting selection check...');
+  parent.postMessage({ pluginMessage: { type: 'check-current-selection' } }, '*');
   elements.propertyEditorTitle = document.getElementById('propertyEditorTitle')!;
   elements.editingCellCoords = document.getElementById('editingCellCoords')!;
   elements.showText = document.getElementById('showText') as HTMLInputElement;
@@ -234,8 +239,10 @@ window.addEventListener('DOMContentLoaded', () => {
   // Initialize reset button as disabled
   updateResetButtonState();
 
-  // Ask the plugin to scan the current selection immediately
-  parent.postMessage({ pluginMessage: { type: 'scan-table' } }, '*');
+  // REMOVED: Automatic scan-table on plugin load
+  // This was causing issues when opening the plugin with a generated table selected
+  // The check-current-selection message (sent above) will handle the proper flow
+  // parent.postMessage({ pluginMessage: { type: 'scan-table' } }, '*');
 
   // Now safe to call setup functions
   createGrid();
@@ -3631,6 +3638,22 @@ window.onmessage = (event) => {
       markChangesForReset(); // Enable reset button after AI content is applied
       showMessage(`AI content applied (clamped to ${desiredRows} rows x ${desiredCols} cols). Review/edit then click Create Table.`, 'success');
       
+      // Uncheck the "Use single prompt" checkbox but preserve the prompt text
+      // This prevents accidental re-generation while allowing users to view/edit their original prompt
+      const useSinglePrompt = document.getElementById('useSinglePrompt') as HTMLInputElement | null;
+      const singlePromptContainer = document.getElementById('singlePromptContainer') as HTMLElement | null;
+      if (useSinglePrompt && useSinglePrompt.checked) {
+        useSinglePrompt.checked = false;
+        // Hide the container but DON'T clear the prompt text
+        if (singlePromptContainer) {
+          singlePromptContainer.classList.remove('show');
+          setTimeout(() => {
+            singlePromptContainer.style.display = 'none';
+          }, 250);
+        }
+        console.log('ℹ️ [UI] Unchecked "Use single prompt" after AI generation (prompt text preserved)');
+      }
+      
       // Auto-analyze smart slots after main Watson AI table generation
       console.log('🤖 [UI] Auto-analyzing smart slots after main Watson AI table generation...');
       setTimeout(() => {
@@ -3682,16 +3705,26 @@ window.onmessage = (event) => {
       break;
 
     case "selection-cleared":
-      state.hasComponent = false;
-      // Only show error if we're not currently editing an existing table
-      if (!state.tableFrameId) {
-        showMessage("Please select a table cell component.", "error");
-        elements.gridContainer.style.display = "none";
-        elements.actionButtons.style.display = "none";
-        state.selectedComponent = null;
-        elements.landingPage.style.display = 'block';
-        hideMessage(); // Hide status messages on landing page
-      }
+      // Ignore selection-cleared if we're about to receive table data
+      // This prevents the UI from clearing when opening the plugin with a table already selected
+      console.log('[UI] Received selection-cleared, but delaying UI clear to check for incoming table data...');
+      
+      // Wait a bit to see if we receive a table-related message
+      setTimeout(() => {
+        // Only clear if we still don't have a table after waiting
+        if (!state.tableFrameId && !state.hasComponent) {
+          state.hasComponent = false;
+          showMessage("Please select a table cell component.", "error");
+          elements.gridContainer.style.display = "none";
+          elements.actionButtons.style.display = "none";
+          state.selectedComponent = null;
+          elements.landingPage.style.display = 'block';
+          hideMessage(); // Hide status messages on landing page
+          console.log('[UI] UI cleared after selection-cleared');
+        } else {
+          console.log('[UI] Ignored selection-cleared because table data arrived');
+        }
+      }, 100); // Wait 100ms for table messages to arrive
       break;
 
     case "table-created":
@@ -3966,13 +3999,21 @@ window.onmessage = (event) => {
 
       if (!msg.success) return;
 
-      // Reset state for new table generation
-      state.cellProperties.clear();
-      state.selectedCells.clear();
-      state.currentEditingCell = null;
-      state.sizeConfirmed = false;
-      state.tableFrameId = undefined;
-      console.log('[DEBUG] Reset state for new table generation');
+      // Only reset state if this is a NEW table scan (not a generated table being re-scanned)
+      // Check if backend sent tableFrameId, indicating this is a generated table
+      const isGeneratedTable = !!msg.details?.tableFrameId;
+      if (!isGeneratedTable) {
+        state.cellProperties.clear();
+        state.selectedCells.clear();
+        state.currentEditingCell = null;
+        state.sizeConfirmed = false;
+        state.tableFrameId = undefined;
+        console.log('[DEBUG] Reset state for new Carbon table scan');
+      } else {
+        // Set tableFrameId for generated tables to prevent UI clear
+        state.tableFrameId = msg.details.tableFrameId;
+        console.log('[DEBUG] Skipped state reset - generated table detected (tableFrameId:', state.tableFrameId, ')');
+      }
 
       // Hide the initial landing page message
       elements.landingPage.style.display = 'none';
@@ -4401,7 +4442,9 @@ window.onmessage = (event) => {
       break;
 
     case "component-info-unavailable":
-      console.log(`[UI] Component info unavailable:`, msg.message);
+      console.log(`[UI] ⚠️ Component info unavailable:`, msg.message);
+      console.log('[UI] ℹ️ This error message will remain visible until a valid table is scanned (error messages do not auto-hide)');
+      
       // Show error message
       elements.landingPage.style.display = 'flex';
       elements.gridContainer.style.display = 'none';
