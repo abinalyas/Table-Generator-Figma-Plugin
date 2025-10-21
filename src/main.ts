@@ -987,7 +987,7 @@ function extractInitials(name: string): string {
 interface SmartSlotSuggestion {
     columnIndex: number;
     columnName: string;
-    contentType: 'status' | 'user' | 'action' | 'editDelete' | 'singleEdit' | 'singleDelete' | 'boolean' | 'url' | 'date' | 'number' | 'label' | 'text';
+    contentType: 'status' | 'user' | 'action' | 'editDelete' | 'singleEdit' | 'singleDelete' | 'boolean' | 'url' | 'link' | 'date' | 'number' | 'label' | 'text';
     suggestedComponent: 'statusIcon' | 'slotGroup' | 'tag' | 'avatar' | 'overflow' | 'checkbox' | 'link' | 'edit' | 'delete' | null;
     confidence: number; // 0-1
     samples: string[];
@@ -1129,10 +1129,27 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     ).length;
     if (booleanMatch / nonEmptyData.length > 0.7) return 'boolean';
     
-    // URL detection
-    const urlPattern = /^https?:\/\//;
+    // Link detection - URLs, email addresses, and clickable text
+    const urlPattern = /^(https?:\/\/|\/\/)/;  // Match http://, https://, and protocol-relative //
+    const linkEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const linkPattern = /^(https?:\/\/|\/\/|www\.|mailto:|tel:)/i;  // Include protocol-relative URLs
+    
+    // Additional URL patterns for better detection
+    const domainPattern = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.[a-zA-Z]{2,}(\/.*)?$/;  // domain.com/path
+    const ipPattern = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?(\/.*)?$/;  // IP addresses
+    
     const urlMatch = nonEmptyData.filter(val => urlPattern.test(val)).length;
-    if (urlMatch / nonEmptyData.length > 0.5) return 'url';
+    const linkEmailMatch = nonEmptyData.filter(val => linkEmailPattern.test(val)).length;
+    const linkMatch = nonEmptyData.filter(val => linkPattern.test(val)).length;
+    const domainMatch = nonEmptyData.filter(val => domainPattern.test(val)).length;
+    const ipMatch = nonEmptyData.filter(val => ipPattern.test(val)).length;
+    
+    // If majority are URLs, emails, or other link patterns, suggest link component
+    const totalLinkMatches = urlMatch + linkEmailMatch + linkMatch + domainMatch + ipMatch;
+    if (totalLinkMatches / nonEmptyData.length > 0.5) {
+        console.log(`  🔗 Detected link content: ${urlMatch} URLs, ${linkEmailMatch} emails, ${linkMatch} other links, ${domainMatch} domains, ${ipMatch} IPs`);
+        return 'link';
+    }
     
     // Date detection
     const datePattern = /^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$/;
@@ -1206,6 +1223,7 @@ function suggestSlotComponent(contentType: SmartSlotSuggestion['contentType']): 
         'singleDelete': 'delete', // Single Delete icon for single delete action
         'boolean': 'checkbox',
         'url': 'link',
+        'link': 'link', // Link component for URLs, emails, and clickable text
         'label': 'tag', // Tag component for labels, roles, types, comma-separated values
         'date': null,
         'number': null,
@@ -1435,9 +1453,9 @@ async function discoverAvailableComponents(): Promise<ComponentNode[]> {
                 tag: 'c95a2fb5332d75515d2ed90ac487bc864fcb09b5', // Tag - for labels, roles, types, comma-separated values
                 edit: 'a4ba4c4aa1f2b0f0a5206341aafbb7d7eafa47e6', // Edit icon - for edit actions
                 delete: '84a7c6755b83b8e88ca803851c280d1e06255b93', // Trash-can icon - for delete actions
+                link: 'd73fbb34f34a29af5ae77891712c25010d04f96c', // Link - for URLs and clickable text
                 // Add more component keys here:
                 // checkbox: 'CHECKBOX_KEY_HERE', // Checkbox - for boolean values
-                // link: 'LINK_KEY_HERE', // Link - for URLs
             };
             
             const knownCarbonKeys = [
@@ -3537,6 +3555,141 @@ figma.ui.onmessage = async (msg: any) => {
                                                     } else {
                                                         console.warn(`  ⚠️ Tag set component not found in cell ${cellKeyForLog}`);
                                                     }
+                                                } else if (slotPropsConfig.suggestedComponent === 'link') {
+                                                    // Handle Link component configuration
+                                                    console.log(`  🔗 Configuring Link component...`);
+                                                    
+                                                    // Get the cell value for link text from slotPropsConfig
+                                                    let cellValue = slotPropsConfig.linkText || cellData.text || '';
+                                                    
+                                                    // Clean URL by removing protocol-relative prefix
+                                                    if (cellValue.startsWith('//')) {
+                                                        cellValue = cellValue.substring(2);
+                                                        console.log(`  🧹 Cleaned URL: "${slotPropsConfig.linkText || cellData.text}" → "${cellValue}"`);
+                                                    }
+                                                    
+                                                    console.log(`  📝 Cell value for link: "${cellValue}"`);
+                                                    
+                                                    // Find the Link component that was just swapped in
+                                                    const linkComponents = cellRef.findAll(node => {
+                                                        if (node.type === 'INSTANCE') {
+                                                            const mainComp = (node as InstanceNode).mainComponent;
+                                                            return mainComp !== null && mainComp.id === swapComponentId;
+                                                        }
+                                                        return false;
+                                                    }) as InstanceNode[];
+                                                    
+                                                    if (linkComponents.length > 0) {
+                                                        const linkComponent = linkComponents[0];
+                                                        console.log(`  🔗 Found Link component: ${linkComponent.name}`);
+                                                        
+                                                        // Configure Link properties: Size=Medium, Inline=True, Icon=False, Link text=cellValue
+                                                        const linkProps: any = {};
+                                                        
+                                                        // Set Size to Medium
+                                                        const sizeProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                            prop.toLowerCase().includes('size')
+                                                        );
+                                                        if (sizeProp) {
+                                                            linkProps[sizeProp] = 'Medium';
+                                                            console.log(`  📏 Set Size: Medium`);
+                                                        }
+                                                        
+                                                        // Set Inline to True
+                                                        const inlineProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                            prop.toLowerCase().includes('inline')
+                                                        );
+                                                        if (inlineProp) {
+                                                            linkProps[inlineProp] = true;
+                                                            console.log(`  🔗 Set Inline: True`);
+                                                        }
+                                                        
+                                                        // Set Icon to False (but skip "Swap icon" as it expects a component instance)
+                                                        const iconProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                            prop.toLowerCase().includes('icon') && !prop.toLowerCase().includes('swap')
+                                                        );
+                                                        if (iconProp) {
+                                                            linkProps[iconProp] = false;
+                                                            console.log(`  🚫 Set Icon: False`);
+                                                        }
+                                                        
+                                                        // Handle "Swap icon" separately - set to null instead of false
+                                                        const swapIconProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                            prop.toLowerCase().includes('swap') && prop.toLowerCase().includes('icon')
+                                                        );
+                                                        if (swapIconProp) {
+                                                            linkProps[swapIconProp] = null;
+                                                            console.log(`  🔄 Set Swap icon: null`);
+                                                        }
+                                                        
+                                                        // Set Link text to the cell value
+                                                        const linkTextProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                            prop.toLowerCase().includes('link') && prop.toLowerCase().includes('text')
+                                                        );
+                                                        if (linkTextProp) {
+                                                            linkProps[linkTextProp] = cellValue;
+                                                            console.log(`  📝 Set Link text: "${cellValue}"`);
+                                                        }
+                                                        
+                                                        // Apply all properties with error handling
+                                                        if (Object.keys(linkProps).length > 0) {
+                                                            try {
+                                                                linkComponent.setProperties(linkProps);
+                                                                console.log(`  ✅ Set link properties:`, linkProps);
+                                                            } catch (error) {
+                                                                console.error(`  ❌ Error setting link properties:`, error);
+                                                                console.log(`  🔍 Attempting to set properties individually...`);
+                                                                
+                                                                // Try setting properties one by one to identify the problematic one
+                                                                for (const [propName, propValue] of Object.entries(linkProps)) {
+                                                                    try {
+                                                                        const singleProp: any = {};
+                                                                        singleProp[propName] = propValue;
+                                                                        linkComponent.setProperties(singleProp);
+                                                                        console.log(`  ✅ Set ${propName}: ${propValue}`);
+                                                                    } catch (propError) {
+                                                                        console.error(`  ❌ Failed to set ${propName} = ${propValue}:`, propError);
+                                                                        console.log(`  🔍 Available properties:`, Object.keys(linkComponent.componentProperties));
+                                                                        console.log(`  🔍 Property types:`, Object.entries(linkComponent.componentProperties).map(([key, value]) => `${key}: ${value}`));
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        
+                                                        console.log(`  ✅ Link configuration complete!`);
+                                                    } else {
+                                                        console.warn(`  ⚠️ Link component not found in cell ${cellKeyForLog}`);
+                                                    }
+                                                } else if (slotPropsConfig.suggestedComponent === 'overflow') {
+                                                    // Handle Overflow Menu component configuration
+                                                    console.log(`  📋 Configuring Overflow Menu component...`);
+                                                    
+                                                    // Find the "Content" group inside the cell and set its alignment to "top right"
+                                                    const contentGroup = cellRef.findOne(node => 
+                                                        node.type === 'FRAME' && 
+                                                        node.name.toLowerCase().includes('content')
+                                                    ) as FrameNode;
+                                                    
+                                                    if (contentGroup) {
+                                                        console.log(`  📦 Found Content group: ${contentGroup.name}`);
+                                                        console.log(`  🔍 Current layout mode: ${contentGroup.layoutMode}`);
+                                                        console.log(`  🔍 Current primaryAxisAlignItems: ${contentGroup.primaryAxisAlignItems}`);
+                                                        console.log(`  🔍 Current counterAxisAlignItems: ${contentGroup.counterAxisAlignItems}`);
+                                                        
+                                                        // Set alignment to top right
+                                                        // For horizontal layout: primaryAxis = horizontal, counterAxis = vertical
+                                                        // For vertical layout: primaryAxis = vertical, counterAxis = horizontal
+                                                        contentGroup.primaryAxisAlignItems = 'MIN'; // Align to top (if vertical) or left (if horizontal)
+                                                        contentGroup.counterAxisAlignItems = 'MAX'; // Align to right (if vertical) or bottom (if horizontal)
+                                                        
+                                                        console.log(`  ✅ Set Content group alignment to: top right`);
+                                                        console.log(`  📏 primaryAxisAlignItems: MIN`);
+                                                        console.log(`  📏 counterAxisAlignItems: MAX`);
+                                                    } else {
+                                                        console.warn(`  ⚠️ Content group not found in cell ${cellKeyForLog}`);
+                                                    }
+                                                    
+                                                    console.log(`  ✅ Overflow Menu configuration complete!`);
                                                 } else {
                                                     // Handle Status Icon (existing logic)
                                                     const slottedComponents = cellRef.findAll(node => {
@@ -5428,6 +5581,141 @@ figma.ui.onmessage = async (msg: any) => {
                                             } else {
                                                 console.warn(`  ⚠️ [UPDATE] Tag set component not found after swap`);
                                             }
+                                        } else if (slotPropsConfig.suggestedComponent === 'link') {
+                                            // Handle Link component configuration
+                                            console.log(`  🔗 [UPDATE] Configuring Link component...`);
+                                            
+                                            // Get the cell value for link text from slotPropsConfig
+                                            let cellValue = slotPropsConfig.linkText || cellData.text || '';
+                                            
+                                            // Clean URL by removing protocol-relative prefix
+                                            if (cellValue.startsWith('//')) {
+                                                cellValue = cellValue.substring(2);
+                                                console.log(`  🧹 [UPDATE] Cleaned URL: "${slotPropsConfig.linkText || cellData.text}" → "${cellValue}"`);
+                                            }
+                                            
+                                            console.log(`  📝 [UPDATE] Cell value for link: "${cellValue}"`);
+                                            
+                                            // Find the Link component that was just swapped in
+                                            const linkComponents = cellRef.findAll(node => {
+                                                if (node.type === 'INSTANCE') {
+                                                    const mainComp = (node as InstanceNode).mainComponent;
+                                                    return mainComp !== null && mainComp.id === swapComponentId;
+                                                }
+                                                return false;
+                                            }) as InstanceNode[];
+                                            
+                                            if (linkComponents.length > 0) {
+                                                const linkComponent = linkComponents[0];
+                                                console.log(`  🔗 [UPDATE] Found Link component: ${linkComponent.name}`);
+                                                
+                                                // Configure Link properties: Size=Medium, Inline=True, Icon=False, Link text=cellValue
+                                                const linkProps: any = {};
+                                                
+                                                // Set Size to Medium
+                                                const sizeProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                    prop.toLowerCase().includes('size')
+                                                );
+                                                if (sizeProp) {
+                                                    linkProps[sizeProp] = 'Medium';
+                                                    console.log(`  📏 [UPDATE] Set Size: Medium`);
+                                                }
+                                                
+                                                // Set Inline to True
+                                                const inlineProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                    prop.toLowerCase().includes('inline')
+                                                );
+                                                if (inlineProp) {
+                                                    linkProps[inlineProp] = true;
+                                                    console.log(`  🔗 [UPDATE] Set Inline: True`);
+                                                }
+                                                
+                                            // Set Icon to False (but skip "Swap icon" as it expects a component instance)
+                                            const iconProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                prop.toLowerCase().includes('icon') && !prop.toLowerCase().includes('swap')
+                                            );
+                                            if (iconProp) {
+                                                linkProps[iconProp] = false;
+                                                console.log(`  🚫 [UPDATE] Set Icon: False`);
+                                            }
+                                            
+                                            // Handle "Swap icon" separately - set to null instead of false
+                                            const swapIconProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                prop.toLowerCase().includes('swap') && prop.toLowerCase().includes('icon')
+                                            );
+                                            if (swapIconProp) {
+                                                linkProps[swapIconProp] = null;
+                                                console.log(`  🔄 [UPDATE] Set Swap icon: null`);
+                                            }
+                                                
+                                                // Set Link text to the cell value
+                                                const linkTextProp = Object.keys(linkComponent.componentProperties).find(prop => 
+                                                    prop.toLowerCase().includes('link') && prop.toLowerCase().includes('text')
+                                                );
+                                                if (linkTextProp) {
+                                                    linkProps[linkTextProp] = cellValue;
+                                                    console.log(`  📝 [UPDATE] Set Link text: "${cellValue}"`);
+                                                }
+                                                
+                                                // Apply all properties with error handling
+                                                if (Object.keys(linkProps).length > 0) {
+                                                    try {
+                                                        linkComponent.setProperties(linkProps);
+                                                        console.log(`  ✅ [UPDATE] Set link properties:`, linkProps);
+                                                    } catch (error) {
+                                                        console.error(`  ❌ [UPDATE] Error setting link properties:`, error);
+                                                        console.log(`  🔍 [UPDATE] Attempting to set properties individually...`);
+                                                        
+                                                        // Try setting properties one by one to identify the problematic one
+                                                        for (const [propName, propValue] of Object.entries(linkProps)) {
+                                                            try {
+                                                                const singleProp: any = {};
+                                                                singleProp[propName] = propValue;
+                                                                linkComponent.setProperties(singleProp);
+                                                                console.log(`  ✅ [UPDATE] Set ${propName}: ${propValue}`);
+                                                            } catch (propError) {
+                                                                console.error(`  ❌ [UPDATE] Failed to set ${propName} = ${propValue}:`, propError);
+                                                                console.log(`  🔍 [UPDATE] Available properties:`, Object.keys(linkComponent.componentProperties));
+                                                                console.log(`  🔍 [UPDATE] Property types:`, Object.entries(linkComponent.componentProperties).map(([key, value]) => `${key}: ${value}`));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                console.log(`  ✅ [UPDATE] Link configuration complete!`);
+                                            } else {
+                                                console.warn(`  ⚠️ [UPDATE] Link component not found in cell ${cellKeyForLog}`);
+                                            }
+                                        } else if (slotPropsConfig.suggestedComponent === 'overflow') {
+                                            // Handle Overflow Menu component configuration
+                                            console.log(`  📋 [UPDATE] Configuring Overflow Menu component...`);
+                                            
+                                            // Find the "Content" group inside the cell and set its alignment to "top right"
+                                            const contentGroup = cellRef.findOne(node => 
+                                                node.type === 'FRAME' && 
+                                                node.name.toLowerCase().includes('content')
+                                            ) as FrameNode;
+                                            
+                                            if (contentGroup) {
+                                                console.log(`  📦 [UPDATE] Found Content group: ${contentGroup.name}`);
+                                                console.log(`  🔍 [UPDATE] Current layout mode: ${contentGroup.layoutMode}`);
+                                                console.log(`  🔍 [UPDATE] Current primaryAxisAlignItems: ${contentGroup.primaryAxisAlignItems}`);
+                                                console.log(`  🔍 [UPDATE] Current counterAxisAlignItems: ${contentGroup.counterAxisAlignItems}`);
+                                                
+                                                // Set alignment to top right
+                                                // For horizontal layout: primaryAxis = horizontal, counterAxis = vertical
+                                                // For vertical layout: primaryAxis = vertical, counterAxis = horizontal
+                                                contentGroup.primaryAxisAlignItems = 'MIN'; // Align to top (if vertical) or left (if horizontal)
+                                                contentGroup.counterAxisAlignItems = 'MAX'; // Align to right (if vertical) or bottom (if horizontal)
+                                                
+                                                console.log(`  ✅ [UPDATE] Set Content group alignment to: top right`);
+                                                console.log(`  📏 [UPDATE] primaryAxisAlignItems: MIN`);
+                                                console.log(`  📏 [UPDATE] counterAxisAlignItems: MAX`);
+                                            } else {
+                                                console.warn(`  ⚠️ [UPDATE] Content group not found in cell ${cellKeyForLog}`);
+                                            }
+                                            
+                                            console.log(`  ✅ [UPDATE] Overflow Menu configuration complete!`);
                                         } else {
                                             // Handle other slot components (Status Icon, etc.)
                                             console.log(`  🔧 [UPDATE] Configuring ${slotPropsConfig.suggestedComponent} component...`);
@@ -5931,6 +6219,7 @@ figma.ui.onmessage = async (msg: any) => {
                         tag: 'c95a2fb5332d75515d2ed90ac487bc864fcb09b5',
                         edit: 'a4ba4c4aa1f2b0f0a5206341aafbb7d7eafa47e6',
                         delete: '84a7c6755b83b8e88ca803851c280d1e06255b93',
+                        link: 'd73fbb34f34a29af5ae77891712c25010d04f96c',
                     };
                     
                     const suggestionsWithComponents = await Promise.all(suggestions.map(async (suggestion) => {

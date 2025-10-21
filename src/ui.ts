@@ -41,7 +41,7 @@ interface Elements {
   actionButtons: HTMLElement;
   createTableBtn: HTMLButtonElement;
   clearSelectionBtn: HTMLButtonElement;
-  // collectCarbonKeysBtn: HTMLButtonElement; // Hidden test button - uncomment if needed
+  // collectCarbonKeysBtn: HTMLButtonElement;
   propertyEditor: HTMLElement;
   propertyEditorTitle: HTMLElement;
   editingCellCoords: HTMLElement;
@@ -198,7 +198,7 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.actionButtons = document.getElementById('actionButtons')!;
   elements.createTableBtn = document.getElementById('createTableBtn') as HTMLButtonElement;
   elements.clearSelectionBtn = document.getElementById('clearSelectionBtn') as HTMLButtonElement;
-  // elements.collectCarbonKeysBtn = document.getElementById('collectCarbonKeysBtn') as HTMLButtonElement; // Hidden test button
+  // elements.collectCarbonKeysBtn = document.getElementById('collectCarbonKeysBtn') as HTMLButtonElement;
   elements.propertyEditor = document.getElementById('propertyEditor')!;
   elements.propertyEditorTitle = document.getElementById('propertyEditorTitle')!;
   elements.editingCellCoords = document.getElementById('editingCellCoords')!;
@@ -817,7 +817,7 @@ function setupEventListeners() {
   elements.clearSelectionBtn.addEventListener('click', resetTableProperties);
   // elements.reorderColumnsBtn.addEventListener('click', openColumnReorderModal); // Removed - now handled in HTML
   elements.createTableBtn.addEventListener('click', createTable);
-  // elements.collectCarbonKeysBtn.addEventListener('click', collectCarbonKeys); // Hidden test button
+  // elements.collectCarbonKeysBtn.addEventListener('click', collectCarbonKeys);
   elements.cancelPropsBtn.addEventListener('click', closePropertyEditor);
   elements.propertyEditorOverlay.addEventListener('click', (e) => {
     if (e.target === elements.propertyEditorOverlay) {
@@ -1306,14 +1306,11 @@ function analyzeSmartSlots(autoApply: boolean = false) {
   }
 }
 
-// Hidden test function - uncomment if needed
-/*
-function collectCarbonKeys() {
-  console.log('🔑 Collecting Carbon component keys...');
-  parent.postMessage({ pluginMessage: { type: 'collect-carbon-keys' } }, '*');
-  showMessage('Collecting Carbon component key...', 'success');
-}
-*/
+// function collectCarbonKeys() {
+//   console.log('🔑 Collecting Carbon component keys...');
+//   parent.postMessage({ pluginMessage: { type: 'collect-carbon-keys' } }, '*');
+//   showMessage('Collecting Carbon component key...', 'success');
+// }
 
 // Removed test functions: getComponentKeys, testSwapComponent
 
@@ -3754,6 +3751,14 @@ window.onmessage = (event) => {
           );
         }
 
+        // Helper function to clean URLs by removing protocol-relative prefix
+        const cleanUrl = (url: string): string => {
+          if (url.startsWith('//')) {
+            return url.substring(2); // Remove "//" prefix
+          }
+          return url;
+        };
+
         const applyAiData = (cellKey: string, data: string) => {
           const cellState = getCellState(cellKey);
           const textProp = getCellTextProp();
@@ -3762,10 +3767,14 @@ window.onmessage = (event) => {
           console.log(`[applyAiData] Cell ${cellKey} BEFORE: properties =`, cellState.properties);
           
           if (textProp) {
+            // Clean URL data before applying
+            const cleanedData = cleanUrl(data);
+            console.log(`🧹 Cleaned URL: "${data}" → "${cleanedData}"`);
+            
             // Always apply AI data, clearing any existing text
             // This ensures the latest AI-generated data takes precedence
-            cellState.properties[textProp] = data;
-            console.log(`🔄 Applied AI data to cell ${cellKey}: "${data}" to property "${textProp}"`);
+            cellState.properties[textProp] = cleanedData;
+            console.log(`🔄 Applied AI data to cell ${cellKey}: "${cleanedData}" to property "${textProp}"`);
             console.log(`[applyAiData] Cell ${cellKey} AFTER: properties[${textProp}] =`, cellState.properties[textProp]);
           } else {
             console.warn(`⚠️ No textProp found for cell ${cellKey}`);
@@ -3838,6 +3847,15 @@ window.onmessage = (event) => {
         const propertyTypes: { [key: string]: any } = state.selectedComponent?.propertyTypes || {};
         function getCellTextProp() { return availableProps.find(p => propertyTypes[p] === 'TEXT') || 'Cell text'; }
         function getTextVisibilityProp() { return availableProps.find(p => propertyTypes[p] === 'BOOLEAN' && (p.toLowerCase().includes('show') || p.toLowerCase().includes('text')) && !p.toLowerCase().includes('slot')); }
+        
+        // Helper function to clean URLs by removing protocol-relative prefix
+        const cleanUrl = (url: string): string => {
+          if (url.startsWith('//')) {
+            return url.substring(2); // Remove "//" prefix
+          }
+          return url;
+        };
+        
         const applyAiData = (cellKey: string, data: string) => {
           const cellState = getCellState(cellKey);
           const textProp = getCellTextProp();
@@ -3846,8 +3864,12 @@ window.onmessage = (event) => {
           console.log(`[applyAiData - Watson] Cell ${cellKey} BEFORE: properties =`, cellState.properties);
           
           if (textProp) {
-            cellState.properties[textProp] = data;
-            console.log(`🔄 Applied Watson AI data to cell ${cellKey}: "${data}" to property "${textProp}"`);
+            // Clean URL data before applying
+            const cleanedData = cleanUrl(data);
+            console.log(`🧹 [Watson] Cleaned URL: "${data}" → "${cleanedData}"`);
+            
+            cellState.properties[textProp] = cleanedData;
+            console.log(`🔄 Applied Watson AI data to cell ${cellKey}: "${cleanedData}" to property "${textProp}"`);
             console.log(`[applyAiData - Watson] Cell ${cellKey} AFTER: properties[${textProp}] =`, cellState.properties[textProp]);
           } else {
             console.warn(`⚠️ No textProp found for cell ${cellKey}`);
@@ -4805,6 +4827,17 @@ window.onmessage = (event) => {
                   console.log(`  📦 [UI] slotComponentProps stored:`, cellState.slotComponentProps);
                 }
                 
+                // For Overflow Menu: store configuration flag for backend
+                else if (suggestion.suggestedComponent === 'overflow') {
+                  // Store the information needed for overflow menu configuration
+                  // The backend will handle setting the Content group alignment to top right
+                  cellState.slotComponentProps = {
+                    'suggestedComponent': 'overflow'  // Flag to indicate this is an overflow menu
+                  };
+                  console.log(`  📋 Set Overflow Menu for cell ${cellKey}`);
+                  console.log(`  📦 [UI] slotComponentProps stored:`, cellState.slotComponentProps);
+                }
+                
                 // For single Edit action: simple icon swap (no slot group needed)
                 else if (suggestion.suggestedComponent === 'edit') {
                   // No special configuration needed - just the swap
@@ -4815,6 +4848,18 @@ window.onmessage = (event) => {
                 else if (suggestion.suggestedComponent === 'delete') {
                   // No special configuration needed - just the swap
                   console.log(`  🗑️ Set single Delete icon for cell ${cellKey}`);
+                }
+                
+                // For Link: store link information for configuration
+                else if (suggestion.suggestedComponent === 'link' && cellText) {
+                  // Store the information needed for link configuration
+                  // The backend will handle configuring the link text and properties
+                  cellState.slotComponentProps = {
+                    'suggestedComponent': 'link',  // Flag to indicate this is a link component
+                    'linkText': cellText  // The text to display in the link
+                  };
+                  console.log(`  🔗 Set Link: linkText="${cellText}"`);
+                  console.log(`  📦 [UI] slotComponentProps stored:`, cellState.slotComponentProps);
                 }
               }
             }
