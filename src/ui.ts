@@ -3759,17 +3759,26 @@ window.onmessage = (event) => {
           const textProp = getCellTextProp();
           const visibilityProp = getTextVisibilityProp();
 
+          console.log(`[applyAiData] Cell ${cellKey} BEFORE: properties =`, cellState.properties);
+          
           if (textProp) {
             // Always apply AI data, clearing any existing text
             // This ensures the latest AI-generated data takes precedence
             cellState.properties[textProp] = data;
-            console.log(`🔄 Applied AI data to cell ${cellKey}: "${data}"`);
+            console.log(`🔄 Applied AI data to cell ${cellKey}: "${data}" to property "${textProp}"`);
+            console.log(`[applyAiData] Cell ${cellKey} AFTER: properties[${textProp}] =`, cellState.properties[textProp]);
+          } else {
+            console.warn(`⚠️ No textProp found for cell ${cellKey}`);
           }
           if (visibilityProp) {
             // Ensure the text is visible
             cellState.properties[visibilityProp] = true;
           }
           state.selectedCells.add(cellKey);
+          
+          // ✅ FIX: Explicitly save the updated cell state back to state.cellProperties
+          state.cellProperties.set(cellKey, cellState);
+          console.log(`✅ Saved updated cell state for ${cellKey} to state.cellProperties`);
         };
 
         if (mode === 'cell') {
@@ -3833,9 +3842,22 @@ window.onmessage = (event) => {
           const cellState = getCellState(cellKey);
           const textProp = getCellTextProp();
           const visibilityProp = getTextVisibilityProp();
-          if (textProp) cellState.properties[textProp] = data;
+          
+          console.log(`[applyAiData - Watson] Cell ${cellKey} BEFORE: properties =`, cellState.properties);
+          
+          if (textProp) {
+            cellState.properties[textProp] = data;
+            console.log(`🔄 Applied Watson AI data to cell ${cellKey}: "${data}" to property "${textProp}"`);
+            console.log(`[applyAiData - Watson] Cell ${cellKey} AFTER: properties[${textProp}] =`, cellState.properties[textProp]);
+          } else {
+            console.warn(`⚠️ No textProp found for cell ${cellKey}`);
+          }
           if (visibilityProp) cellState.properties[visibilityProp] = true;
           state.selectedCells.add(cellKey);
+          
+          // ✅ FIX: Explicitly save the updated cell state back to state.cellProperties
+          state.cellProperties.set(cellKey, cellState);
+          console.log(`✅ Saved updated cell state for ${cellKey} to state.cellProperties`);
         };
         if (mode === 'cell') {
           applyAiData(key, wx[0]);
@@ -4543,6 +4565,57 @@ window.onmessage = (event) => {
     
     case 'auto-apply-smart-slots':
       console.log('🤖 [UI] Auto-applying smart slot suggestions:', msg.suggestions);
+      
+      // ✅ FIX: First, clear ALL existing slots from all cells to start fresh
+      console.log('🧹 [UI] Clearing all existing slots before applying new ones...');
+      for (let row = 1; row <= state.gridRows; row++) {
+        for (let col = 1; col <= state.gridCols; col++) {
+          const cellKey = `${row},${col}`;
+          const cellState = getCellState(cellKey);
+          
+          // Clear slot properties
+          if (state.selectedComponent?.availableProperties) {
+            const slotProp = state.selectedComponent.availableProperties.find((p: string) => 
+              p.toLowerCase().includes('slot') && !p.toLowerCase().includes('swap')
+            );
+            const swapSlotProp = state.selectedComponent.availableProperties.find((p: string) => 
+              p.toLowerCase().includes('swap') && p.toLowerCase().includes('slot')
+            );
+            
+            if (slotProp) {
+              cellState.properties[slotProp] = false;
+              cellState.slot = false;
+            }
+            if (swapSlotProp) {
+              cellState.properties[swapSlotProp] = null;
+            }
+          }
+          
+          // Clear slot component properties
+          cellState.slotComponentProps = null;
+          cellState.slotComponentName = null;
+          cellState.statusIconText = null;
+          
+          // Re-enable "Show text" since slot is disabled
+          if (state.selectedComponent?.availableProperties) {
+            const showTextProp = state.selectedComponent.availableProperties.find((p: string) => 
+              p.toLowerCase().includes('show') && p.toLowerCase().includes('text')
+            );
+            if (showTextProp) {
+              cellState.properties[showTextProp] = true;
+              cellState.customCellTextEnabled = true;
+            }
+          }
+          
+          // Save the cleared state
+          state.cellProperties.set(cellKey, cellState);
+        }
+      }
+      console.log('✅ [UI] Cleared all existing slots');
+      
+      // Update grid visuals to reflect cleared slots
+      updateCellVisuals();
+      
       if (msg.suggestions && msg.suggestions.length > 0) {
         // Apply each suggestion to the corresponding column
         msg.suggestions.forEach((suggestion: any) => {
