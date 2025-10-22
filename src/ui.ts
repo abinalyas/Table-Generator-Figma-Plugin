@@ -41,7 +41,7 @@ interface Elements {
   actionButtons: HTMLElement;
   createTableBtn: HTMLButtonElement;
   clearSelectionBtn: HTMLButtonElement;
-  // collectCarbonKeysBtn: HTMLButtonElement;
+  collectCarbonKeysBtn: HTMLButtonElement;
   propertyEditor: HTMLElement;
   propertyEditorTitle: HTMLElement;
   editingCellCoords: HTMLElement;
@@ -198,7 +198,7 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.actionButtons = document.getElementById('actionButtons')!;
   elements.createTableBtn = document.getElementById('createTableBtn') as HTMLButtonElement;
   elements.clearSelectionBtn = document.getElementById('clearSelectionBtn') as HTMLButtonElement;
-  // elements.collectCarbonKeysBtn = document.getElementById('collectCarbonKeysBtn') as HTMLButtonElement;
+  elements.collectCarbonKeysBtn = document.getElementById('collectCarbonKeysBtn') as HTMLButtonElement;
   elements.propertyEditor = document.getElementById('propertyEditor')!;
   
   // Request current selection check on plugin load
@@ -824,7 +824,7 @@ function setupEventListeners() {
   elements.clearSelectionBtn.addEventListener('click', resetTableProperties);
   // elements.reorderColumnsBtn.addEventListener('click', openColumnReorderModal); // Removed - now handled in HTML
   elements.createTableBtn.addEventListener('click', createTable);
-  // elements.collectCarbonKeysBtn.addEventListener('click', collectCarbonKeys);
+  elements.collectCarbonKeysBtn.addEventListener('click', collectCarbonKeys);
   elements.cancelPropsBtn.addEventListener('click', closePropertyEditor);
   elements.propertyEditorOverlay.addEventListener('click', (e) => {
     if (e.target === elements.propertyEditorOverlay) {
@@ -1313,11 +1313,11 @@ function analyzeSmartSlots(autoApply: boolean = false) {
   }
 }
 
-// function collectCarbonKeys() {
-//   console.log('🔑 Collecting Carbon component keys...');
-//   parent.postMessage({ pluginMessage: { type: 'collect-carbon-keys' } }, '*');
-//   showMessage('Collecting Carbon component key...', 'success');
-// }
+function collectCarbonKeys() {
+  console.log('🔑 Collecting Carbon component keys...');
+  parent.postMessage({ pluginMessage: { type: 'collect-carbon-keys' } }, '*');
+  showMessage('Collecting Carbon component key...', 'success');
+}
 
 // Removed test functions: getComponentKeys, testSwapComponent
 
@@ -3182,6 +3182,35 @@ async function saveCellProperties() {
         return;
       }
     }
+    
+    // For generated tables, save cell properties to backend without rebuilding table
+    if (state.tableFrameId) {
+      console.log('💾 [UI] Saving cell properties to backend...');
+      
+      // Apply sorting before saving to ensure sorted state is preserved
+      if (state.gridRows > 0 && state.gridCols > 0) {
+        const sortedCellProperties = sortColumnData(state.cellProperties, state.gridCols, state.gridRows);
+        state.cellProperties = sortedCellProperties;
+        console.log('🔄 [UI] Applied sorting before saving cell properties');
+      }
+      
+      // Convert Map to object properly
+      const cellPropertiesObj: { [key: string]: any } = {};
+      for (const [key, value] of state.cellProperties.entries()) {
+        cellPropertiesObj[key] = value;
+      }
+      
+      // Send cell properties to backend for saving (without rebuilding table)
+      parent.postMessage({
+        pluginMessage: {
+          type: 'save-cell-properties',
+          tableId: state.tableFrameId,
+          cellProperties: cellPropertiesObj
+        }
+      }, '*');
+      console.log('💾 [UI] Sent save-cell-properties message to backend');
+    }
+    
     closePropertyEditor();
     updateCellVisuals();
     markChangesForReset(); // Enable reset button after cell properties are saved
@@ -5624,7 +5653,16 @@ function createColumnItem(columnIndex: number): HTMLElement {
   return item;
 }
 
+// Flag to prevent duplicate event listener setup
+let modalListenersSetup = false;
+
 function setupColumnReorderModalListeners() {
+  // Prevent duplicate event listener setup
+  if (modalListenersSetup) {
+    console.log('🔧 [setupColumnReorderModalListeners] Event listeners already setup, skipping...');
+    return;
+  }
+  
   const closeBtn = document.getElementById('closeReorderModal');
   const cancelBtn = document.getElementById('cancelReorderBtn');
   const applyBtn = document.getElementById('applyReorderBtn');
@@ -5660,6 +5698,10 @@ function setupColumnReorderModalListeners() {
   overlay?.addEventListener('click', (e) => {
     if (e.target === overlay) closeModal();
   });
+  
+  // Mark as setup
+  modalListenersSetup = true;
+  console.log('🔧 [setupColumnReorderModalListeners] Event listeners setup complete');
 }
 
 let draggedElement: HTMLElement | null = null;
@@ -5736,7 +5778,12 @@ function applyColumnReorder() {
     .filter(item => !item.classList.contains('deleted'))
     .map(item => parseInt(item.dataset.columnIndex || '0'));
   
-  console.log('Remaining columns:', remainingColumns);
+  console.log('🔀 [applyColumnReorder] Column items in DOM order:', columnItems.map(item => ({
+    index: item.dataset.columnIndex,
+    name: item.querySelector('.column-name')?.textContent,
+    deleted: item.classList.contains('deleted')
+  })));
+  console.log('🔀 [applyColumnReorder] Remaining columns (original indices):', remainingColumns);
   
   // Apply the reordering and deletion to the table data
   reorderAndDeleteColumns(remainingColumns);
@@ -5759,6 +5806,8 @@ function applyColumnReorder() {
 }
 
 function reorderAndDeleteColumns(remainingColumns: number[]) {
+  console.log('🔄 [reorderAndDeleteColumns] Starting reorder with columns:', remainingColumns);
+  
   // Update grid column count
   const newColCount = remainingColumns.length;
   state.gridCols = newColCount;
@@ -5774,6 +5823,7 @@ function reorderAndDeleteColumns(remainingColumns: number[]) {
     const headerData = state.cellProperties.get(oldKey);
     if (headerData) {
       newCellProperties.set(newKey, headerData);
+      console.log(`🔄 [reorderAndDeleteColumns] Moved header ${oldCol} → ${newCol} (${oldKey} → ${newKey})`);
     }
   });
   

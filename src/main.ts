@@ -1896,6 +1896,39 @@ figma.ui.onmessage = async (msg: any) => {
             figma.notify(`Error: ${error.message}`);
         }
     
+    } else if (msg.type === "save-cell-properties") {
+        // New handler for saving cell properties in generated tables without rebuilding
+        const { tableId, cellProperties } = msg as { tableId: string, cellProperties: { [key: string]: any } };
+        try {
+            const tableNode = figma.getNodeById(tableId);
+            if (!tableNode || (tableNode.type !== 'FRAME' && tableNode.type !== 'COMPONENT')) {
+                figma.notify('❌ Table not found for saving cell properties');
+                return;
+            }
+            
+            // Save cell properties to table metadata
+            const existingSettings = tableNode.getPluginData('tableSettings');
+            let tableSettings: any = {};
+            if (existingSettings) {
+                try {
+                    tableSettings = JSON.parse(existingSettings);
+                } catch (error) {
+                    console.error('Error parsing existing table settings:', error);
+                }
+            }
+            
+            // Update cell properties in settings
+            tableSettings.cellProperties = cellProperties;
+            tableNode.setPluginData('tableSettings', JSON.stringify(tableSettings));
+            
+            console.log('💾 [Backend] Saved cell properties to table metadata');
+            figma.notify('✅ Cell properties saved');
+            
+        } catch (error: any) {
+            console.error('Error saving cell properties:', error);
+            figma.notify('❌ Error saving cell properties');
+        }
+    
     } else if (msg.type === "save-watsonx-api-key") {
         try {
             const { apiKey } = msg;
@@ -3483,7 +3516,12 @@ figma.ui.onmessage = async (msg: any) => {
                                                                 firstSlot.swapComponent(editComponent);
                                                                 secondSlot.swapComponent(deleteComponent);
                                                                 
+                                                                // Set size for edit and delete icons to 16px x 16px
+                                                                firstSlot.resize(16, 16);
+                                                                secondSlot.resize(16, 16);
+                                                                
                                                                 console.log(`  ✅ Nested slots swapped for edit/delete!`);
+                                                                console.log(`  📏 Set edit and delete icons to 16px x 16px`);
                                                             }
                                                             
                                                             // Now configure components (only for user names)
@@ -3747,13 +3785,13 @@ figma.ui.onmessage = async (msg: any) => {
                                                             console.log(`  🚫 Set Icon: False`);
                                                         }
                                                         
-                                                        // Handle "Swap icon" separately - set to null instead of false
+                                                        // Handle "Swap icon" separately - set to false instead of null
                                                         const swapIconProp = Object.keys(linkComponent.componentProperties).find(prop => 
                                                             prop.toLowerCase().includes('swap') && prop.toLowerCase().includes('icon')
                                                         );
                                                         if (swapIconProp) {
-                                                            linkProps[swapIconProp] = null;
-                                                            console.log(`  🔄 Set Swap icon: null`);
+                                                            linkProps[swapIconProp] = false;
+                                                            console.log(`  🔄 Set Swap icon: false`);
                                                         }
                                                         
                                                         // Set Link text to the cell value
@@ -5659,6 +5697,11 @@ figma.ui.onmessage = async (msg: any) => {
                                                         // Swap Delete icon into second slot
                                                         textSlot.swapComponent(deleteComponent);
                                                         console.log(`  ✅ [UPDATE] Swapped Delete icon`);
+                                                        
+                                                        // Set size for edit and delete icons to 16px x 16px
+                                                        avatarSlot.resize(16, 16);
+                                                        textSlot.resize(16, 16);
+                                                        console.log(`  📏 [UPDATE] Set edit and delete icons to 16px x 16px`);
                                                     }
                                                 } else {
                                                     console.warn(`  ⚠️ [UPDATE] Expected 2 slot instances, found ${slotInstances.length}`);
@@ -5817,13 +5860,13 @@ figma.ui.onmessage = async (msg: any) => {
                                                 console.log(`  🚫 [UPDATE] Set Icon: False`);
                                             }
                                             
-                                            // Handle "Swap icon" separately - set to null instead of false
+                                            // Handle "Swap icon" separately - set to false instead of null
                                             const swapIconProp = Object.keys(linkComponent.componentProperties).find(prop => 
                                                 prop.toLowerCase().includes('swap') && prop.toLowerCase().includes('icon')
                                             );
                                             if (swapIconProp) {
-                                                linkProps[swapIconProp] = null;
-                                                console.log(`  🔄 [UPDATE] Set Swap icon: null`);
+                                                linkProps[swapIconProp] = false;
+                                                console.log(`  🔄 [UPDATE] Set Swap icon: false`);
                                             }
                                                 
                                                 // Set Link text to the cell value
