@@ -41,7 +41,7 @@ interface Elements {
   actionButtons: HTMLElement;
   createTableBtn: HTMLButtonElement;
   clearSelectionBtn: HTMLButtonElement;
-  collectCarbonKeysBtn: HTMLButtonElement;
+  // collectCarbonKeysBtn: HTMLButtonElement;
   propertyEditor: HTMLElement;
   propertyEditorTitle: HTMLElement;
   editingCellCoords: HTMLElement;
@@ -198,7 +198,7 @@ window.addEventListener('DOMContentLoaded', () => {
   elements.actionButtons = document.getElementById('actionButtons')!;
   elements.createTableBtn = document.getElementById('createTableBtn') as HTMLButtonElement;
   elements.clearSelectionBtn = document.getElementById('clearSelectionBtn') as HTMLButtonElement;
-  elements.collectCarbonKeysBtn = document.getElementById('collectCarbonKeysBtn') as HTMLButtonElement;
+  // elements.collectCarbonKeysBtn = document.getElementById('collectCarbonKeysBtn') as HTMLButtonElement;
   elements.propertyEditor = document.getElementById('propertyEditor')!;
   
   // Request current selection check on plugin load
@@ -420,12 +420,10 @@ window.addEventListener('DOMContentLoaded', () => {
     // API key validation removed - now using Code Engine proxy server
     const apiKey = ''; // Not needed when using proxy server
 
-    // Debug: Log what we're sending to the backend
+    // Debug: Log what we're sending to the backend (sensitive data removed)
     console.log('=== DEBUG: UI sending generate-table-with-ai message ===');
-    console.log('Prompt:', prompt);
     console.log('Rows:', rows);
     console.log('Cols:', cols);
-    console.log('API Key length:', apiKey.length);
     console.log('=== END DEBUG ===');
 
     parent.postMessage({ pluginMessage: { type: 'generate-table-with-ai', prompt, apiKey, rows, cols } }, '*');
@@ -824,7 +822,7 @@ function setupEventListeners() {
   elements.clearSelectionBtn.addEventListener('click', resetTableProperties);
   // elements.reorderColumnsBtn.addEventListener('click', openColumnReorderModal); // Removed - now handled in HTML
   elements.createTableBtn.addEventListener('click', createTable);
-  elements.collectCarbonKeysBtn.addEventListener('click', collectCarbonKeys);
+  // elements.collectCarbonKeysBtn.addEventListener('click', collectCarbonKeys);
   elements.cancelPropsBtn.addEventListener('click', closePropertyEditor);
   elements.propertyEditorOverlay.addEventListener('click', (e) => {
     if (e.target === elements.propertyEditorOverlay) {
@@ -1313,11 +1311,11 @@ function analyzeSmartSlots(autoApply: boolean = false) {
   }
 }
 
-function collectCarbonKeys() {
-  console.log('🔑 Collecting Carbon component keys...');
-  parent.postMessage({ pluginMessage: { type: 'collect-carbon-keys' } }, '*');
-  showMessage('Collecting Carbon component key...', 'success');
-}
+// function collectCarbonKeys() {
+//   console.log('🔑 Collecting Carbon component keys...');
+//   parent.postMessage({ pluginMessage: { type: 'collect-carbon-keys' } }, '*');
+//   showMessage('Collecting Carbon component key...', 'success');
+// }
 
 // Removed test functions: getComponentKeys, testSwapComponent
 
@@ -2740,9 +2738,8 @@ async function saveCellProperties() {
           newProps[name] = (input as HTMLInputElement).checked;
         } else {
           const inputValue = input.value;
-          if (inputValue || !existingProps[name]) {
-            newProps[name] = inputValue || defaultValue || '';
-          }
+          // Always save the input value, even if it's empty (to allow clearing text)
+          newProps[name] = inputValue || defaultValue || '';
         }
       }
 
