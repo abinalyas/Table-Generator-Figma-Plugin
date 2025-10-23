@@ -3767,14 +3767,7 @@ figma.ui.onmessage = async (msg: any) => {
                                                             console.log(`  📏 Set Size: Medium`);
                                                         }
                                                         
-                                                        // Set Inline to True
-                                                        const inlineProp = Object.keys(linkComponent.componentProperties).find(prop => 
-                                                            prop.toLowerCase().includes('inline')
-                                                        );
-                                                        if (inlineProp) {
-                                                            linkProps[inlineProp] = true;
-                                                            console.log(`  🔗 Set Inline: True`);
-                                                        }
+                                                        // Skip Inline property - let it use default value
                                                         
                                                         // Set Icon to False (but skip "Swap icon" as it expects a component instance)
                                                         const iconProp = Object.keys(linkComponent.componentProperties).find(prop => 
@@ -3785,14 +3778,7 @@ figma.ui.onmessage = async (msg: any) => {
                                                             console.log(`  🚫 Set Icon: False`);
                                                         }
                                                         
-                                                        // Handle "Swap icon" separately - set to false instead of null
-                                                        const swapIconProp = Object.keys(linkComponent.componentProperties).find(prop => 
-                                                            prop.toLowerCase().includes('swap') && prop.toLowerCase().includes('icon')
-                                                        );
-                                                        if (swapIconProp) {
-                                                            linkProps[swapIconProp] = false;
-                                                            console.log(`  🔄 Set Swap icon: false`);
-                                                        }
+                                                        // Skip "Swap icon" property - it's causing validation errors
                                                         
                                                         // Set Link text to the cell value
                                                         const linkTextProp = Object.keys(linkComponent.componentProperties).find(prop => 
@@ -3808,6 +3794,28 @@ figma.ui.onmessage = async (msg: any) => {
                                                             try {
                                                                 linkComponent.setProperties(linkProps);
                                                                 console.log(`  ✅ Set link properties:`, linkProps);
+                                                                
+                                                                // Set layout sizing for ALL elements inside Link component to fill container
+                                                                setTimeout(() => {
+                                                                    console.log(`  🔍 [Link Layout] Setting ALL elements in Link component to fill container...`);
+                                                                    console.log(`  🔍 [Link Layout] Link component children:`, linkComponent.children.map(c => ({ name: c.name, type: c.type })));
+                                                                    
+                                                                    // Find ALL elements inside the Link component (recursively)
+                                                                    const allElements = linkComponent.findAll(node => 
+                                                                        node.type === 'TEXT' || node.type === 'FRAME' || node.type === 'GROUP'
+                                                                    );
+                                                                    
+                                                                    console.log(`  🔍 [Link Layout] Found ${allElements.length} total elements to configure:`, allElements.map(e => ({ name: e.name, type: e.type })));
+                                                                    
+                                                                    allElements.forEach(element => {
+                                                                        console.log(`  📐 [Link Layout] Setting ${element.name} (${element.type}) to fill container`);
+                                                                        (element as any).layoutSizingHorizontal = 'FILL';
+                                                                        (element as any).layoutSizingVertical = 'FILL';
+                                                                        console.log(`  ✅ [Link Layout] Set ${element.name} to fill container`);
+                                                                    });
+                                                                    
+                                                                    console.log(`  🎯 [Link Layout] Configured ${allElements.length} elements to fill container`);
+                                                                }, 100);
                                                             } catch (error) {
                                                                 console.error(`  ❌ Error setting link properties:`, error);
                                                                 console.log(`  🔍 Attempting to set properties individually...`);
@@ -5842,14 +5850,7 @@ figma.ui.onmessage = async (msg: any) => {
                                                     console.log(`  📏 [UPDATE] Set Size: Medium`);
                                                 }
                                                 
-                                                // Set Inline to True
-                                                const inlineProp = Object.keys(linkComponent.componentProperties).find(prop => 
-                                                    prop.toLowerCase().includes('inline')
-                                                );
-                                                if (inlineProp) {
-                                                    linkProps[inlineProp] = true;
-                                                    console.log(`  🔗 [UPDATE] Set Inline: True`);
-                                                }
+                                                // Skip Inline property - let it use default value
                                                 
                                             // Set Icon to False (but skip "Swap icon" as it expects a component instance)
                                             const iconProp = Object.keys(linkComponent.componentProperties).find(prop => 
@@ -5860,14 +5861,7 @@ figma.ui.onmessage = async (msg: any) => {
                                                 console.log(`  🚫 [UPDATE] Set Icon: False`);
                                             }
                                             
-                                            // Handle "Swap icon" separately - set to false instead of null
-                                            const swapIconProp = Object.keys(linkComponent.componentProperties).find(prop => 
-                                                prop.toLowerCase().includes('swap') && prop.toLowerCase().includes('icon')
-                                            );
-                                            if (swapIconProp) {
-                                                linkProps[swapIconProp] = false;
-                                                console.log(`  🔄 [UPDATE] Set Swap icon: false`);
-                                            }
+                                            // Skip "Swap icon" property - it's causing validation errors
                                                 
                                                 // Set Link text to the cell value
                                                 const linkTextProp = Object.keys(linkComponent.componentProperties).find(prop => 
@@ -5883,6 +5877,28 @@ figma.ui.onmessage = async (msg: any) => {
                                                     try {
                                                         linkComponent.setProperties(linkProps);
                                                         console.log(`  ✅ [UPDATE] Set link properties:`, linkProps);
+                                                        
+                                                        // Set layout sizing for ALL elements inside Link component to fill container
+                                                        setTimeout(() => {
+                                                            console.log(`  🔍 [Link Layout UPDATE] Setting ALL elements in Link component to fill container...`);
+                                                            console.log(`  🔍 [Link Layout UPDATE] Link component children:`, linkComponent.children.map(c => ({ name: c.name, type: c.type })));
+                                                            
+                                                            // Find ALL elements inside the Link component (recursively)
+                                                            const allElements = linkComponent.findAll(node => 
+                                                                node.type === 'TEXT' || node.type === 'FRAME' || node.type === 'GROUP'
+                                                            );
+                                                            
+                                                            console.log(`  🔍 [Link Layout UPDATE] Found ${allElements.length} total elements to configure:`, allElements.map(e => ({ name: e.name, type: e.type })));
+                                                            
+                                                            allElements.forEach(element => {
+                                                                console.log(`  📐 [Link Layout UPDATE] Setting ${element.name} (${element.type}) to fill container`);
+                                                                (element as any).layoutSizingHorizontal = 'FILL';
+                                                                (element as any).layoutSizingVertical = 'FILL';
+                                                                console.log(`  ✅ [Link Layout UPDATE] Set ${element.name} to fill container`);
+                                                            });
+                                                            
+                                                            console.log(`  🎯 [Link Layout UPDATE] Configured ${allElements.length} elements to fill container`);
+                                                        }, 100);
                                                     } catch (error) {
                                                         console.error(`  ❌ [UPDATE] Error setting link properties:`, error);
                                                         console.log(`  🔍 [UPDATE] Attempting to set properties individually...`);

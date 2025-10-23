@@ -536,9 +536,14 @@ function createGrid() {
     gridContainer.style.minWidth = `${Math.max(totalWidth, 400)}px`;
   }
 
+  console.log(`[DEBUG] createGrid - Before sorting: gridCols=${state.gridCols}, gridRows=${state.gridRows}`);
+  console.log(`[DEBUG] createGrid - cellProperties keys:`, Array.from(state.cellProperties.keys()));
+  
   const sortedCellProperties = sortColumnData(state.cellProperties, state.gridCols, state.gridRows);
   // Update state with sorted data to ensure consistency
   state.cellProperties = sortedCellProperties;
+  
+  console.log(`[DEBUG] createGrid - After sorting: cellProperties keys:`, Array.from(state.cellProperties.keys()));
 
   let cellIndex = 0;
   for (let r = 1; r <= state.gridRows; r++) {
@@ -554,6 +559,7 @@ function createGrid() {
 
       const key = `${r},${c}`;
       const cellState = sortedCellProperties.get(key);
+      console.log(`[DEBUG] createGrid - Cell ${key}: cellState=`, cellState);
       let displayText = '';
       let hasSlotEnabled = false;
       
@@ -1184,13 +1190,38 @@ function restoreFormValues(originalValues: any) {
 }
 
 function getCellState(key: string) {
+  console.log(`[DEBUG] getCellState called for key: ${key}`);
+  console.log(`[DEBUG] getCellState - state.cellProperties exists:`, !!state.cellProperties);
+  console.log(`[DEBUG] getCellState - state.cellProperties type:`, typeof state.cellProperties);
+  
+  if (!state.cellProperties) {
+    console.error(`[DEBUG] getCellState - state.cellProperties is undefined!`);
+    return { properties: {}, slot: false };
+  }
+  
   if (!state.cellProperties.has(key)) {
+    console.log(`[DEBUG] getCellState - creating new cell state for key: ${key}`);
     state.cellProperties.set(key, { 
       properties: {},
       slot: false  // Initialize slot state as false
     });
   }
-  return state.cellProperties.get(key);
+  
+  const result = state.cellProperties.get(key);
+  console.log(`[DEBUG] getCellState - returning:`, result);
+  
+  // If result is undefined, create a new cell state
+  if (!result) {
+    console.log(`[DEBUG] getCellState - result was undefined, creating new cell state for key: ${key}`);
+    const newCellState = { 
+      properties: {},
+      slot: false
+    };
+    state.cellProperties.set(key, newCellState);
+    return newCellState;
+  }
+  
+  return result;
 }
 
 function initializeSlotVariables() {
@@ -1770,7 +1801,7 @@ function renderSlotComponentControls(key: string, cellState: any) {
   );
   
   // If not found in availableProperties, check if it exists in cellState.properties
-  if (!swapSlotProp && cellState.properties) {
+  if (!swapSlotProp && cellState && cellState.properties) {
     swapSlotProp = Object.keys(cellState.properties).find((p: string) => 
       p.toLowerCase().includes('swap') && p.toLowerCase().includes('slot')
     );
@@ -1780,7 +1811,7 @@ function renderSlotComponentControls(key: string, cellState: any) {
   const currentSlotState = cellState.slot || false;
   
   // For backward compatibility, also check existing slot indicators
-  const hasSwapSlot = swapSlotProp && cellState.properties ? cellState.properties[swapSlotProp] : null;
+  const hasSwapSlot = swapSlotProp && cellState && cellState.properties ? cellState.properties[swapSlotProp] : null;
   const hasExistingSlot = cellState.slotComponentProps || cellState.statusIconText || hasSwapSlot;
   
   // If slot is not explicitly set but we have existing slot indicators, set it
@@ -1798,8 +1829,8 @@ function renderSlotComponentControls(key: string, cellState: any) {
     hasStatusIconText: !!cellState.statusIconText,
     hasSwapSlot: !!hasSwapSlot,
     swapSlotProp,
-    swapSlotValue: (hasSwapSlot && swapSlotProp) ? cellState.properties[swapSlotProp] : null,
-    cellStateProperties: cellState.properties,
+    swapSlotValue: (hasSwapSlot && swapSlotProp && cellState && cellState.properties) ? cellState.properties[swapSlotProp] : null,
+    cellStateProperties: cellState && cellState.properties ? cellState.properties : {},
     hasSlot
   });
   
@@ -1874,7 +1905,7 @@ function renderSlotComponentControls(key: string, cellState: any) {
   slotSection.appendChild(title);
   
   // Component name (read-only - just shows which component is being used)
-  if (swapSlotProp && cellState.properties[swapSlotProp]) {
+  if (swapSlotProp && cellState && cellState.properties && cellState.properties[swapSlotProp]) {
     const componentField = document.createElement('div');
     componentField.className = 'property-field';
     componentField.innerHTML = `
@@ -2533,8 +2564,8 @@ function openPropertyEditorInternal(key: string) {
     }
 
     if (key.startsWith('header-')) {
-      const cellState = state.cellProperties.get(key);
-      props = (cellState && cellState.properties) ? cellState.properties : {};
+      const cellState = getCellState(key);
+      props = cellState.properties || {};
 
       // Apply default values for header cell properties
       for (const fieldDef of HEADER_CELL_MODEL) {
@@ -2547,8 +2578,8 @@ function openPropertyEditorInternal(key: string) {
       console.log('[DEBUG] openPropertyEditor header', { props });
       renderDynamicPropertyFieldsFromModel(HEADER_CELL_MODEL, props);
     } else if (key === 'footer') {
-      const cellState = state.cellProperties.get(key);
-      props = (cellState && cellState.properties) ? cellState.properties : {};
+      const cellState = getCellState(key);
+      props = cellState.properties || {};
       label = 'Footer';
       console.log('[DEBUG] openPropertyEditor footer', { props });
 
@@ -2556,7 +2587,18 @@ function openPropertyEditorInternal(key: string) {
       const footerModel = FOOTER_MODEL.filter(field => field.label === "Type");
       renderDynamicPropertyFieldsFromModel(footerModel, props);
     } else {
+      console.log(`[DEBUG] openPropertyEditor body cell ${key} - state.cellProperties exists:`, !!state.cellProperties);
+      console.log(`[DEBUG] openPropertyEditor body cell ${key} - state.cellProperties type:`, typeof state.cellProperties);
+      
       const cellState = getCellState(key);
+      console.log(`[DEBUG] openPropertyEditor body cell ${key} - getCellState returned:`, cellState);
+      console.log(`[DEBUG] openPropertyEditor body cell ${key} - cellState.properties exists:`, !!cellState?.properties);
+      
+      if (!cellState) {
+        console.error(`[DEBUG] openPropertyEditor body cell ${key} - getCellState returned undefined!`);
+        return;
+      }
+      
       props = cellState.properties || {};
       const [row, col] = key.split(',');
       label = `(${row},${col})`;
@@ -3208,6 +3250,9 @@ async function saveCellProperties() {
       console.log('💾 [UI] Sent save-cell-properties message to backend');
     }
     
+    console.log(`[DEBUG] saveCellProperties - Before closePropertyEditor: gridCols=${state.gridCols}, gridRows=${state.gridRows}`);
+    console.log(`[DEBUG] saveCellProperties - cellProperties keys before close:`, Array.from(state.cellProperties.keys()));
+    
     closePropertyEditor();
     updateCellVisuals();
     markChangesForReset(); // Enable reset button after cell properties are saved
@@ -3225,6 +3270,8 @@ async function saveCellProperties() {
   }
 
   // Refresh the grid to show visual changes (like slot styling)
+  console.log(`[DEBUG] saveCellProperties - Before createGrid: gridCols=${state.gridCols}, gridRows=${state.gridRows}`);
+  console.log(`[DEBUG] saveCellProperties - cellProperties keys before createGrid:`, Array.from(state.cellProperties.keys()));
   createGrid();
   
   // Refresh component info to ensure preview grid shows updated values
@@ -3259,7 +3306,7 @@ function updateCellVisuals() {
   document.querySelectorAll('.cell').forEach(cell => {
     const divCell = cell as HTMLDivElement;
     const key = `${divCell.dataset.row},${divCell.dataset.col}`;
-    const props = state.cellProperties.get(key);
+    const props = getCellState(key);
     console.log(`[updateCellVisuals] Cell ${key}:`, props);
 
     if (props && props.properties && Object.keys(props.properties).length > 0) {
@@ -3423,7 +3470,7 @@ function updateCellVisuals() {
       const cell = headerGrid.querySelector(`.header-cell:nth-child(${c})`) as HTMLDivElement;
       if (cell) {
         const key = `header-${c}`;
-        const props = state.cellProperties.get(key);
+        const props = getCellState(key);
         let displayText = '';
 
         // Try to get text from properties
@@ -3485,7 +3532,7 @@ function updateCellVisuals() {
   if (footerGrid) {
     const cell = footerGrid.querySelector('.footer-cell') as HTMLDivElement;
     if (cell) {
-      const props = state.cellProperties.get('footer');
+      const props = getCellState('footer');
       if (props && props.properties) {
         // Show Total items, Current page, or Total pages if present, else 'Footer'
         const text = props.properties['Total items#12006:49'] || props.properties['Current page#12006:39'] || props.properties['Total pages#12006:29'] || 'Footer';
@@ -4491,7 +4538,8 @@ window.onmessage = (event) => {
         state.selectedComponent = msg.component;
         
         // If actual dimensions are provided (from generated table metadata), use them
-        if (msg.actualRows !== undefined && msg.actualCols !== undefined) {
+        // BUT only if we're not currently editing a table (to prevent overwriting new columns)
+        if (msg.actualRows !== undefined && msg.actualCols !== undefined && !state.currentEditingCell) {
           console.log(`[UI] Updating grid dimensions from generated table metadata: ${msg.actualRows} rows × ${msg.actualCols} columns`);
           state.gridRows = msg.actualRows;
           state.gridCols = msg.actualCols;
