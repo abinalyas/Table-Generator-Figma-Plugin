@@ -1224,6 +1224,71 @@ function getCellState(key: string) {
   return result;
 }
 
+// Function to determine default column width based on content type (UI version)
+function getDefaultColumnWidthUI(columnIndex: number): number {
+  // Check header text to determine column type
+  const headerKey = `header-${columnIndex}`;
+  const headerData = state.cellProperties.get(headerKey);
+  let headerText = '';
+  
+  if (headerData && headerData.properties) {
+    // Try to find text property in header
+    const textProps = Object.keys(headerData.properties).filter(prop => 
+      prop.toLowerCase().includes('text') && 
+      typeof headerData.properties[prop] === 'string' &&
+      headerData.properties[prop].trim() !== ''
+    );
+    if (textProps.length > 0) {
+      headerText = headerData.properties[textProps[0]].toLowerCase();
+    }
+  }
+  
+  // Check column content for action indicators
+  let hasActionContent = false;
+  let hasFullNameContent = false;
+  
+  // Sample a few cells to determine content type
+  for (let r = 1; r <= Math.min(3, state.gridRows); r++) { // Check first 3 rows
+    const cellKey = `${r},${columnIndex}`;
+    const cellData = state.cellProperties.get(cellKey);
+    if (cellData && cellData.properties) {
+      const textProps = Object.keys(cellData.properties).filter(prop => 
+        prop.toLowerCase().includes('text') && 
+        typeof cellData.properties[prop] === 'string'
+      );
+      
+      for (const textProp of textProps) {
+        const cellText = cellData.properties[textProp].toLowerCase();
+        
+        // Check for action indicators
+        if (cellText.includes('edit') || cellText.includes('delete') || 
+            cellText.includes('view') || cellText.includes('action') ||
+            cellText.includes('manage') || cellText.includes('options')) {
+          hasActionContent = true;
+        }
+        
+        // Check for full name indicators
+        if (cellText.includes(' ') && cellText.length > 10 && 
+            /^[a-zA-Z\s]+$/.test(cellText)) {
+          hasFullNameContent = true;
+        }
+      }
+    }
+  }
+  
+  // Determine width based on content type
+  if (hasActionContent || headerText.includes('action') || headerText.includes('manage')) {
+    console.log(`[getDefaultColumnWidthUI] Column ${columnIndex} detected as ACTION column - using 80px width`);
+    return 80;
+  } else if (hasFullNameContent || headerText.includes('name') || headerText.includes('full')) {
+    console.log(`[getDefaultColumnWidthUI] Column ${columnIndex} detected as FULL NAME column - using 160px width`);
+    return 160;
+  } else {
+    console.log(`[getDefaultColumnWidthUI] Column ${columnIndex} using default 120px width`);
+    return 120;
+  }
+}
+
 function initializeSlotVariables() {
   console.log('[initializeSlotVariables] Initializing slot variables for all cells');
   
@@ -2624,7 +2689,8 @@ function openPropertyEditorInternal(key: string) {
         }
       }
       if (width === undefined) {
-        width = 120;
+        const col = key.split('-')[1];
+        width = getDefaultColumnWidthUI(parseInt(col));
       }
       console.log('[DEBUG] Header col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width);
       if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'block';
@@ -2650,7 +2716,8 @@ function openPropertyEditorInternal(key: string) {
         }
       }
       if (width === undefined) {
-        width = 120;
+        const col = key.split(',')[1];
+        width = getDefaultColumnWidthUI(parseInt(col));
       }
       console.log('[DEBUG] Body col width UI exists?', !!elements.colWidthContainer, !!elements.colWidthInput, 'value to set:', width, 'for key', key);
       if (elements.colWidthContainer) elements.colWidthContainer.style.display = 'none';
@@ -5449,7 +5516,8 @@ function calculateTotalWidth(): number {
   let total = 0;
   
   widthInputs.forEach(input => {
-    const width = parseInt(input.value) || 120;
+    const columnIndex = parseInt(input.dataset.column || '1');
+    const width = parseInt(input.value) || getDefaultColumnWidthUI(columnIndex);
     total += width;
   });
   
@@ -5466,7 +5534,8 @@ function getColumnProportions(): number[] {
   let total = 0;
   
   widthInputs.forEach(input => {
-    const width = parseInt(input.value) || 120;
+    const columnIndex = parseInt(input.dataset.column || '1');
+    const width = parseInt(input.value) || getDefaultColumnWidthUI(columnIndex);
     widths.push(width);
     total += width;
   });
@@ -5576,7 +5645,7 @@ function applyColumnWidths() {
     
     const columnIndex = parseInt(item.dataset.columnIndex || '0');
     const widthInput = item.querySelector('.column-width-input') as HTMLInputElement;
-    const width = parseInt(widthInput?.value) || 120;
+    const width = parseInt(widthInput?.value) || getDefaultColumnWidthUI(columnIndex);
     
     console.log(`  Column ${columnIndex}: ${width}px`);
     
@@ -5654,7 +5723,7 @@ function createColumnItem(columnIndex: number): HTMLElement {
   }
   
   // Get column width from any cell in this column (check first row cells)
-  let columnWidth = 120; // Default width
+  let columnWidth = getDefaultColumnWidthUI(columnIndex); // Smart default width
   for (let row = 1; row <= state.gridRows; row++) {
     const cellKey = `${row},${columnIndex}`;
     const cellData = state.cellProperties.get(cellKey);

@@ -8,6 +8,71 @@ const pluginMaxHeight = 1000;
 const pluginMinWidth = 300;
 const pluginMinHeight = 400;
 
+// Function to determine default column width based on content type
+function getDefaultColumnWidth(columnIndex: number, cellProps: any, totalCols: number): number {
+    // Check header text to determine column type
+    const headerKey = `header-${columnIndex + 1}`;
+    const headerData = cellProps[headerKey];
+    let headerText = '';
+    
+    if (headerData && headerData.properties) {
+        // Try to find text property in header
+        const textProps = Object.keys(headerData.properties).filter(prop => 
+            prop.toLowerCase().includes('text') && 
+            typeof headerData.properties[prop] === 'string' &&
+            headerData.properties[prop].trim() !== ''
+        );
+        if (textProps.length > 0) {
+            headerText = headerData.properties[textProps[0]].toLowerCase();
+        }
+    }
+    
+    // Check column content for action indicators
+    let hasActionContent = false;
+    let hasFullNameContent = false;
+    
+    // Sample a few cells to determine content type
+    for (let r = 0; r < 3; r++) { // Check first 3 rows
+        const cellKey = `${r}-${columnIndex}`;
+        const cellData = cellProps[cellKey];
+        if (cellData && cellData.properties) {
+            const textProps = Object.keys(cellData.properties).filter(prop => 
+                prop.toLowerCase().includes('text') && 
+                typeof cellData.properties[prop] === 'string'
+            );
+            
+            for (const textProp of textProps) {
+                const cellText = cellData.properties[textProp].toLowerCase();
+                
+                // Check for action indicators
+                if (cellText.includes('edit') || cellText.includes('delete') || 
+                    cellText.includes('view') || cellText.includes('action') ||
+                    cellText.includes('manage') || cellText.includes('options')) {
+                    hasActionContent = true;
+                }
+                
+                // Check for full name indicators
+                if (cellText.includes(' ') && cellText.length > 10 && 
+                    /^[a-zA-Z\s]+$/.test(cellText)) {
+                    hasFullNameContent = true;
+                }
+            }
+        }
+    }
+    
+    // Determine width based on content type
+    if (hasActionContent || headerText.includes('action') || headerText.includes('manage')) {
+        console.log(`[getDefaultColumnWidth] Column ${columnIndex} detected as ACTION column - using 80px width`);
+        return 80;
+    } else if (hasFullNameContent || headerText.includes('name') || headerText.includes('full')) {
+        console.log(`[getDefaultColumnWidth] Column ${columnIndex} detected as FULL NAME column - using 160px width`);
+        return 160;
+    } else {
+        console.log(`[getDefaultColumnWidth] Column ${columnIndex} using default 120px width`);
+        return 120;
+    }
+}
+
 // Helper function to sort column data based on header properties
 function sortColumnData(cellProps: any, cols: number, rows: number): any {
     // Create a copy of the cellProps to avoid modifying the original
@@ -1112,19 +1177,19 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     const usernamePattern = /^[a-zA-Z0-9_]+$/; // Username pattern
     
     // Check if this is actually a name column (not email, username, etc.)
-    const isNameColumn = columnName.toLowerCase().includes('name') && 
-                        !columnName.toLowerCase().includes('user') && 
+    // Include "User" as a valid trigger for avatar slot group detection
+    const isNameColumn = (columnName.toLowerCase().includes('name') || columnName.toLowerCase().includes('user')) && 
                         !columnName.toLowerCase().includes('email');
     
     const emailMatch = nonEmptyData.filter(val => emailPattern.test(val)).length;
     const nameMatch = nonEmptyData.filter(val => namePattern.test(val)).length;
     const usernameMatch = nonEmptyData.filter(val => usernamePattern.test(val) && val.length <= 20).length;
     
-    console.log(`  🔍 [Name Check] Column "${columnName}" - nameMatch: ${nameMatch}/${nonEmptyData.length}, isNameColumn: ${isNameColumn}`);
+    console.log(`  🔍 [Name Check] Column "${columnName}" - nameMatch: ${nameMatch}/${nonEmptyData.length}, isNameColumn: ${isNameColumn} (includes 'name' or 'user')`);
     
     // Only suggest slotGroup for actual name columns with proper name patterns
     if (isNameColumn && nameMatch / nonEmptyData.length > 0.6) {
-        console.log(`  ✅ [Name Check] Detected as user name column - returning 'user'`);
+        console.log(`  ✅ [Name Check] Detected as user name column (${columnName}) - returning 'user' for avatar slot group`);
         return 'user';
     }
     
@@ -3156,7 +3221,10 @@ figma.ui.onmessage = async (msg: any) => {
                     }
                 }
                 if (!widthFound) {
-                    columnWidths[c] = 120;
+                    // Determine default width based on column content type
+                    const defaultWidth = getDefaultColumnWidth(c, cellProps, cols);
+                    columnWidths[c] = defaultWidth;
+                    console.log(`[Backend] Column ${c} default width: ${defaultWidth}px`);
                 }
                 totalTableWidth += columnWidths[c];
             }
@@ -4327,6 +4395,9 @@ figma.ui.onmessage = async (msg: any) => {
                     
                     // Insert toolbar at the beginning (top) of the table
                     tableFrame.insertChild(0, toolbarClone);
+                    
+                    // Ensure toolbar stays at the top by setting its y position
+                    toolbarClone.y = 0;
                     console.log('✅ Successfully added toolbar to table at the top');
                 } catch (error) {
                     console.error('Error creating toolbar:', error);
@@ -4362,6 +4433,17 @@ figma.ui.onmessage = async (msg: any) => {
             }
 
             tableFrame.resize(totalTableWidth, tableFrame.height);
+            
+            // Ensure toolbar is always at the top after all elements are added
+            if (includeToolbar && toolbar) {
+                const toolbarElement = tableFrame.children.find(child => child.name === "Toolbar");
+                if (toolbarElement) {
+                    // Move toolbar to the very top
+                    tableFrame.insertChild(0, toolbarElement);
+                    toolbarElement.y = 0;
+                    console.log('✅ Final positioning: Toolbar moved to top with y=0');
+                }
+            }
             
             tableFrame.setPluginData('isGeneratedTable', 'true');
             const tableSettings = {
@@ -5333,8 +5415,10 @@ figma.ui.onmessage = async (msg: any) => {
                     }
                 }
                 if (!widthFound) {
-                    // Use default width of 120 for initial table generation
-                    columnWidths[c] = 120;
+                    // Determine default width based on column content type
+                    const defaultWidth = getDefaultColumnWidth(c, cellProps, cols);
+                    columnWidths[c] = defaultWidth;
+                    console.log(`[Backend] Column ${c} default width: ${defaultWidth}px`);
                 }
                 totalTableWidth += columnWidths[c];
             }
@@ -6319,6 +6403,9 @@ figma.ui.onmessage = async (msg: any) => {
                     
                     // Insert toolbar at the beginning (top) of the table
                     tableFrame.insertChild(0, toolbarClone);
+                    
+                    // Ensure toolbar stays at the top by setting its y position
+                    toolbarClone.y = 0;
                     console.log('✅ Successfully added toolbar to updated table at the top');
                 } catch (error) {
                     console.error('Error creating toolbar in update:', error);
