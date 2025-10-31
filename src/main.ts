@@ -662,7 +662,6 @@ async function performTableScan(tableFrame: SceneNode): Promise<ScanResult | nul
         return null;
     }
 }
-
 // Function to scan generated tables with their specific structure
 async function scanGeneratedTable(tableFrame: FrameNode | ComponentNode): Promise<ScanResult | null> {
     console.log('🔄 Scanning generated table:', tableFrame.name);
@@ -1073,6 +1072,17 @@ function analyzeColumnContent(columnData: string[], columnName: string): SmartSl
     }
     console.log(`  📊 [analyzeColumnContent] Column "${columnName}" has ${nonEmptyData.length} non-empty values`);
     
+    // --- Start: Detect currency columns and exclude from tag-split logic ---
+    // Regex for common currency formats, e.g. $1,234 or $1,234.56
+    const currencyPattern = /^(\$|₹|€|£)\d{1,3}(,\d{3})*(\.\d{2})?$/;
+    const currencyMatches = nonEmptyData.filter(val => currencyPattern.test(val.trim()));
+    // If >50% of values are currency, treat as text (not tags)
+    if (currencyMatches.length / nonEmptyData.length > 0.5) {
+        console.log(`  💵 [Currency Check] Detected currency column (matches: ${currencyMatches.length}/${nonEmptyData.length}) — treating as text, NOT tags.`);
+        return 'text';
+    }
+    // --- End: currency exclusion ---
+    
     // Define strong tag keywords at the top to use in multiple checks
     const strongTagKeywords = ['tag', 'category', 'type', 'label', 'priority', 'level', 'grade', 'class', 'role', 'tier', 'rank', 'group', 'department', 'team'];
     const hasStrongTagKeyword = strongTagKeywords.some(keyword => columnName.toLowerCase().includes(keyword));
@@ -1398,7 +1408,6 @@ function analyzeTableDataForSmartSlots(gridData: string[][], headers: string[]):
     console.log(`✅ Found ${suggestions.length} smart slot suggestions`);
     return suggestions;
 }
-
 // Function to discover all available components from libraries for swap slot
 async function discoverAvailableComponents(): Promise<ComponentNode[]> {
     console.log('🔍 Discovering available components from libraries...');
@@ -1754,7 +1763,7 @@ figma.ui.onmessage = async (msg: any) => {
             if (remember) {
                 try {
                     if (endpoint) await figma.clientStorage.setAsync('watsonx.endpoint', endpoint);
-                    // Store API key securely in clientStorage (still local to the user’s device)
+                    // Store API key securely in clientStorage (still local to the user's device)
                     if (apiKey) await figma.clientStorage.setAsync('watsonx.apiKey', apiKey);
                 } catch (e) {
                     console.warn('Failed to persist watsonx settings', e);
@@ -1944,8 +1953,18 @@ figma.ui.onmessage = async (msg: any) => {
                 
                 if (mainComponentSet && isValidVariantCombination(mainComponentSet, properties)) {
                     try {
-                await cell.setProperties(properties);
-                figma.notify('✅ Cell properties updated');
+                        const validProps = mapPropertyNames(properties, cell.componentProperties);
+                        console.log(`[SET PROPS DEBUG] For cell ${cellKey}:`, validProps);
+                        // Remove any key where the value is null or undefined
+                        Object.keys(validProps).forEach(k => {
+                            if (validProps[k] === null || validProps[k] === undefined) {
+                                console.warn(`[SET PROPS WARNING] For cell ${cellKey}: skipping property '${k}' due to value`, validProps[k]);
+                                delete validProps[k];
+                            }
+                        });
+                        console.log(`[SET PROPS DEBUG] For cell ${cellKey} (filtered):`, validProps);
+                        cell.setProperties(validProps);
+                        figma.notify('✅ Cell properties updated');
                     } catch (error) {
                         console.error('Error in update-cell-properties setProperties:', error);
                         figma.notify('❌ Error updating cell properties');
@@ -2076,7 +2095,6 @@ figma.ui.onmessage = async (msg: any) => {
             isValidComponent: false,
             clearUI: true
         });
-    
     } else if (msg.type === "request-component-info") {
         console.log('[Backend] Received request-component-info');
         
@@ -3136,7 +3154,6 @@ figma.ui.onmessage = async (msg: any) => {
             figma.notify('Failed to build table from AI data');
         }
         return;
-
     } else if (msg.type === 'create-table-from-scan') {
         if (isCreatingTable) {
             figma.notify("Already creating a table. Please wait.");
@@ -3485,19 +3502,30 @@ figma.ui.onmessage = async (msg: any) => {
                                     }
                                     
                                     const validProps = mapPropertyNames(propertiesToApply, cell.componentProperties);
-                                    
-                                    // Log if this cell has a Swap slot property
-                                    const swapSlotKey = Object.keys(validProps).find(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
-                                    if (swapSlotKey) {
-                                        console.log(`🔄 Cell ${key} has Swap slot: ${swapSlotKey} = ${validProps[swapSlotKey]}`);
-                                    }
-                                    
+                                    console.log(`[SET PROPS DEBUG] For cell ${key}:`, validProps);
+                                    // Remove any key where the value is null or undefined
+                                    Object.keys(validProps).forEach(k => {
+                                        if (validProps[k] === null || validProps[k] === undefined) {
+                                            console.warn(`[SET PROPS WARNING] For cell ${key}: skipping property '${k}' due to value`, validProps[k]);
+                                            delete validProps[k];
+                                        }
+                                    });
+                                    console.log(`[SET PROPS DEBUG] For cell ${key} (filtered):`, validProps);
                                     cell.setProperties(validProps);
                                     
                                     // If this cell has slot component properties (e.g., for Status Icon label)
                                     // Only apply slot component properties if slot is enabled
                                     const hasSwapSlot = Object.keys(validProps).some(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
-                                    const swapComponentId = swapSlotKey ? validProps[swapSlotKey] : null;
+                                    let swapComponentId: string | null = null;
+                                    let detectedSwapSlotKey: string | null = null;
+                                    for (const key of Object.keys(validProps)) {
+                                      if (key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot')) {
+                                        swapComponentId = validProps[key];
+                                        detectedSwapSlotKey = key;
+                                        break;
+                                      }
+                                    }
+                                    console.log(`[SET PROPS DEBUG] For cell ${key}, detected swap slot key:`, detectedSwapSlotKey, 'swapComponentId:', swapComponentId);
                                     
                                     if (cellData.slotComponentProps && isSlotEnabled && hasSwapSlot && swapComponentId) {
                                         // Store the cell reference and config for the async operation
@@ -3773,9 +3801,16 @@ figma.ui.onmessage = async (msg: any) => {
                                                                     prop.toLowerCase().includes('color') || prop.toLowerCase().includes('variant')
                                                                 );
                                                                 
-                                                                const tagProps: any = {};
+                                                                let tagProps: any = {};
                                                                 if (textProp) tagProps[textProp] = tagValue;
                                                                 if (colorProp) tagProps[colorProp] = color;
+                                                                
+                                                                // Remove all keys where value is null or undefined
+                                                                Object.keys(tagProps).forEach(key => {
+                                                                    if (tagProps[key] === null || tagProps[key] === undefined) {
+                                                                        delete tagProps[key];
+                                                                    }
+                                                                });
                                                                 
                                                                 if (Object.keys(tagProps).length > 0) {
                                                                     tagInstance.setProperties(tagProps);
@@ -3986,10 +4021,8 @@ figma.ui.onmessage = async (msg: any) => {
                                 } catch (e) { console.warn('Could not set properties for cell', key, e); }
                             }
                         }
-                        
                         // Add the data row to the body row item frame
                         bodyRowItemFrame.appendChild(rowFrame);
-                        
                         // Add divider after the data row (including the last row)
                         {
                             // Use original divider rectangle if available, otherwise fallback to component
@@ -4348,317 +4381,254 @@ figma.ui.onmessage = async (msg: any) => {
                                         }
                                     }
                                             
-                                            console.log('✅ Divider properties applied successfully');
-                                        } catch (error) {
-                                            console.error('❌ Error applying divider properties:', error);
-                                        }
-                                    }
-                                    
-                                    // Set divider width to match the table width
-                                    divider.resize(totalTableWidth, divider.height);
-                                    console.log('📏 Set divider width to:', totalTableWidth);
-                                    
-                                    bodyRowItemFrame.appendChild(divider);
-                                    console.log('✅ Added divider after row', r + 1);
-                                } catch (error) { 
-                                    console.error('Error creating divider instance:', error);
+                                    console.log('✅ Divider properties applied successfully');
+                                } catch (error) {
+                                    console.error('❌ Error applying divider properties:', error);
                                 }
-                            } else {
-                                console.log('⚠️ No divider component available for row', r + 1, '(update)');
                             }
+                            
+                            // Set divider width to match the table width
+                            divider.resize(totalTableWidth, divider.height);
+                            console.log('📏 Set divider width to:', totalTableWidth);
+                            
+                            bodyRowItemFrame.appendChild(divider);
+                            console.log('✅ Added divider after row', r + 1);
+                        } catch (error) { 
+                            console.error('Error creating divider instance:', error);
                         }
-                        
-                        bodyWrapperFrame.appendChild(bodyRowItemFrame);
-                    }
-                } catch (error) {
-                    console.error('Error creating body rows:', error);
-                    figma.notify('❌ Cannot generate table: body cell component is no longer available');
-                    return;
-                }
-            }
-
-            // Add toolbar if requested (placed at the top before header)
-            console.log('🔍 Toolbar generation check:', {
-                includeToolbar,
-                toolbarExists: !!toolbar,
-                toolbarName: toolbar?.name || 'null',
-                condition: includeToolbar && toolbar
-            });
-            
-            if (includeToolbar && toolbar) {
-                console.log('[Backend] Adding toolbar to table...');
-                try {
-                    const toolbarClone = toolbar.createInstance();
-                    toolbarClone.name = "Toolbar";
-                    toolbarClone.layoutSizingHorizontal = 'FIXED';
-                    toolbarClone.resize(totalTableWidth, toolbarClone.height);
-                    
-                    // Insert toolbar at the beginning (top) of the table
-                    tableFrame.insertChild(0, toolbarClone);
-                    
-                    // Ensure toolbar stays at the top by setting its y position
-                    toolbarClone.y = 0;
-                    console.log('✅ Successfully added toolbar to table at the top');
-                } catch (error) {
-                    console.error('Error creating toolbar:', error);
-                    figma.notify('⚠️ Toolbar component is no longer available');
-                }
-            } else if (includeToolbar && !toolbar) {
-                console.log('⚠️ Toolbar requested but not found in scan result');
-            } else if (!includeToolbar) {
-                console.log('ℹ️ Toolbar not requested (includeToolbar = false)');
-            } else {
-                console.log('ℹ️ Toolbar condition not met - includeToolbar:', includeToolbar, 'toolbar:', !!toolbar);
-            }
-
-            if (includeFooter && footer) {
-                try {
-                    const footerClone = footer.createInstance();
-                    const footerCellData = cellProps['footer'];
-                    if (footerCellData && footerCellData.properties) {
-                        const validProps = mapPropertyNames(footerCellData.properties, footerClone.componentProperties);
-                        try {
-                            footerClone.setProperties(validProps);
-                        } catch (error) { console.error('Error in footer setProperties:', error); }
-                    }
-                    if (footerClone) {
-                        footerClone.layoutSizingHorizontal = 'FIXED';
-                        footerClone.resize(totalTableWidth, footerClone.height);
-                        tableFrame.appendChild(footerClone);
-                    }
-                } catch (error) {
-                    console.error('Error creating footer:', error);
-                    figma.notify('⚠️ Footer component is no longer available');
-                }
-            }
-
-            tableFrame.resize(totalTableWidth, tableFrame.height);
-            
-            // Ensure toolbar is always at the top after all elements are added
-            if (includeToolbar && toolbar) {
-                const toolbarElement = tableFrame.children.find(child => child.name === "Toolbar");
-                if (toolbarElement) {
-                    // Move toolbar to the very top
-                    tableFrame.insertChild(0, toolbarElement);
-                    toolbarElement.y = 0;
-                    console.log('✅ Final positioning: Toolbar moved to top with y=0');
-                }
-            }
-            
-            tableFrame.setPluginData('isGeneratedTable', 'true');
-            const tableSettings = {
-                columns: msg.cols,
-                rows: msg.rows,
-                includeHeader: msg.includeHeader,
-                includeFooter: msg.includeFooter,
-                includeToolbar: msg.includeToolbar,
-                includeSelectable: msg.includeSelectable,
-                includeExpandable: msg.includeExpandable,
-                cellProperties: msg.cellProps,
-                bodyCellComponentId: lastScanResult?.bodyCell?.id || null, // Store body cell component ID for plugin reopen
-            };
-            console.log('[Backend] 💾 Saving table settings to frame...');
-            console.log(`[Backend]   - bodyCellComponentId: ${tableSettings.bodyCellComponentId || 'NULL'}`);
-            console.log(`[Backend]   - lastScanResult.bodyCell: ${lastScanResult?.bodyCell ? 'exists' : 'missing'}`);
-            console.log(`[Backend]   - lastScanResult.bodyCell.id: ${lastScanResult?.bodyCell?.id || 'missing'}`);
-            console.log(`[Backend]   - lastScanResult.bodyCell.name: ${lastScanResult?.bodyCell?.name || 'missing'}`);
-            console.log('[Backend] cellProperties keys:', Object.keys(msg.cellProps || {}));
-            tableFrame.setPluginData('tableSettings', JSON.stringify(tableSettings));
-            
-            // Store the scan result in the table frame for future updates
-            if (lastScanResult) {
-                try {
-                    const scanData = {
-                        headerCellId: lastScanResult.headerCell?.id || null,
-                        bodyCellId: lastScanResult.bodyCell?.id || null,
-                        footerId: lastScanResult.footer?.id || null,
-                        toolbarId: lastScanResult.toolbar?.id || null,
-                        selectCellId: lastScanResult.selectCellComponent?.id || null,
-                        expandCellId: lastScanResult.expandCellComponent?.id || null,
-                        dividerId: lastScanResult.dividerComponent?.id || null,
-                        numCols: lastScanResult.numCols,
-                        timestamp: Date.now(),
-                        // Store additional metadata for better restoration
-                        headerRowComponentId: lastScanResult.headerRowComponent?.id || null,
-                        bodyRowComponentId: lastScanResult.bodyRowComponent?.id || null,
-                        // Store header row properties for fill variables
-                        headerRowProperties: (lastScanResult as any).headerRowProperties || null,
-                        // Store divider properties for fill variables
-                        dividerProperties: (lastScanResult as any).dividerProperties || null,
-                        // Store original divider rectangle ID for direct cloning
-                        originalDividerRectId: (lastScanResult as any).originalDividerRect?.id || null,
-                        // Store component names for debugging
-                        componentNames: {
-                            headerCell: lastScanResult.headerCell?.name || null,
-                            bodyCell: lastScanResult.bodyCell?.name || null,
-                            footer: lastScanResult.footer?.name || null,
-                            selectCell: lastScanResult.selectCellComponent?.name || null,
-                            expandCell: lastScanResult.expandCellComponent?.name || null,
-                            divider: lastScanResult.dividerComponent?.name || null
-                        }
-                    };
-                    console.log('[Backend] 💾 Saving tableGeneratorScan to FRAME...');
-                    console.log(`[Backend]   - bodyCellId: ${scanData.bodyCellId || 'NULL'}`);
-                    console.log(`[Backend]   - headerCellId: ${scanData.headerCellId || 'NULL'}`);
-                    tableFrame.setPluginData('tableGeneratorScan', JSON.stringify(scanData));
-                    console.log('✅ Stored scan result in generated table for future updates');
-                    console.log('Stored scan data:', scanData);
-                } catch (error) {
-                    console.log('⚠️ Could not store scan result in generated table:', error);
-                }
-            }
-
-            // Convert the table frame to a component for reusability
-            try {
-                const tableComponent = figma.createComponent();
-                tableComponent.name = `Generated Table (${cols}×${rows})`;
-                tableComponent.resize(tableFrame.width, tableFrame.height);
-                
-                // Move all children from the frame to the component
-                const children = [...tableFrame.children];
-                for (const child of children) {
-                    tableComponent.appendChild(child);
-                }
-                
-                // Copy all properties from the frame to the component
-                tableComponent.layoutMode = tableFrame.layoutMode;
-                tableComponent.counterAxisSizingMode = tableFrame.counterAxisSizingMode;
-                tableComponent.primaryAxisSizingMode = tableFrame.primaryAxisSizingMode;
-                tableComponent.itemSpacing = tableFrame.itemSpacing;
-                tableComponent.paddingLeft = tableFrame.paddingLeft;
-                tableComponent.paddingRight = tableFrame.paddingRight;
-                tableComponent.paddingTop = tableFrame.paddingTop;
-                tableComponent.paddingBottom = tableFrame.paddingBottom;
-                tableComponent.fills = tableFrame.fills;
-                tableComponent.strokes = tableFrame.strokes;
-                tableComponent.strokeWeight = tableFrame.strokeWeight;
-                tableComponent.cornerRadius = tableFrame.cornerRadius;
-                tableComponent.effects = tableComponent.effects;
-                
-                // Copy plugin data
-                const isGeneratedData = tableFrame.getPluginData('isGeneratedTable');
-                const tableSettingsData = tableFrame.getPluginData('tableSettings');
-                const scanData = tableFrame.getPluginData('tableGeneratorScan');
-                
-                console.log('[Backend] 📋 Copying plugin data from frame to component...');
-                console.log(`  - isGeneratedTable: ${isGeneratedData ? 'exists' : 'missing'} (length: ${isGeneratedData?.length || 0})`);
-                console.log(`  - tableSettings: ${tableSettingsData ? 'exists' : 'missing'} (length: ${tableSettingsData?.length || 0})`);
-                console.log(`  - tableGeneratorScan: ${scanData ? 'exists' : 'missing'} (length: ${scanData?.length || 0})`);
-                
-                // Parse and log tableSettings to verify bodyCellComponentId
-                if (tableSettingsData) {
-                    try {
-                        const parsedSettings = JSON.parse(tableSettingsData);
-                        console.log(`  - tableSettings.bodyCellComponentId: ${parsedSettings.bodyCellComponentId || 'MISSING'}`);
-                        console.log(`  - tableSettings.rows: ${parsedSettings.rows}`);
-                        console.log(`  - tableSettings.columns: ${parsedSettings.columns}`);
-                    } catch (e) {
-                        console.error('  ❌ Failed to parse tableSettings:', e);
+                    } else {
+                        console.log('⚠️ No divider component available for row', r + 1, '(update)');
                     }
                 }
                 
-                tableComponent.setPluginData('isGeneratedTable', isGeneratedData);
-                tableComponent.setPluginData('tableSettings', tableSettingsData);
-                tableComponent.setPluginData('tableGeneratorScan', scanData);
-                
-                // Verify the data was set correctly
-                const verifyIsGen = tableComponent.getPluginData('isGeneratedTable');
-                const verifySettings = tableComponent.getPluginData('tableSettings');
-                const verifyScan = tableComponent.getPluginData('tableGeneratorScan');
-                console.log('[Backend] ✅ Verified plugin data on component:');
-                console.log(`  - isGeneratedTable: ${verifyIsGen ? 'exists' : 'missing'} (length: ${verifyIsGen?.length || 0})`);
-                console.log(`  - tableSettings: ${verifySettings ? 'exists' : 'missing'} (length: ${verifySettings?.length || 0})`);
-                console.log(`  - tableGeneratorScan: ${verifyScan ? 'exists' : 'missing'} (length: ${verifyScan?.length || 0})`);
-                
-                // Remove the original frame
-                tableFrame.remove();
-                
-                // Add the component to the page
-                figma.currentPage.appendChild(tableComponent);
-                figma.viewport.scrollAndZoomIntoView([tableComponent]);
-                
-                console.log('✅ Table converted to component successfully');
-                figma.notify('Table component created successfully!');
-                figma.ui.postMessage({ type: 'table-created', success: true, isComponent: true });
-                
-            } catch (error) {
-                console.error('❌ Error converting table to component:', error);
-                // Fallback: use the original frame
-                figma.currentPage.appendChild(tableFrame);
-                figma.viewport.scrollAndZoomIntoView([tableFrame]);
-                figma.notify('Table created successfully! (as frame)');
-                figma.ui.postMessage({ type: 'table-created', success: true, isComponent: false });
+                bodyWrapperFrame.appendChild(bodyRowItemFrame);
             }
-
         } catch (error) {
-            console.error('Error in create-table-from-scan:', error);
-            figma.notify('❌ An unexpected error occurred. Please check the console for details.');
-        } finally {
-            isCreatingTable = false;
-        }
-    } else if (msg.type === 'update-table-metadata') {
-        console.log('[Backend] Received update-table-metadata request');
-        
-        const tableId = msg.tableId;
-        const cellProperties = msg.cellProperties;
-        
-        if (!tableId || !cellProperties) {
-            figma.notify('Missing table ID or cell properties for metadata update');
+            console.error('Error creating body rows:', error);
+            figma.notify('❌ Cannot generate table: body cell component is no longer available');
             return;
         }
-        
-        const tableNode = figma.getNodeById(tableId);
-        if (!tableNode || (tableNode.type !== 'FRAME' && tableNode.type !== 'COMPONENT')) {
-            figma.notify('Table not found for metadata update');
-            return;
-        }
-        
+    }
+
+    // Add toolbar if requested (placed at the top before header)
+    console.log('🔍 Toolbar generation check:', {
+        includeToolbar,
+        toolbarExists: !!toolbar,
+        toolbarName: toolbar?.name || 'null',
+        condition: includeToolbar && toolbar
+    });
+    
+    if (includeToolbar && toolbar) {
+        console.log('[Backend] Adding toolbar to table...');
         try {
-            // Get existing table settings
-            const tableSettingsData = tableNode.getPluginData('tableSettings');
-            let tableSettings: any = {};
+            const toolbarClone = toolbar.createInstance();
+            toolbarClone.name = "Toolbar";
+            toolbarClone.layoutSizingHorizontal = 'FIXED';
+            toolbarClone.resize(totalTableWidth, toolbarClone.height);
             
-            if (tableSettingsData) {
-                try {
-                    tableSettings = JSON.parse(tableSettingsData);
-                } catch (e) {
-                    console.warn('[Backend] Could not parse existing table settings:', e);
-                }
-            }
+            // Insert toolbar at the beginning (top) of the table
+            tableFrame.insertChild(0, toolbarClone);
             
-            // Update cell properties with the new data
-            // IMPORTANT: Preserve all existing fields (bodyCellComponentId, rows, columns, etc.)
-            tableSettings.cellProperties = cellProperties;
-            
-            console.log('[Backend] 💾 Updating table metadata...');
-            console.log(`[Backend]   - Preserving bodyCellComponentId: ${tableSettings.bodyCellComponentId || 'MISSING'}`);
-            console.log(`[Backend]   - Preserving rows: ${tableSettings.rows}`);
-            console.log(`[Backend]   - Preserving columns: ${tableSettings.columns}`);
-            console.log(`[Backend]   - Updating cellProperties: ${Object.keys(cellProperties).length} keys`);
-            
-            // Save updated settings back to table
-            tableNode.setPluginData('tableSettings', JSON.stringify(tableSettings));
-            
-            console.log('[Backend] ✅ Successfully updated table metadata with new cell properties');
-            console.log('[Backend] Updated cell properties keys:', Object.keys(cellProperties));
-            
-            // Send confirmation back to UI
-            figma.ui.postMessage({
-                type: 'metadata-updated',
-                success: true,
-                message: 'Table metadata updated successfully'
-            });
-            
+            // Ensure toolbar stays at the top by setting its y position
+            toolbarClone.y = 0;
+            console.log('✅ Successfully added toolbar to table at the top');
         } catch (error) {
-            console.error('[Backend] Error updating table metadata:', error);
-            figma.notify('❌ Error updating table metadata');
-            
-            figma.ui.postMessage({
-                type: 'metadata-updated',
-                success: false,
-                message: (error as Error).message
-            });
+            console.error('Error creating toolbar:', error);
+            figma.notify('⚠️ Toolbar component is no longer available');
         }
+    } else if (includeToolbar && !toolbar) {
+        console.log('⚠️ Toolbar requested but not found in scan result');
+    } else if (!includeToolbar) {
+        console.log('ℹ️ Toolbar not requested (includeToolbar = false)');
+    } else {
+        console.log('ℹ️ Toolbar condition not met - includeToolbar:', includeToolbar, 'toolbar:', !!toolbar);
+    }
+
+    if (includeFooter && footer) {
+        try {
+            const footerClone = footer.createInstance();
+            const footerCellData = cellProps['footer'];
+            if (footerCellData && footerCellData.properties) {
+                const validProps = mapPropertyNames(footerCellData.properties, footerClone.componentProperties);
+                try {
+                    footerClone.setProperties(validProps);
+                } catch (error) { console.error('Error in footer setProperties:', error); }
+            }
+            if (footerClone) {
+                footerClone.layoutSizingHorizontal = 'FIXED';
+                footerClone.resize(totalTableWidth, footerClone.height);
+                tableFrame.appendChild(footerClone);
+            }
+        } catch (error) {
+            console.error('Error creating footer:', error);
+            figma.notify('⚠️ Footer component is no longer available');
+        }
+    }
+
+    tableFrame.resize(totalTableWidth, tableFrame.height);
+    
+    // Ensure toolbar is always at the top after all elements are added
+    if (includeToolbar && toolbar) {
+        const toolbarElement = tableFrame.children.find(child => child.name === "Toolbar");
+        if (toolbarElement) {
+            // Move toolbar to the very top
+            tableFrame.insertChild(0, toolbarElement);
+            toolbarElement.y = 0;
+            console.log('✅ Final positioning: Toolbar moved to top with y=0');
+        }
+    }
+    
+    tableFrame.setPluginData('isGeneratedTable', 'true');
+    const tableSettings = {
+        columns: msg.cols,
+        rows: msg.rows,
+        includeHeader: msg.includeHeader,
+        includeFooter: msg.includeFooter,
+        includeToolbar: msg.includeToolbar,
+        includeSelectable: msg.includeSelectable,
+        includeExpandable: msg.includeExpandable,
+        cellProperties: msg.cellProps,
+        bodyCellComponentId: lastScanResult?.bodyCell?.id || null, // Store body cell component ID for plugin reopen
+    };
+    console.log('[Backend] 💾 Saving table settings to frame...');
+    console.log(`[Backend]   - bodyCellComponentId: ${tableSettings.bodyCellComponentId || 'NULL'}`);
+    console.log(`[Backend]   - lastScanResult.bodyCell: ${lastScanResult?.bodyCell ? 'exists' : 'missing'}`);
+    console.log(`[Backend]   - lastScanResult.bodyCell.id: ${lastScanResult?.bodyCell?.id || 'missing'}`);
+    console.log(`[Backend]   - lastScanResult.bodyCell.name: ${lastScanResult?.bodyCell?.name || 'missing'}`);
+    console.log('[Backend] cellProperties keys:', Object.keys(msg.cellProps || {}));
+    tableFrame.setPluginData('tableSettings', JSON.stringify(tableSettings));
+    
+    // Store the scan result in the table frame for future updates
+    if (lastScanResult) {
+        try {
+            const scanData = {
+                headerCellId: lastScanResult.headerCell?.id || null,
+                bodyCellId: lastScanResult.bodyCell?.id || null,
+                footerId: lastScanResult.footer?.id || null,
+                toolbarId: lastScanResult.toolbar?.id || null,
+                selectCellId: lastScanResult.selectCellComponent?.id || null,
+                expandCellId: lastScanResult.expandCellComponent?.id || null,
+                dividerId: lastScanResult.dividerComponent?.id || null,
+                numCols: lastScanResult.numCols,
+                timestamp: Date.now(),
+                // Store additional metadata for better restoration
+                headerRowComponentId: lastScanResult.headerRowComponent?.id || null,
+                bodyRowComponentId: lastScanResult.bodyRowComponent?.id || null,
+                // Store header row properties for fill variables
+                headerRowProperties: (lastScanResult as any).headerRowProperties || null,
+                // Store divider properties for fill variables
+                dividerProperties: (lastScanResult as any).dividerProperties || null,
+                // Store original divider rectangle ID for direct cloning
+                originalDividerRectId: (lastScanResult as any).originalDividerRect?.id || null,
+                // Store component names for debugging
+                componentNames: {
+                    headerCell: lastScanResult.headerCell?.name || null,
+                    bodyCell: lastScanResult.bodyCell?.name || null,
+                    footer: lastScanResult.footer?.name || null,
+                    selectCell: lastScanResult.selectCellComponent?.name || null,
+                    expandCell: lastScanResult.expandCellComponent?.name || null,
+                    divider: lastScanResult.dividerComponent?.name || null
+                }
+            };
+            console.log('[Backend] 💾 Saving tableGeneratorScan to FRAME...');
+            console.log(`[Backend]   - bodyCellId: ${scanData.bodyCellId || 'NULL'}`);
+            console.log(`[Backend]   - headerCellId: ${scanData.headerCellId || 'NULL'}`);
+            tableFrame.setPluginData('tableGeneratorScan', JSON.stringify(scanData));
+            console.log('✅ Stored scan result in generated table for future updates');
+            console.log('Stored scan data:', scanData);
+        } catch (error) {
+            console.log('⚠️ Could not store scan result in generated table:', error);
+        }
+    }
+
+    // Convert the table frame to a component for reusability
+    try {
+        const tableComponent = figma.createComponent();
+        tableComponent.name = `Generated Table (${cols}×${rows})`;
+        tableComponent.resize(tableFrame.width, tableFrame.height);
+        
+        // Move all children from the frame to the component
+        const children = [...tableFrame.children];
+        for (const child of children) {
+            tableComponent.appendChild(child);
+        }
+        
+        // Copy all properties from the frame to the component
+        tableComponent.layoutMode = tableFrame.layoutMode;
+        tableComponent.counterAxisSizingMode = tableFrame.counterAxisSizingMode;
+        tableComponent.primaryAxisSizingMode = tableFrame.primaryAxisSizingMode;
+        tableComponent.itemSpacing = tableFrame.itemSpacing;
+        tableComponent.paddingLeft = tableFrame.paddingLeft;
+        tableComponent.paddingRight = tableFrame.paddingRight;
+        tableComponent.paddingTop = tableFrame.paddingTop;
+        tableComponent.paddingBottom = tableFrame.paddingBottom;
+        tableComponent.fills = tableFrame.fills;
+        tableComponent.strokes = tableFrame.strokes;
+        tableComponent.strokeWeight = tableFrame.strokeWeight;
+        tableComponent.cornerRadius = tableFrame.cornerRadius;
+        tableComponent.effects = tableComponent.effects;
+        
+        // Copy plugin data
+        const isGeneratedData = tableFrame.getPluginData('isGeneratedTable');
+        const tableSettingsData = tableFrame.getPluginData('tableSettings');
+        const scanData = tableFrame.getPluginData('tableGeneratorScan');
+        
+        console.log('[Backend] 📋 Copying plugin data from frame to component...');
+        console.log(`  - isGeneratedTable: ${isGeneratedData ? 'exists' : 'missing'} (length: ${isGeneratedData?.length || 0})`);
+        console.log(`  - tableSettings: ${tableSettingsData ? 'exists' : 'missing'} (length: ${tableSettingsData?.length || 0})`);
+        console.log(`  - tableGeneratorScan: ${scanData ? 'exists' : 'missing'} (length: ${scanData?.length || 0})`);
+        
+        // Parse and log tableSettings to verify bodyCellComponentId
+        if (tableSettingsData) {
+            try {
+                const parsedSettings = JSON.parse(tableSettingsData);
+                console.log(`  - tableSettings.bodyCellComponentId: ${parsedSettings.bodyCellComponentId || 'MISSING'}`);
+                console.log(`  - tableSettings.rows: ${parsedSettings.rows}`);
+                console.log(`  - tableSettings.columns: ${parsedSettings.columns}`);
+            } catch (e) {
+                console.error('  ❌ Failed to parse tableSettings:', e);
+            }
+        }
+        
+        tableComponent.setPluginData('isGeneratedTable', isGeneratedData);
+        tableComponent.setPluginData('tableSettings', tableSettingsData);
+        tableComponent.setPluginData('tableGeneratorScan', scanData);
+        
+        // Verify the data was set correctly
+        const verifyIsGen = tableComponent.getPluginData('isGeneratedTable');
+        const verifySettings = tableComponent.getPluginData('tableSettings');
+        const verifyScan = tableComponent.getPluginData('tableGeneratorScan');
+        console.log('[Backend] ✅ Verified plugin data on component:');
+        console.log(`  - isGeneratedTable: ${verifyIsGen ? 'exists' : 'missing'} (length: ${verifyIsGen?.length || 0})`);
+        console.log(`  - tableSettings: ${verifySettings ? 'exists' : 'missing'} (length: ${verifySettings?.length || 0})`);
+        console.log(`  - tableGeneratorScan: ${verifyScan ? 'exists' : 'missing'} (length: ${verifyScan?.length || 0})`);
+        
+        // Remove the original frame
+        tableFrame.remove();
+        
+        // Add the component to the page
+        figma.currentPage.appendChild(tableComponent);
+        figma.viewport.scrollAndZoomIntoView([tableComponent]);
+        
+        console.log('✅ Table converted to component successfully');
+        figma.notify('Table component created successfully!');
+        figma.ui.postMessage({ type: 'table-created', success: true, isComponent: true });
+        
+    } catch (error) {
+        console.error('❌ Error converting table to component:', error);
+        // Fallback: use the original frame
+        figma.currentPage.appendChild(tableFrame);
+        figma.viewport.scrollAndZoomIntoView([tableFrame]);
+        figma.notify('Table created successfully! (as frame)');
+        figma.ui.postMessage({ type: 'table-created', success: true, isComponent: false });
+    }
+
+} catch (error) {
+    console.error('Error in create-table-from-scan:', error);
+    figma.notify('❌ An unexpected error occurred. Please check the console for details.');
+} finally {
+    isCreatingTable = false;
+}
     } else if (msg.type === 'update-table') {
         if (isCreatingTable) {
             figma.notify("Already updating a table. Please wait.");
@@ -5422,7 +5392,6 @@ figma.ui.onmessage = async (msg: any) => {
                 }
                 totalTableWidth += columnWidths[c];
             }
-            
             if (originalIncludeHeader && lastScanResult?.headerCell) {
                 try {
                     const headerRowFrame = figma.createFrame();
@@ -5622,12 +5591,29 @@ figma.ui.onmessage = async (msg: any) => {
                             }
                             
                             const validProps = mapPropertyNames(propertiesToApply, cell.componentProperties);
+                            console.log(`[SET PROPS DEBUG] For cell ${key}:`, validProps);
+                            // Remove any key where the value is null or undefined
+                            Object.keys(validProps).forEach(k => {
+                                if (validProps[k] === null || validProps[k] === undefined) {
+                                    console.warn(`[SET PROPS WARNING] For cell ${key}: skipping property '${k}' due to value`, validProps[k]);
+                                    delete validProps[k];
+                                }
+                            });
+                            console.log(`[SET PROPS DEBUG] For cell ${key} (filtered):`, validProps);
                             cell.setProperties(validProps);
                             
                             // Apply smart slot configuration if present (UPDATE)
-                            const swapSlotKey = Object.keys(validProps).find(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
                             const hasSwapSlot = Object.keys(validProps).some(key => key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot'));
-                            const swapComponentId = swapSlotKey ? validProps[swapSlotKey] : null;
+                            let swapComponentId: string | null = null;
+                            let detectedSwapSlotKey: string | null = null;
+                            for (const key of Object.keys(validProps)) {
+                              if (key.toLowerCase().includes('swap') && key.toLowerCase().includes('slot')) {
+                                swapComponentId = validProps[key];
+                                detectedSwapSlotKey = key;
+                                break;
+                              }
+                            }
+                            console.log(`[SET PROPS DEBUG] For cell ${key}, detected swap slot key:`, detectedSwapSlotKey, 'swapComponentId:', swapComponentId);
                             
                             if (cellData.slotComponentProps && isSlotEnabled && hasSwapSlot && swapComponentId) {
                                 // Store the cell reference and config for the async operation
@@ -5864,7 +5850,7 @@ figma.ui.onmessage = async (msg: any) => {
                                                         console.log(`  🏷️ [UPDATE] Configuring tag ${index + 1}: "${tagValue}" with color "${color}"`);
                                                         
                                                         // Set tag properties
-                                                        const tagProps: any = {};
+                                                        let tagProps: any = {};
                                                         
                                                         // Find text property
                                                         const textProp = Object.keys(tagInstance.componentProperties).find(prop => 
@@ -5876,13 +5862,23 @@ figma.ui.onmessage = async (msg: any) => {
                                                         
                                                         // Find color property
                                                         const colorProp = Object.keys(tagInstance.componentProperties).find(prop => 
-                                                            prop.toLowerCase().includes('color')
+                                                            prop.toLowerCase().includes('color') || prop.toLowerCase().includes('variant')
                                                         );
                                                         if (colorProp) {
                                                             tagProps[colorProp] = color;
                                                         }
                                                         
-                                                        tagInstance.setProperties(tagProps);
+                                                        // Remove all keys where value is null or undefined
+                                                        Object.keys(tagProps).forEach(key => {
+                                                            if (tagProps[key] === null || tagProps[key] === undefined) {
+                                                                delete tagProps[key];
+                                                            }
+                                                        });
+                                                        
+                                                        if (Object.keys(tagProps).length > 0) {
+                                                            tagInstance.setProperties(tagProps);
+                                                            console.log(`  ✅ [UPDATE] Set tag properties:`, tagProps);
+                                                        }
                                                         tagInstance.visible = true;
                                                     } else {
                                                         // Hide unused tags
@@ -6084,10 +6080,8 @@ figma.ui.onmessage = async (msg: any) => {
                                 } catch (e) { console.warn('Could not set properties for cell', key, e); }
                     }
                 }
-                
                 // Add the data row to the body row item frame
                 bodyRowItemFrame.appendChild(rowFrame);
-                
                 // Add divider after the data row (including the last row)
                 {
                     console.log('🔍 Checking divider component for row', r + 1, '(update):', {
@@ -6943,8 +6937,6 @@ figma.ui.onmessage = async (msg: any) => {
         }
         })();
     }
-    // REMOVED DUPLICATE: Second 'request-component-info' handler was here and was overriding the first one (line 1982)
-    // The first handler has better metadata loading logic, so we're keeping that one only
 };
 
 import { createComponentInstanceWithProps, ComponentProperty } from './utils/component';
@@ -6954,5 +6946,3 @@ import { findBodyCellComponent } from './utils/componentSearch';
 
 // Call cleanup when the plugin starts
 cleanupExternalComponents();
-
- 
