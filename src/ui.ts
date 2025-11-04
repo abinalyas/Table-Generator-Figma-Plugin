@@ -1,4 +1,5 @@
 import { fakerMethods } from './faker-methods';
+import { init as initAnalytics, track as trackEvent } from './utils/analytics';
 
 interface ComponentInfo {
   id: string | null;
@@ -453,6 +454,21 @@ window.addEventListener('DOMContentLoaded', () => {
   // Initialize tooltip
   state.tooltip.className = 'cell-tooltip';
 
+  // Initialize analytics once DOM is ready (after elements are wired)
+  try {
+		initAnalytics({ endpoint: 'https://application-e9.21hwt6k1vujm.us-east.codeengine.appdomain.cloud/analytics', enabled: true });
+		trackEvent('plugin_open', { version: '1.0.0' });
+	} catch (e) {
+		console.warn('[analytics] init failure', e);
+	}
+
+  // Track single-prompt generate button click with prompt text
+  if (generateTableFromPromptBtn) {
+		generateTableFromPromptBtn.addEventListener('click', () => {
+			const promptVal = (document.getElementById('singlePromptText') as HTMLTextAreaElement | null)?.value?.trim() || '';
+			trackEvent('ai_generate_single', { prompt: promptVal, length: promptVal.length });
+		});
+	}
 });
 
 function renderHeaderFooterGrids() {
@@ -3270,6 +3286,11 @@ async function saveCellProperties() {
           mode = 'column';
         }
         const prompt = (document.getElementById('watsonxPrompt') as HTMLTextAreaElement | null)?.value || 'Generate short realistic values';
+        // Analytics: track watsonx generation intent
+        try {
+          const colCtx = (state.applyMode === 'column' && state.currentEditingCell) ? { column: Number(state.currentEditingCell.split(',')[1]) } : {};
+          trackEvent('ai_generate_watsonx', { mode, ...colCtx, prompt, length: (prompt || '').length });
+        } catch (e) { console.warn('[analytics] track error', e); }
         const endpoint = 'https://us-south.ml.cloud.ibm.com';
         const apiKey = ''; // Not needed when using proxy server
         const useAccessToken = false;
