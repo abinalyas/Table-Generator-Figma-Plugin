@@ -3147,7 +3147,8 @@ figma.ui.onmessage = async (msg: any) => {
                 includeExpandable,
                 rows,
                 cols,
-                cellProps
+                cellProps,
+                source: 'ai' // Mark as AI-generated table
             });
         } catch (e) {
             console.error('create-table-from-ai error', e);
@@ -3192,6 +3193,7 @@ figma.ui.onmessage = async (msg: any) => {
             });
             const rows = msg.rows || 3;
             const cols = msg.cols || numCols || 3;
+            const tableSource = msg.source || 'scan'; // Track source: 'scan', 'ai', etc.
             let cellProps = msg.cellProps || {};
 
             // Apply sorting if enabled
@@ -4612,7 +4614,14 @@ figma.ui.onmessage = async (msg: any) => {
         
         console.log('✅ Table converted to component successfully');
         figma.notify('Table component created successfully!');
-        figma.ui.postMessage({ type: 'table-created', success: true, isComponent: true });
+        figma.ui.postMessage({ 
+            type: 'table-created', 
+            success: true, 
+            isComponent: true,
+            rows: rows,
+            columns: cols,
+            source: tableSource
+        });
         
     } catch (error) {
         console.error('❌ Error converting table to component:', error);
@@ -4620,7 +4629,14 @@ figma.ui.onmessage = async (msg: any) => {
         figma.currentPage.appendChild(tableFrame);
         figma.viewport.scrollAndZoomIntoView([tableFrame]);
         figma.notify('Table created successfully! (as frame)');
-        figma.ui.postMessage({ type: 'table-created', success: true, isComponent: false });
+        figma.ui.postMessage({ 
+            type: 'table-created', 
+            success: true, 
+            isComponent: false,
+            rows: rows,
+            columns: cols,
+            source: tableSource
+        });
     }
 
 } catch (error) {

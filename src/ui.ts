@@ -1,5 +1,5 @@
 import { fakerMethods } from './faker-methods';
-import { init as initAnalytics, track as trackEvent } from './utils/analytics';
+import { init as initAnalytics, track as trackEvent, trackSessionEnd } from './utils/analytics';
 
 interface ComponentInfo {
   id: string | null;
@@ -466,9 +466,19 @@ window.addEventListener('DOMContentLoaded', () => {
   if (generateTableFromPromptBtn) {
 		generateTableFromPromptBtn.addEventListener('click', () => {
 			const promptVal = (document.getElementById('singlePromptText') as HTMLTextAreaElement | null)?.value?.trim() || '';
-			trackEvent('ai_generate_single', { prompt: promptVal, length: promptVal.length });
+			trackEvent('ai_generate_single', { 
+				prompt: promptVal,
+				prompt_text: promptVal, // Duplicate for better GA4 filtering
+				prompt_length: promptVal.length,
+				ai_source: 'watsonx'
+			});
 		});
 	}
+	
+	// Track session end when plugin closes
+	window.addEventListener('beforeunload', () => {
+		trackSessionEnd();
+	});
 });
 
 function renderHeaderFooterGrids() {
@@ -3286,10 +3296,18 @@ async function saveCellProperties() {
           mode = 'column';
         }
         const prompt = (document.getElementById('watsonxPrompt') as HTMLTextAreaElement | null)?.value || 'Generate short realistic values';
-        // Analytics: track watsonx generation intent
+        // Analytics: track watsonx generation intent with enhanced prompt tracking
         try {
           const colCtx = (state.applyMode === 'column' && state.currentEditingCell) ? { column: Number(state.currentEditingCell.split(',')[1]) } : {};
-          trackEvent('ai_generate_watsonx', { mode, ...colCtx, prompt, length: (prompt || '').length });
+          trackEvent('ai_generate_watsonx', { 
+            mode, 
+            ...colCtx, 
+            prompt: prompt,
+            prompt_text: prompt, // Duplicate for better GA4 filtering
+            prompt_length: (prompt || '').length,
+            ai_source: 'watsonx',
+            count: count
+          });
         } catch (e) { console.warn('[analytics] track error', e); }
         const endpoint = 'https://us-south.ml.cloud.ibm.com';
         const apiKey = ''; // Not needed when using proxy server
@@ -3893,6 +3911,20 @@ window.onmessage = (event) => {
       // Remove loading state from button
       elements.createTableBtn.classList.remove('loading');
       elements.createTableBtn.disabled = false;
+      
+      // Track table creation event
+      try {
+        const tableData = {
+          rows: msg.rows || state.gridRows || 0,
+          columns: msg.columns || state.gridCols || 0,
+          source: msg.source || 'unknown',
+          is_component: msg.isComponent || false,
+          has_headers: state.gridRows > 0 && state.gridCols > 0,
+        };
+        trackEvent('table_created', tableData);
+      } catch (e) {
+        console.warn('[analytics] Failed to track table_created', e);
+      }
       
       if (msg.isComponent) {
         showMessage("Table component created successfully! You can now reuse it.", "success");
